@@ -2,9 +2,6 @@
 // Clicking the extension icon opens the side panel.
 
 const SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
-// Chrome Extension MV3 background service worker.
-// Clicking the extension icon opens the side panel.
-
 // const SPREADSHEET_ID = "YOUR_GOOGLE_SHEET_ID";
 const SHEET_NAME = "Sheet1";
 
@@ -15,11 +12,17 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type !== "SAVE_CURRENT_TAB_URL_TO_SHEET") {
+  const handlers = {
+    SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
+    SAVE_ALL_OPEN_TABS_URLS_TO_SHEET: saveAllOpenTabsUrlsToSheet
+  };
+
+  const run = handlers[message.type];
+  if (!run) {
     return;
   }
 
-  saveCurrentTabUrlToSheet(message.note, message.runId)
+  run(message.note, message.runId)
     .then((result) => sendResponse({ ok: true, ...result }))
     .catch((error) => {
       console.error(error);
@@ -64,7 +67,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
 
   sendLog(runId, "info", "Preparing row for Google Sheet...");
 
-  await appendRowToGoogleSheet(row, runId);
+  await appendRowsToGoogleSheet([row], runId);
 
   sendLog(runId, "success", "Finished. URL saved to Google Sheet.");
 
@@ -73,7 +76,46 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   };
 }
 
-async function appendRowToGoogleSheet(row, runId) {
+async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
+  sendLog(runId, "info", "Starting save-all-tabs process...");
+
+  const tabs = await chrome.tabs.query({});
+  const withUrl = tabs.filter((t) => t.url && !t.pinned);
+
+  if (withUrl.length === 0) {
+    throw new Error(
+      "No tabs to save: need at least one non-pinned tab with a URL."
+    );
+  }
+
+  sendLog(
+    runId,
+    "info",
+    `Found ${withUrl.length} non-pinned tab(s) with a URL (pinned tabs skipped).`
+  );
+
+  const timestamp = new Date().toISOString();
+  const rows = withUrl.map((t) => [
+    timestamp,
+    t.title || "",
+    t.url,
+    note || ""
+  ]);
+
+  sendLog(runId, "info", "Preparing rows for Google Sheet...");
+
+  await appendRowsToGoogleSheet(rows, runId);
+
+  sendLog(
+    runId,
+    "success",
+    `Finished. ${withUrl.length} URL(s) saved to Google Sheet.`
+  );
+
+  return { count: withUrl.length };
+}
+
+async function appendRowsToGoogleSheet(rows, runId) {
   sendLog(runId, "info", "Requesting Google authorization token...");
 
   const token = await getGoogleAccessToken();
@@ -94,7 +136,7 @@ async function appendRowToGoogleSheet(row, runId) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      values: [row]
+      values: rows
     })
   });
 

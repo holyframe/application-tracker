@@ -1,12 +1,11 @@
 const noteInput = document.querySelector("#noteInput");
+const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
 const statusCard = document.querySelector("#statusCard");
-const statusLabel = document.querySelector("#statusLabel");
+const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
-const statusSuccessIcon = document.querySelector("#statusSuccessIcon");
-const statusErrorIcon = document.querySelector("#statusErrorIcon");
 const logsList = document.querySelector("#logsList");
-const logsEmptyState = document.querySelector("#logsEmptyState");
+const emptyLogs = document.querySelector("#emptyLogs");
 const clearLogsButton = document.querySelector("#clearLogsButton");
 
 let activeRunId = null;
@@ -19,39 +18,40 @@ function createRunId() {
   return `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function showStatus(type, message) {
-  if (!statusCard || !status || !statusLabel) return;
+function setSaveButtonsDisabled(disabled) {
+  if (saveButton) saveButton.disabled = disabled;
+  if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
+}
 
-  statusCard.classList.remove("hidden", "error");
+function showStatus(type, message) {
+  if (!statusCard || !status || !statusTitle) return;
+
+  statusCard.classList.remove("is-hidden", "is-error");
 
   if (type === "error") {
-    statusCard.classList.add("error");
-    statusLabel.textContent = "Error:";
+    statusCard.classList.add("is-error");
+    statusTitle.textContent = "Error:";
     status.textContent = message;
-    statusSuccessIcon?.classList.add("hidden");
-    statusErrorIcon?.classList.remove("hidden");
     return;
   }
 
-  statusLabel.textContent = "Saved:";
+  statusTitle.textContent = "Saved:";
   status.textContent = message;
-  statusSuccessIcon?.classList.remove("hidden");
-  statusErrorIcon?.classList.add("hidden");
 }
 
 function clearStatus() {
-  statusCard?.classList.add("hidden");
-  statusCard?.classList.remove("error");
+  statusCard?.classList.add("is-hidden");
+  statusCard?.classList.remove("is-error");
   if (status) status.textContent = "";
 }
 
 function updateLogsState() {
-  if (!logsList || !logsEmptyState) return;
+  if (!logsList || !emptyLogs) return;
 
   const hasItems = logsList.children.length > 0;
 
   logsList.classList.toggle("has-items", hasItems);
-  logsEmptyState.classList.toggle("hidden", hasItems);
+  emptyLogs.classList.toggle("is-hidden", hasItems);
 }
 
 function addLog(level, message, timestamp = new Date().toLocaleTimeString()) {
@@ -88,7 +88,7 @@ async function saveCurrentTabUrl() {
   clearStatus();
   clearLogs();
 
-  saveButton.disabled = true;
+  setSaveButtonsDisabled(true);
   addLog("info", "Button clicked. Starting process...");
 
   try {
@@ -109,7 +109,42 @@ async function saveCurrentTabUrl() {
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
   } finally {
-    saveButton.disabled = false;
+    setSaveButtonsDisabled(false);
+  }
+}
+
+async function saveAllOpenTabUrls() {
+  activeRunId = createRunId();
+
+  clearStatus();
+  clearLogs();
+
+  setSaveButtonsDisabled(true);
+  addLog("info", "Save all tabs clicked. Starting process...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "SAVE_ALL_OPEN_TABS_URLS_TO_SHEET",
+      runId: activeRunId,
+      note: noteInput?.value.trim() || ""
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not save URLs.");
+    }
+
+    const count = response.count ?? 0;
+    showStatus(
+      "success",
+      `${count} tab URL${count === 1 ? "" : "s"} saved to Google Sheet.`
+    );
+    addLog("success", "Process completed successfully.");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Something went wrong.");
+    addLog("error", error.message || "Something went wrong.");
+  } finally {
+    setSaveButtonsDisabled(false);
   }
 }
 
@@ -126,6 +161,7 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 saveButton?.addEventListener("click", saveCurrentTabUrl);
+saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
 
 clearLogsButton?.addEventListener("click", () => {
   clearLogs();
