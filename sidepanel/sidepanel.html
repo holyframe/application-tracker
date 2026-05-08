@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Partial Width Panel</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="hero">
+        <p class="eyebrow">Chrome Side Panel</p>
+        <h1>Partial Width Extension UI</h1>
+        <p class="subtitle">
+          This panel opens inside Chrome without taking over the full tab.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Demo controls</h2>
+        <label>
+          Note
+          <textarea id="noteInput" placeholder="Type something here..."></textarea>
+        </label>
+        <button id="saveButton">Save note</button>
+        <p id="status" role="status"></p>
+      </section>
+
+      <section class="card">
+        <h2>How it works</h2>
+        <p>
+          The extension uses <code>chrome.sidePanel</code>. Chrome controls the
+          panel container width, and users can resize it manually.
+        </p>
+      </section>
+    </main>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
