@@ -1,12 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Partial Width Side Panel",
-  "description": "A Chrome extension that opens a partial-width UI using Chrome's Side Panel API.",
+  "description": "A Chrome extension that opens a partial-width UI and saves the current tab URL to Google Sheets.",
   "version": "1.0.0",
-  "permissions": [
-    "sidePanel",
-    "storage"
-  ],
+  "permissions": ["sidePanel", "storage", "identity", "tabs"],
+  "host_permissions": ["https://sheets.googleapis.com/*"],
+  "oauth2": {
+    "client_id": "69700519748-ljpj4qqgrfjfg15na3ei59p5o3u1rpr0.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/spreadsheets"
+    ]
+  },
   "action": {
     "default_title": "Open Partial Width Panel",
     "default_icon": {

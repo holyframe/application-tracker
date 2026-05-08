@@ -3,35 +3,102 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Partial Width Panel</title>
+    <title>Save Current URL</title>
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
+
   <body>
     <main class="app">
-      <section class="hero">
-        <p class="eyebrow">Chrome Side Panel</p>
-        <h1>Partial Width Extension UI</h1>
-        <p class="subtitle">
-          This panel opens inside Chrome without taking over the full tab.
-        </p>
+      <header class="hero">
+        <div class="eyebrow-row">
+          <span class="eyebrow-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M10.5 13.5 13.5 10.5" />
+              <path d="M8.25 11.75 6.7 13.3a3.2 3.2 0 0 0 4.52 4.52l2.05-2.05a3.2 3.2 0 0 0 0-4.52" />
+              <path d="M15.75 12.25 17.3 10.7a3.2 3.2 0 0 0-4.52-4.52l-2.05 2.05a3.2 3.2 0 0 0 0 4.52" />
+            </svg>
+          </span>
+          <span>Chrome Side Panel</span>
+        </div>
+
+        <h1>Save Current URL</h1>
+      </header>
+
+      <section class="card save-card">
+        <div class="card-title-row">
+          <span class="sheet-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M7 3h7l4 4v14H7z" />
+              <path d="M14 3v5h5" />
+              <path d="M9.5 11h7" />
+              <path d="M9.5 14h7" />
+              <path d="M9.5 17h7" />
+              <path d="M12 11v6" />
+            </svg>
+          </span>
+
+          <h2>Save to Google Sheet</h2>
+        </div>
+
+        <button id="saveButton" class="primary-button">
+          <span class="button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 16V8" />
+              <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
+              <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
+            </svg>
+          </span>
+          <span>Save current tab URL to Google Sheet</span>
+        </button>
       </section>
 
-      <section class="card">
-        <h2>Demo controls</h2>
-        <label>
-          Note
-          <textarea id="noteInput" placeholder="Type something here..."></textarea>
-        </label>
-        <button id="saveButton">Save note</button>
-        <p id="status" role="status"></p>
+      <section id="statusCard" class="status-card is-hidden" aria-live="polite">
+        <span class="status-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="m5 12.5 4.25 4.25L19 7" />
+          </svg>
+        </span>
+
+        <div>
+          <strong id="statusTitle">Saved:</strong>
+          <p id="status"></p>
+        </div>
       </section>
 
-      <section class="card">
-        <h2>How it works</h2>
-        <p>
-          The extension uses <code>chrome.sidePanel</code>. Chrome controls the
-          panel container width, and users can resize it manually.
-        </p>
+      <section class="card logs-card">
+        <div class="logs-header">
+          <h2>Process Logs</h2>
+
+          <button id="clearLogsButton" class="secondary-button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+              <path d="M6 7l1 14h10l1-14" />
+              <path d="M9 7V4h6v3" />
+            </svg>
+            <span>Clear</span>
+          </button>
+        </div>
+
+        <div class="logs-shell">
+          <div id="emptyLogs" class="empty-logs">
+            <span class="empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M8 7h8" />
+                <path d="M8 12h8" />
+                <path d="M8 17h5" />
+                <path d="M5 7h.01" />
+                <path d="M5 12h.01" />
+                <path d="M5 17h.01" />
+              </svg>
+            </span>
+            <strong>No logs yet.</strong>
+            <p>Activity will appear here.</p>
+          </div>
+
+          <ul id="logsList" class="logs-list" aria-live="polite"></ul>
+        </div>
       </section>
     </main>
 
