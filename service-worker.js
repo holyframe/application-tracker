@@ -5,6 +5,11 @@ const SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
 // const SPREADSHEET_ID = "YOUR_GOOGLE_SHEET_ID";
 const SHEET_NAME = "Sheet1";
 
+function urlWithoutQueryString(url) {
+  const i = url.indexOf("?");
+  return i === -1 ? url : url.slice(0, i);
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({
     openPanelOnActionClick: true
@@ -56,12 +61,14 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
     throw new Error("Current tab does not have a URL.");
   }
 
+  const urlForSheet = urlWithoutQueryString(tab.url);
+
   sendLog(runId, "success", `Found tab URL: ${tab.url}`);
 
   const row = [
     new Date().toISOString(),
     tab.title || "",
-    tab.url,
+    urlForSheet,
     note || ""
   ];
 
@@ -72,7 +79,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   sendLog(runId, "success", "Finished. URL saved to Google Sheet.");
 
   return {
-    url: tab.url
+    url: urlForSheet
   };
 }
 
@@ -98,7 +105,7 @@ async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
   const rows = withUrl.map((t) => [
     timestamp,
     t.title || "",
-    t.url,
+    urlWithoutQueryString(t.url),
     note || ""
   ]);
 
@@ -125,7 +132,8 @@ async function appendRowsToGoogleSheet(rows, runId) {
   const range = encodeURIComponent(`${SHEET_NAME}!A:D`);
   const url =
     `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}` +
-    `/values/${range}:append?valueInputOption=USER_ENTERED`;
+    `/values/${range}:append?valueInputOption=USER_ENTERED` +
+    `&insertDataOption=INSERT_ROWS`;
 
   sendLog(runId, "info", `Sending data to sheet: ${SHEET_NAME}`);
 
