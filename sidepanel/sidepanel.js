@@ -1,6 +1,7 @@
 const noteInput = document.querySelector("#noteInput");
 const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
+const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
@@ -21,9 +22,10 @@ function createRunId() {
 function setSaveButtonsDisabled(disabled) {
   if (saveButton) saveButton.disabled = disabled;
   if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
+  if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
 }
 
-function showStatus(type, message) {
+function showStatus(type, message, titleText) {
   if (!statusCard || !status || !statusTitle) return;
 
   statusCard.classList.remove("is-hidden", "is-error");
@@ -35,7 +37,7 @@ function showStatus(type, message) {
     return;
   }
 
-  statusTitle.textContent = "Saved:";
+  statusTitle.textContent = titleText || "Saved:";
   status.textContent = message;
 }
 
@@ -113,6 +115,57 @@ async function saveCurrentTabUrl() {
   }
 }
 
+async function removeDuplicateSheetRows() {
+  activeRunId = createRunId();
+
+  clearStatus();
+  clearLogs();
+
+  setSaveButtonsDisabled(true);
+  addLog("info", "Remove Duplicate clicked. Scanning sheet...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "REMOVE_DUPLICATE_URLS_FROM_SHEET",
+      runId: activeRunId
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not remove duplicates.");
+    }
+
+    const removed = response.removed ?? 0;
+    const rowCount = response.rowCount ?? 0;
+
+    if (rowCount === 0) {
+      showStatus(
+        "success",
+        "The sheet has no rows yet.",
+        "Done:"
+      );
+    } else if (removed === 0) {
+      showStatus(
+        "success",
+        `No duplicate URLs found among ${rowCount} row(s).`,
+        "Done:"
+      );
+    } else {
+      showStatus(
+        "success",
+        `Removed ${removed} duplicate row${removed === 1 ? "" : "s"} (${rowCount} row(s) scanned). First row for each URL was kept.`,
+        "Done:"
+      );
+    }
+    addLog("success", "Process completed successfully.");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Something went wrong.");
+    addLog("error", error.message || "Something went wrong.");
+  } finally {
+    setSaveButtonsDisabled(false);
+  }
+}
+
 async function saveAllOpenTabUrls() {
   activeRunId = createRunId();
 
@@ -162,6 +215,7 @@ chrome.runtime.onMessage.addListener((message) => {
 
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
+removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
 
 clearLogsButton?.addEventListener("click", () => {
   clearLogs();
