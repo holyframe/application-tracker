@@ -36,7 +36,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -146,12 +147,6 @@ h1 {
     #f1f0ff;
 }
 
-.field-label {
-  color: #3a415f;
-  font-size: 14px;
-  font-weight: 750;
-}
-
 textarea {
   width: 100%;
   min-height: 128px;
@@ -168,6 +163,75 @@ textarea {
     border-color 160ms ease,
     box-shadow 160ms ease,
     background 160ms ease;
+}
+
+.note-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  height: 54px;
+  min-height: 54px;
+  max-height: 54px;
+  padding: 0 44px 0 14px;
+  border-radius: 15px;
+  color: #050a24;
+  -webkit-text-fill-color: #050a24;
+  caret-color: #050a24;
+  opacity: 1;
+  text-shadow: none;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: #ffffff;
+  border-color: rgba(84, 87, 255, 0.45);
+  line-height: normal;
+  appearance: none;
+}
+
+.note-input-wrap {
+  position: relative;
+}
+
+.note-input::placeholder {
+  color: #5f6b8d;
+}
+
+.note-input::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.note-input::-ms-clear,
+.note-input::-ms-reveal {
+  display: none;
+}
+
+.note-clear-button {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 700;
+  color: #3d4670;
+  background: rgba(84, 87, 255, 0.14);
+}
+
+.note-clear-button:hover {
+  background: rgba(84, 87, 255, 0.24);
+}
+
+.note-clear-button.is-hidden {
+  display: none;
 }
 
 textarea::placeholder {
@@ -297,6 +361,44 @@ textarea:focus {
 
 .status-card.is-hidden {
   display: none;
+}
+
+.deleted-rows-card {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+}
+
+.deleted-rows-card.is-hidden {
+  display: none;
+}
+
+.deleted-rows-shell {
+  min-height: 120px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.deleted-rows-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 12px;
+  list-style: none;
+}
+
+.deleted-row-item {
+  border: 1px solid rgba(105, 114, 145, 0.15);
+  border-radius: 13px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  line-height: 1.4;
+  color: #ffffff;
+  overflow-wrap: anywhere;
 }
 
 .status-card.is-error {
@@ -518,7 +620,6 @@ textarea:focus {
   }
 
   .hero p,
-  .field-label,
   .log-message {
     color: #c8cee3;
   }
@@ -530,13 +631,38 @@ textarea:focus {
   .card,
   textarea,
   .secondary-button,
+  .deleted-rows-shell,
   .logs-shell,
-  .log-item {
+  .log-item,
+  .deleted-row-item {
     background: rgba(25, 28, 45, 0.82);
   }
 
   textarea {
     color: var(--text);
+  }
+
+  .note-input {
+    color: #ffffff;
+    -webkit-text-fill-color: #ffffff;
+    caret-color: #ffffff;
+    opacity: 1;
+    text-shadow: none;
+    background: rgba(10, 14, 28, 0.98);
+    border-color: rgba(255, 255, 255, 0.42);
+  }
+
+  .note-input::placeholder {
+    color: #c2cbea;
+  }
+
+  .note-clear-button {
+    color: #ecf1ff;
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .note-clear-button:hover {
+    background: rgba(255, 255, 255, 0.24);
   }
 
   .status-card {

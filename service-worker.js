@@ -5,9 +5,38 @@ const SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
 // const SPREADSHEET_ID = "YOUR_GOOGLE_SHEET_ID";
 const SHEET_NAME = "Sheet1";
 
-function urlWithoutQueryString(url) {
-  const i = url.indexOf("?");
-  return i === -1 ? url : url.slice(0, i);
+function normalizeUrlForStorage(url) {
+  const raw = String(url ?? "").trim();
+  if (!raw) {
+    return "";
+  }
+  try {
+    const parsed = new URL(raw);
+    if (parsed.searchParams.has("token")) {
+      parsed.searchParams.delete("utm_source");
+      return parsed.toString();
+    }
+
+    const ghJid = parsed.searchParams.get("gh_jid");
+    const ghSrc = parsed.searchParams.get("gh_src");
+    const pid = parsed.searchParams.get("pid");
+
+    parsed.search = "";
+
+    if (ghJid) {
+      parsed.searchParams.set("gh_jid", ghJid);
+    }
+    if (ghSrc) {
+      parsed.searchParams.set("gh_src", ghSrc);
+    }
+    if (pid) {
+      parsed.searchParams.set("pid", pid);
+    }
+
+    return parsed.toString();
+  } catch (_error) {
+    return raw;
+  }
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -20,6 +49,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     SAVE_ALL_OPEN_TABS_URLS_TO_SHEET: saveAllOpenTabsUrlsToSheet,
+    SCRAPE_SELECTED_TAB: scrapeSelectedTabToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet
   };
 
@@ -61,8 +91,11 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   if (!tab.url) {
     throw new Error("Current tab does not have a URL.");
   }
+  if (tab.pinned) {
+    throw new Error("Pinned tabs are skipped. Unpin the tab to save and close it.");
+  }
 
-  const urlForSheet = urlWithoutQueryString(tab.url);
+  const urlForSheet = normalizeUrlForStorage(tab.url);
 
   sendLog(runId, "success", `Found tab URL: ${tab.url}`);
 
@@ -76,8 +109,17 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   sendLog(runId, "info", "Preparing row for Google Sheet...");
 
   await appendRowsToGoogleSheet([row], runId);
+  sendLog(runId, "success", "URL saved to Google Sheet.");
 
-  sendLog(runId, "success", "Finished. URL saved to Google Sheet.");
+  if (typeof tab.id !== "number") {
+    throw new Error("Current tab does not have a valid tab ID.");
+  }
+
+  sendLog(runId, "info", "Closing current tab...");
+  await chrome.tabs.remove(tab.id);
+  sendLog(runId, "success", "Current tab closed.");
+
+  sendLog(runId, "success", "Finished. URL saved and tab closed.");
 
   return {
     url: urlForSheet
@@ -88,9 +130,9 @@ async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
   sendLog(runId, "info", "Starting save-all-tabs process...");
 
   const tabs = await chrome.tabs.query({});
-  const withUrl = tabs.filter((t) => t.url && !t.pinned);
+  const unpinnedWithUrl = tabs.filter((t) => t.url && !t.pinned);
 
-  if (withUrl.length === 0) {
+  if (unpinnedWithUrl.length === 0) {
     throw new Error(
       "No tabs to save: need at least one non-pinned tab with a URL."
     );
@@ -99,14 +141,14 @@ async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
   sendLog(
     runId,
     "info",
-    `Found ${withUrl.length} non-pinned tab(s) with a URL (pinned tabs skipped).`
+    `Found ${unpinnedWithUrl.length} non-pinned tab(s) with a URL (pinned tabs skipped).`
   );
 
   const timestamp = new Date().toISOString();
-  const rows = withUrl.map((t) => [
+  const rows = unpinnedWithUrl.map((t) => [
     timestamp,
     t.title || "",
-    urlWithoutQueryString(t.url),
+    normalizeUrlForStorage(t.url),
     note || ""
   ]);
 
@@ -114,13 +156,66 @@ async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
 
   await appendRowsToGoogleSheet(rows, runId);
 
+  const tabIdsToClose = unpinnedWithUrl
+    .map((t) => t.id)
+    .filter((id) => typeof id === "number");
+
+  if (tabIdsToClose.length > 0) {
+    sendLog(
+      runId,
+      "info",
+      `Closing ${tabIdsToClose.length} saved unpinned tab(s)...`
+    );
+    await chrome.tabs.remove(tabIdsToClose);
+    sendLog(runId, "success", "Saved unpinned tabs closed.");
+  }
+
   sendLog(
     runId,
     "success",
-    `Finished. ${withUrl.length} URL(s) saved to Google Sheet.`
+    `Finished. ${unpinnedWithUrl.length} URL(s) saved to Google Sheet.`
   );
 
-  return { count: withUrl.length };
+  return { count: unpinnedWithUrl.length };
+}
+
+async function scrapeSelectedTabToSheet(note = "", runId) {
+  sendLog(runId, "info", "Starting selected-tab scrape process...");
+  sendLog(runId, "info", "Checking current active tab...");
+
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true
+  });
+
+  if (!tab) {
+    throw new Error("No selected tab found.");
+  }
+
+  if (!tab.url) {
+    throw new Error("Selected tab does not have a URL.");
+  }
+
+  const urlForSheet = normalizeUrlForStorage(tab.url);
+
+  sendLog(runId, "success", `Found selected tab URL: ${tab.url}`);
+
+  const row = [
+    new Date().toISOString(),
+    tab.title || "",
+    urlForSheet,
+    note || ""
+  ];
+
+  sendLog(runId, "info", "Preparing row for Google Sheet...");
+
+  await appendRowsToGoogleSheet([row], runId);
+  sendLog(runId, "success", "Selected tab URL saved to Google Sheet.");
+  sendLog(runId, "success", "Finished. Selected tab scraped.");
+
+  return {
+    url: urlForSheet
+  };
 }
 
 function normalizeUrlKeyForDedupe(cellValue) {
@@ -128,7 +223,7 @@ function normalizeUrlKeyForDedupe(cellValue) {
   if (!raw) {
     return "";
   }
-  return urlWithoutQueryString(raw);
+  return normalizeUrlForStorage(raw);
 }
 
 async function getSheetIdByTitle(token, spreadsheetId, sheetTitle) {
@@ -246,9 +341,20 @@ async function removeDuplicateUrlsFromSheet(_note, runId) {
     }
   }
 
+  const deletedRows = duplicateRowIndices.map((rowIndex) => {
+    const row = values[rowIndex] || [];
+    return {
+      rowNumber: rowIndex + 1,
+      timestamp: row[0] || "",
+      title: row[1] || "",
+      url: row[2] || "",
+      note: row[3] || ""
+    };
+  });
+
   if (duplicateRowIndices.length === 0) {
     sendLog(runId, "success", "No duplicate URLs found.");
-    return { removed: 0, rowCount: values.length };
+    return { removed: 0, rowCount: values.length, deletedRows: [] };
   }
 
   sendLog(
@@ -273,7 +379,8 @@ async function removeDuplicateUrlsFromSheet(_note, runId) {
 
   return {
     removed: duplicateRowIndices.length,
-    rowCount: values.length
+    rowCount: values.length,
+    deletedRows
   };
 }
 

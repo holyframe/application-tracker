@@ -1,13 +1,18 @@
 const noteInput = document.querySelector("#noteInput");
 const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
+const scrapeSelectedTabButton = document.querySelector("#scrapeSelectedTabButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
+const deletedRowsCard = document.querySelector("#deletedRowsCard");
+const deletedRowsList = document.querySelector("#deletedRowsList");
+const emptyDeletedRows = document.querySelector("#emptyDeletedRows");
 const logsList = document.querySelector("#logsList");
 const emptyLogs = document.querySelector("#emptyLogs");
 const clearLogsButton = document.querySelector("#clearLogsButton");
+const clearNoteButton = document.querySelector("#clearNoteButton");
 
 let activeRunId = null;
 
@@ -22,6 +27,7 @@ function createRunId() {
 function setSaveButtonsDisabled(disabled) {
   if (saveButton) saveButton.disabled = disabled;
   if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
+  if (scrapeSelectedTabButton) scrapeSelectedTabButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
 }
 
@@ -84,11 +90,51 @@ function clearLogs() {
   updateLogsState();
 }
 
+function updateDeletedRowsState() {
+  if (!deletedRowsCard || !deletedRowsList || !emptyDeletedRows) return;
+
+  const hasItems = deletedRowsList.children.length > 0;
+  deletedRowsCard.classList.toggle("is-hidden", !hasItems);
+  emptyDeletedRows.classList.toggle("is-hidden", hasItems);
+}
+
+function clearDeletedRows() {
+  if (!deletedRowsList) return;
+  deletedRowsList.innerHTML = "";
+  updateDeletedRowsState();
+}
+
+function renderDeletedRows(deletedRows = []) {
+  if (!deletedRowsList) return;
+
+  deletedRowsList.innerHTML = "";
+
+  deletedRows.forEach((row) => {
+    const item = document.createElement("li");
+    item.className = "deleted-row-item";
+
+    const rowNumber = row.rowNumber ?? "?";
+    const url = row.url || "(empty URL)";
+    item.textContent = `Row ${rowNumber}: ${url}`;
+    deletedRowsList.appendChild(item);
+  });
+
+  updateDeletedRowsState();
+}
+
+function updateClearNoteButtonState() {
+  if (!clearNoteButton) return;
+
+  const hasText = Boolean(noteInput?.value.trim());
+  clearNoteButton.classList.toggle("is-hidden", !hasText);
+}
+
 async function saveCurrentTabUrl() {
   activeRunId = createRunId();
 
   clearStatus();
   clearLogs();
+  clearDeletedRows();
 
   setSaveButtonsDisabled(true);
   addLog("info", "Button clicked. Starting process...");
@@ -102,6 +148,11 @@ async function saveCurrentTabUrl() {
 
     if (!response?.ok) {
       throw new Error(response?.error || "Could not save URL.");
+    }
+
+    if (noteInput) {
+      noteInput.value = "";
+      updateClearNoteButtonState();
     }
 
     showStatus("success", response.url);
@@ -120,6 +171,7 @@ async function removeDuplicateSheetRows() {
 
   clearStatus();
   clearLogs();
+  clearDeletedRows();
 
   setSaveButtonsDisabled(true);
   addLog("info", "Remove Duplicate clicked. Scanning sheet...");
@@ -136,6 +188,9 @@ async function removeDuplicateSheetRows() {
 
     const removed = response.removed ?? 0;
     const rowCount = response.rowCount ?? 0;
+    const deletedRows = Array.isArray(response.deletedRows)
+      ? response.deletedRows
+      : [];
 
     if (rowCount === 0) {
       showStatus(
@@ -149,12 +204,14 @@ async function removeDuplicateSheetRows() {
         `No duplicate URLs found among ${rowCount} row(s).`,
         "Done:"
       );
+      clearDeletedRows();
     } else {
       showStatus(
         "success",
         `Removed ${removed} duplicate row${removed === 1 ? "" : "s"} (${rowCount} row(s) scanned). First row for each URL was kept.`,
         "Done:"
       );
+      renderDeletedRows(deletedRows);
     }
     addLog("success", "Process completed successfully.");
   } catch (error) {
@@ -171,6 +228,17 @@ async function saveAllOpenTabUrls() {
 
   clearStatus();
   clearLogs();
+  clearDeletedRows();
+
+  const noteValue = noteInput?.value.trim() || "";
+  if (noteValue) {
+    showStatus(
+      "error",
+      "Clear the note input before using Save all tabs."
+    );
+    addLog("error", "Save all tabs blocked because note input has text.");
+    return;
+  }
 
   setSaveButtonsDisabled(true);
   addLog("info", "Save all tabs clicked. Starting process...");
@@ -178,8 +246,7 @@ async function saveAllOpenTabUrls() {
   try {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_ALL_OPEN_TABS_URLS_TO_SHEET",
-      runId: activeRunId,
-      note: noteInput?.value.trim() || ""
+      runId: activeRunId
     });
 
     if (!response?.ok) {
@@ -191,6 +258,43 @@ async function saveAllOpenTabUrls() {
       "success",
       `${count} tab URL${count === 1 ? "" : "s"} saved to Google Sheet.`
     );
+    addLog("success", "Process completed successfully.");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Something went wrong.");
+    addLog("error", error.message || "Something went wrong.");
+  } finally {
+    setSaveButtonsDisabled(false);
+  }
+}
+
+async function scrapeSelectedTab() {
+  activeRunId = createRunId();
+
+  clearStatus();
+  clearLogs();
+  clearDeletedRows();
+
+  setSaveButtonsDisabled(true);
+  addLog("info", "Scrape selected tab clicked. Starting process...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "SCRAPE_SELECTED_TAB",
+      runId: activeRunId,
+      note: noteInput?.value.trim() || ""
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not scrape selected tab.");
+    }
+
+    if (noteInput) {
+      noteInput.value = "";
+      updateClearNoteButtonState();
+    }
+
+    showStatus("success", response.url, "Scraped:");
     addLog("success", "Process completed successfully.");
   } catch (error) {
     console.error(error);
@@ -215,10 +319,24 @@ chrome.runtime.onMessage.addListener((message) => {
 
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
+scrapeSelectedTabButton?.addEventListener("click", scrapeSelectedTab);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
 
 clearLogsButton?.addEventListener("click", () => {
   clearLogs();
 });
 
+clearNoteButton?.addEventListener("click", () => {
+  if (!noteInput) return;
+  noteInput.value = "";
+  noteInput.focus();
+  updateClearNoteButtonState();
+});
+
+noteInput?.addEventListener("input", () => {
+  updateClearNoteButtonState();
+});
+
 updateLogsState();
+updateDeletedRowsState();
+updateClearNoteButtonState();

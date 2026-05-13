@@ -40,6 +40,19 @@
           <h2>Save to Google Sheet</h2>
         </div>
 
+        <button id="scrapeSelectedTabButton" type="button" class="primary-button">
+          <span class="button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M4 6h16" />
+              <path d="M4 12h12" />
+              <path d="M4 18h8" />
+              <path d="M17 15v6" />
+              <path d="M14 18h6" />
+            </svg>
+          </span>
+          <span>Scrape selected tab</span>
+        </button>
+
         <button id="saveAllTabsButton" type="button" class="primary-button">
           <span class="button-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -60,6 +73,23 @@
           </span>
           <span>Save current tab</span>
         </button>
+
+        <div class="note-input-wrap">
+          <input
+            id="noteInput"
+            type="text"
+            class="note-input"
+            placeholder="Add a note for the commnet on the application"
+          />
+          <button
+            id="clearNoteButton"
+            type="button"
+            class="note-clear-button is-hidden"
+            aria-label="Clear note"
+          >
+            ×
+          </button>
+        </div>
 
         <button id="removeDuplicatesButton" type="button" class="remove-duplicates-button">
           <span class="button-icon" aria-hidden="true">
@@ -86,6 +116,31 @@
         <div>
           <strong id="statusTitle">Saved:</strong>
           <p id="status"></p>
+        </div>
+      </section>
+
+      <section id="deletedRowsCard" class="card deleted-rows-card is-hidden">
+        <div class="logs-header">
+          <h2>Deleted Rows</h2>
+        </div>
+
+        <div class="deleted-rows-shell">
+          <div id="emptyDeletedRows" class="empty-logs">
+            <span class="empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M8 7h8" />
+                <path d="M8 12h8" />
+                <path d="M8 17h5" />
+                <path d="M5 7h.01" />
+                <path d="M5 12h.01" />
+                <path d="M5 17h.01" />
+              </svg>
+            </span>
+            <strong>No deleted rows yet.</strong>
+            <p>Removed duplicates will appear here.</p>
+          </div>
+
+          <ul id="deletedRowsList" class="deleted-rows-list"></ul>
         </div>
       </section>
 

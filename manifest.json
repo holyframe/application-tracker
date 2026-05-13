@@ -6,7 +6,7 @@
   "permissions": ["sidePanel", "storage", "identity", "tabs"],
   "host_permissions": ["https://sheets.googleapis.com/*"],
   "oauth2": {
-    "client_id": "69700519748-ljpj4qqgrfjfg15na3ei59p5o3u1rpr0.apps.googleusercontent.com",
+    "client_id": "108437512115-iausj1t605gufdu483khs6cij99db446.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/spreadsheets"
     ]
