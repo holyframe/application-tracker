@@ -4,6 +4,7 @@
 const SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
 // const SPREADSHEET_ID = "YOUR_GOOGLE_SHEET_ID";
 const SHEET_NAME = "Sheet1";
+const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 
 function normalizeUrlForStorage(url) {
   const raw = String(url ?? "").trim();
@@ -12,26 +13,21 @@ function normalizeUrlForStorage(url) {
   }
   try {
     const parsed = new URL(raw);
-    if (parsed.searchParams.has("token")) {
-      parsed.searchParams.delete("utm_source");
+    const originalParams = Array.from(parsed.searchParams.entries());
+    if (originalParams.length === 0) {
       return parsed.toString();
     }
 
-    const ghJid = parsed.searchParams.get("gh_jid");
-    const ghSrc = parsed.searchParams.get("gh_src");
-    const pid = parsed.searchParams.get("pid");
+    const normalizedParams = new URLSearchParams();
+    for (const [key, value] of originalParams) {
+      if (key.toLowerCase().startsWith("utm_")) {
+        break;
+      }
+      normalizedParams.append(key, value);
+    }
 
-    parsed.search = "";
-
-    if (ghJid) {
-      parsed.searchParams.set("gh_jid", ghJid);
-    }
-    if (ghSrc) {
-      parsed.searchParams.set("gh_src", ghSrc);
-    }
-    if (pid) {
-      parsed.searchParams.set("pid", pid);
-    }
+    const normalizedSearch = normalizedParams.toString();
+    parsed.search = normalizedSearch ? `?${normalizedSearch}` : "";
 
     return parsed.toString();
   } catch (_error) {
@@ -45,11 +41,50 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== "save-current-tab") {
+    return;
+  }
+
+  const runId = `shortcut-${Date.now()}`;
+  (async () => {
+    await chrome.runtime.sendMessage({
+      type: "HOTKEY_SAVE_STARTED",
+      runId
+    });
+
+    const stored = await chrome.storage.local.get(NOTE_DRAFT_STORAGE_KEY);
+    const noteValue =
+      typeof stored[NOTE_DRAFT_STORAGE_KEY] === "string"
+        ? stored[NOTE_DRAFT_STORAGE_KEY].trim()
+        : "";
+
+    const result = await saveCurrentTabUrlToSheet(noteValue, runId);
+    await chrome.storage.local.remove(NOTE_DRAFT_STORAGE_KEY);
+
+    await chrome.runtime.sendMessage({
+      type: "HOTKEY_SAVE_FINISHED",
+      runId,
+      ok: true,
+      url: result?.url || ""
+    });
+  })().catch((error) => {
+    console.error("Hotkey save failed:", error);
+    sendLog(runId, "error", error.message || "Hotkey save failed.");
+
+    chrome.runtime.sendMessage({
+      type: "HOTKEY_SAVE_FINISHED",
+      runId,
+      ok: false,
+      error: error.message || "Hotkey save failed."
+    });
+  });
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     SAVE_ALL_OPEN_TABS_URLS_TO_SHEET: saveAllOpenTabsUrlsToSheet,
-    SCRAPE_SELECTED_TAB: scrapeSelectedTabToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet
   };
 
@@ -177,45 +212,6 @@ async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
   );
 
   return { count: unpinnedWithUrl.length };
-}
-
-async function scrapeSelectedTabToSheet(note = "", runId) {
-  sendLog(runId, "info", "Starting selected-tab scrape process...");
-  sendLog(runId, "info", "Checking current active tab...");
-
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true
-  });
-
-  if (!tab) {
-    throw new Error("No selected tab found.");
-  }
-
-  if (!tab.url) {
-    throw new Error("Selected tab does not have a URL.");
-  }
-
-  const urlForSheet = normalizeUrlForStorage(tab.url);
-
-  sendLog(runId, "success", `Found selected tab URL: ${tab.url}`);
-
-  const row = [
-    new Date().toISOString(),
-    tab.title || "",
-    urlForSheet,
-    note || ""
-  ];
-
-  sendLog(runId, "info", "Preparing row for Google Sheet...");
-
-  await appendRowsToGoogleSheet([row], runId);
-  sendLog(runId, "success", "Selected tab URL saved to Google Sheet.");
-  sendLog(runId, "success", "Finished. Selected tab scraped.");
-
-  return {
-    url: urlForSheet
-  };
 }
 
 function normalizeUrlKeyForDedupe(cellValue) {

@@ -20,6 +20,14 @@
       "128": "assets/icon128.png"
     }
   },
+  "commands": {
+    "save-current-tab": {
+      "suggested_key": {
+        "default": "Ctrl+Q"
+      },
+      "description": "Save current tab URL to Google Sheet and close the tab"
+    }
+  },
   "icons": {
     "16": "assets/icon16.png",
     "32": "assets/icon32.png",

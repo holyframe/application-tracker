@@ -1,7 +1,6 @@
 const noteInput = document.querySelector("#noteInput");
 const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
-const scrapeSelectedTabButton = document.querySelector("#scrapeSelectedTabButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
@@ -13,6 +12,7 @@ const logsList = document.querySelector("#logsList");
 const emptyLogs = document.querySelector("#emptyLogs");
 const clearLogsButton = document.querySelector("#clearLogsButton");
 const clearNoteButton = document.querySelector("#clearNoteButton");
+const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 
 let activeRunId = null;
 
@@ -27,7 +27,6 @@ function createRunId() {
 function setSaveButtonsDisabled(disabled) {
   if (saveButton) saveButton.disabled = disabled;
   if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
-  if (scrapeSelectedTabButton) scrapeSelectedTabButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
 }
 
@@ -153,6 +152,9 @@ async function saveCurrentTabUrl() {
     if (noteInput) {
       noteInput.value = "";
       updateClearNoteButtonState();
+      chrome.storage.local.remove(NOTE_DRAFT_STORAGE_KEY).catch((error) => {
+        console.error("Could not clear note draft:", error);
+      });
     }
 
     showStatus("success", response.url);
@@ -163,6 +165,23 @@ async function saveCurrentTabUrl() {
     addLog("error", error.message || "Something went wrong.");
   } finally {
     setSaveButtonsDisabled(false);
+  }
+}
+
+async function loadNoteDraftFromStorage() {
+  try {
+    const stored = await chrome.storage.local.get(NOTE_DRAFT_STORAGE_KEY);
+    const draft =
+      typeof stored[NOTE_DRAFT_STORAGE_KEY] === "string"
+        ? stored[NOTE_DRAFT_STORAGE_KEY]
+        : "";
+
+    if (noteInput) {
+      noteInput.value = draft;
+      updateClearNoteButtonState();
+    }
+  } catch (error) {
+    console.error("Could not load note draft:", error);
   }
 }
 
@@ -268,44 +287,34 @@ async function saveAllOpenTabUrls() {
   }
 }
 
-async function scrapeSelectedTab() {
-  activeRunId = createRunId();
-
-  clearStatus();
-  clearLogs();
-  clearDeletedRows();
-
-  setSaveButtonsDisabled(true);
-  addLog("info", "Scrape selected tab clicked. Starting process...");
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "SCRAPE_SELECTED_TAB",
-      runId: activeRunId,
-      note: noteInput?.value.trim() || ""
-    });
-
-    if (!response?.ok) {
-      throw new Error(response?.error || "Could not scrape selected tab.");
-    }
-
-    if (noteInput) {
-      noteInput.value = "";
-      updateClearNoteButtonState();
-    }
-
-    showStatus("success", response.url, "Scraped:");
-    addLog("success", "Process completed successfully.");
-  } catch (error) {
-    console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
-  } finally {
-    setSaveButtonsDisabled(false);
-  }
-}
-
 chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "HOTKEY_SAVE_STARTED") {
+    activeRunId = message.runId;
+    clearStatus();
+    clearLogs();
+    clearDeletedRows();
+    setSaveButtonsDisabled(true);
+    addLog("info", "Hotkey detected. Starting save process...");
+    return;
+  }
+
+  if (message.type === "HOTKEY_SAVE_FINISHED") {
+    if (message.runId !== activeRunId) {
+      return;
+    }
+
+    if (message.ok) {
+      showStatus("success", message.url || "", "Saved:");
+      addLog("success", "Process completed successfully.");
+    } else {
+      showStatus("error", message.error || "Something went wrong.");
+      addLog("error", message.error || "Something went wrong.");
+    }
+
+    setSaveButtonsDisabled(false);
+    return;
+  }
+
   if (message.type !== "SAVE_PROCESS_LOG") {
     return;
   }
@@ -319,7 +328,6 @@ chrome.runtime.onMessage.addListener((message) => {
 
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
-scrapeSelectedTabButton?.addEventListener("click", scrapeSelectedTab);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
 
 clearLogsButton?.addEventListener("click", () => {
@@ -331,12 +339,47 @@ clearNoteButton?.addEventListener("click", () => {
   noteInput.value = "";
   noteInput.focus();
   updateClearNoteButtonState();
+  chrome.storage.local.remove(NOTE_DRAFT_STORAGE_KEY).catch((error) => {
+    console.error("Could not clear note draft:", error);
+  });
 });
 
 noteInput?.addEventListener("input", () => {
+  updateClearNoteButtonState();
+  chrome.storage.local
+    .set({
+      [NOTE_DRAFT_STORAGE_KEY]: noteInput.value
+    })
+    .catch((error) => {
+      console.error("Could not persist note draft:", error);
+    });
+});
+
+noteInput?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.isComposing) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (saveButton?.disabled) {
+    return;
+  }
+
+  saveCurrentTabUrl();
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes[NOTE_DRAFT_STORAGE_KEY] || !noteInput) {
+    return;
+  }
+
+  const nextValue = changes[NOTE_DRAFT_STORAGE_KEY].newValue;
+  noteInput.value = typeof nextValue === "string" ? nextValue : "";
   updateClearNoteButtonState();
 });
 
 updateLogsState();
 updateDeletedRowsState();
 updateClearNoteButtonState();
+loadNoteDraftFromStorage();

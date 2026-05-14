@@ -40,19 +40,6 @@
           <h2>Save to Google Sheet</h2>
         </div>
 
-        <button id="scrapeSelectedTabButton" type="button" class="primary-button">
-          <span class="button-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M4 6h16" />
-              <path d="M4 12h12" />
-              <path d="M4 18h8" />
-              <path d="M17 15v6" />
-              <path d="M14 18h6" />
-            </svg>
-          </span>
-          <span>Scrape selected tab</span>
-        </button>
-
         <button id="saveAllTabsButton" type="button" class="primary-button">
           <span class="button-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -63,15 +50,18 @@
           <span>Save all tabs</span>
         </button>
 
-        <button id="saveButton" type="button" class="primary-button">
+        <button id="removeDuplicatesButton" type="button" class="remove-duplicates-button">
           <span class="button-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
-              <path d="M12 16V8" />
-              <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
-              <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
+              <path d="M8 6h11" />
+              <path d="M8 12h8" />
+              <path d="M8 18h5" />
+              <path d="M5 6h.01M5 12h.01M5 18h.01" />
+              <path d="M16 12v4" />
+              <path d="M14 14h4" />
             </svg>
           </span>
-          <span>Save current tab</span>
+          <span>Remove Duplicate</span>
         </button>
 
         <div class="note-input-wrap">
@@ -91,18 +81,15 @@
           </button>
         </div>
 
-        <button id="removeDuplicatesButton" type="button" class="remove-duplicates-button">
+        <button id="saveButton" type="button" class="primary-button">
           <span class="button-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
-              <path d="M8 6h11" />
-              <path d="M8 12h8" />
-              <path d="M8 18h5" />
-              <path d="M5 6h.01M5 12h.01M5 18h.01" />
-              <path d="M16 12v4" />
-              <path d="M14 14h4" />
+              <path d="M12 16V8" />
+              <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
+              <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
             </svg>
           </span>
-          <span>Remove Duplicate</span>
+          <span>Save current tab</span>
         </button>
       </section>
 
