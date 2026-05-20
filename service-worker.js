@@ -5,6 +5,17 @@ const SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
 // const SPREADSHEET_ID = "YOUR_GOOGLE_SHEET_ID";
 const SHEET_NAME = "Sheet1";
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
+const TRACKING_PARAM_KEYS = new Set([
+  "source",
+  "src",
+  "ref",
+  "referrer",
+  "trk",
+  "tracking",
+  "fbclid",
+  "gclid",
+  "msclkid"
+]);
 
 function normalizeUrlForStorage(url) {
   const raw = String(url ?? "").trim();
@@ -20,8 +31,12 @@ function normalizeUrlForStorage(url) {
 
     const normalizedParams = new URLSearchParams();
     for (const [key, value] of originalParams) {
-      if (key.toLowerCase().startsWith("utm_")) {
+      const normalizedKey = key.toLowerCase();
+      if (normalizedKey.startsWith("utm_")) {
         break;
+      }
+      if (TRACKING_PARAM_KEYS.has(normalizedKey)) {
+        continue;
       }
       normalizedParams.append(key, value);
     }
