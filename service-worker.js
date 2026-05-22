@@ -3,6 +3,7 @@
 
 const DEFAULT_SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
 const DEFAULT_SHEET_NAME = "Sheet1";
+const DEFAULT_RESUME_TEMPLATE_ID = "1oF1GQJ6bTEli1548HVyI91O803oQaeP8ec8Y81bj5zM";
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
 const TRACKING_PARAM_KEYS = new Set([
@@ -31,6 +32,20 @@ function parseSpreadsheetId(input) {
   return raw;
 }
 
+function parseGoogleDocId(input) {
+  const raw = String(input ?? "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  const urlMatch = raw.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
+  if (urlMatch) {
+    return urlMatch[1];
+  }
+
+  return raw;
+}
+
 async function getSheetConfig() {
   const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
   const config = stored[SHEET_CONFIG_STORAGE_KEY] || {};
@@ -39,6 +54,9 @@ async function getSheetConfig() {
     config.spreadsheetId || DEFAULT_SPREADSHEET_ID
   );
   const sheetName = String(config.sheetName || DEFAULT_SHEET_NAME).trim();
+  const resumeTemplateId = parseGoogleDocId(
+    config.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID
+  );
 
   if (!spreadsheetId) {
     throw new Error("Google Sheet ID is not configured.");
@@ -48,12 +66,21 @@ async function getSheetConfig() {
     throw new Error("Sheet tab name is not configured.");
   }
 
-  return { spreadsheetId, sheetName };
+  if (!resumeTemplateId) {
+    throw new Error("Resume Google Doc template is not configured.");
+  }
+
+  return { spreadsheetId, sheetName, resumeTemplateId };
 }
 
-async function saveSheetConfig(spreadsheetIdInput, sheetNameInput) {
+async function saveSheetConfig(
+  spreadsheetIdInput,
+  sheetNameInput,
+  resumeTemplateInput
+) {
   const spreadsheetId = parseSpreadsheetId(spreadsheetIdInput);
   const sheetName = String(sheetNameInput ?? "").trim();
+  const resumeTemplateId = parseGoogleDocId(resumeTemplateInput);
 
   if (!spreadsheetId) {
     throw new Error("Enter a valid Google Sheet URL or spreadsheet ID.");
@@ -63,14 +90,19 @@ async function saveSheetConfig(spreadsheetIdInput, sheetNameInput) {
     throw new Error("Enter a sheet tab name.");
   }
 
+  if (!resumeTemplateId) {
+    throw new Error("Enter a valid Resume Google Doc URL or document ID.");
+  }
+
   await chrome.storage.local.set({
     [SHEET_CONFIG_STORAGE_KEY]: {
       spreadsheetId,
-      sheetName
+      sheetName,
+      resumeTemplateId
     }
   });
 
-  return { spreadsheetId, sheetName };
+  return { spreadsheetId, sheetName, resumeTemplateId };
 }
 
 function normalizeUrlForStorage(url) {
@@ -112,14 +144,15 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
 
   const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
-  if (!stored[SHEET_CONFIG_STORAGE_KEY]) {
-    await chrome.storage.local.set({
-      [SHEET_CONFIG_STORAGE_KEY]: {
-        spreadsheetId: DEFAULT_SPREADSHEET_ID,
-        sheetName: DEFAULT_SHEET_NAME
-      }
-    });
-  }
+  const config = stored[SHEET_CONFIG_STORAGE_KEY] || {};
+  await chrome.storage.local.set({
+    [SHEET_CONFIG_STORAGE_KEY]: {
+      spreadsheetId: config.spreadsheetId || DEFAULT_SPREADSHEET_ID,
+      sheetName: config.sheetName || DEFAULT_SHEET_NAME,
+      resumeTemplateId:
+        config.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID
+    }
+  });
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -176,7 +209,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "SAVE_SHEET_CONFIG") {
-    saveSheetConfig(message.spreadsheetId, message.sheetName)
+    saveSheetConfig(
+      message.spreadsheetId,
+      message.sheetName,
+      message.resumeTemplateId
+    )
       .then((config) => sendResponse({ ok: true, ...config }))
       .catch((error) => {
         sendResponse({
@@ -191,7 +228,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     SAVE_ALL_OPEN_TABS_URLS_TO_SHEET: saveAllOpenTabsUrlsToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
-    CHECK_COMPANY_DUPLICATES: checkCompanyDuplicatesInSheet
+    CHECK_COMPANY_DUPLICATES: checkCompanyDuplicatesInSheet,
+    CREATE_GOOGLE_DOC: createGoogleDoc
   };
 
   const run = handlers[message.type];
@@ -694,9 +732,9 @@ async function appendRowsToGoogleSheet(rows, runId) {
   return result;
 }
 
-async function getGoogleAccessToken() {
+async function getGoogleAccessToken(options = {}) {
   const authResult = await chrome.identity.getAuthToken({
-    interactive: true
+    interactive: options.interactive ?? true
   });
 
   if (!authResult || !authResult.token) {
@@ -704,6 +742,119 @@ async function getGoogleAccessToken() {
   }
 
   return authResult.token;
+}
+
+async function clearCachedGoogleAccessToken(token) {
+  if (!token) {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    chrome.identity.removeCachedAuthToken({ token }, resolve);
+  });
+}
+
+function formatGoogleApiError(errorText, fallbackMessage) {
+  try {
+    const parsed = JSON.parse(errorText);
+    const message = parsed?.error?.message;
+    if (message) {
+      return message;
+    }
+  } catch (_error) {
+    // Keep fallback message for non-JSON responses.
+  }
+
+  return fallbackMessage;
+}
+
+async function copyGoogleDocTemplate(token, title, templateId) {
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${templateId}/copy`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ name: title })
+    }
+  );
+
+  return response;
+}
+
+async function createGoogleDoc(_note, runId) {
+  sendLog(runId, "info", "Starting Google Doc creation...");
+
+  const { resumeTemplateId } = await getSheetConfig();
+  sendLog(runId, "info", `Using resume template: ${resumeTemplateId}`);
+
+  let token = await getGoogleAccessToken();
+  sendLog(runId, "success", "Google authorization token received.");
+
+  const title = `Application Doc ${new Date().toLocaleString()}`;
+
+  sendLog(runId, "info", `Copying template document: ${title}`);
+
+  let response = await copyGoogleDocTemplate(token, title, resumeTemplateId);
+  sendLog(runId, "info", `Google Drive response status: ${response.status}`);
+
+  if (response.status === 401 || response.status === 403) {
+    sendLog(
+      runId,
+      "info",
+      "Copy failed with auth/permission error. Refreshing Google token and retrying once..."
+    );
+    await clearCachedGoogleAccessToken(token);
+    token = await getGoogleAccessToken({ interactive: true });
+    response = await copyGoogleDocTemplate(token, title, resumeTemplateId);
+    sendLog(runId, "info", `Google Drive retry response status: ${response.status}`);
+
+    if (!response.ok) {
+      const retryErrorText = await response.text();
+      throw new Error(
+        formatGoogleApiError(
+          retryErrorText,
+          "Could not copy the template Google Doc. Make sure your signed-in Google account can open and copy that template, then reload the extension and approve Google Drive access."
+        )
+      );
+    }
+  } else if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      formatGoogleApiError(errorText, "Google Drive API error.")
+    );
+  }
+
+  const file = await response.json();
+  const documentId = file.id;
+
+  if (!documentId) {
+    throw new Error("Google Drive API did not return a document ID.");
+  }
+
+  const url = `https://docs.google.com/document/d/${documentId}/edit`;
+
+  sendLog(runId, "info", "Opening copied Google Doc in a tab...");
+
+  const [currentTab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true
+  });
+
+  await chrome.tabs.create({
+    url,
+    active: true,
+    index: typeof currentTab?.index === "number" ? currentTab.index : undefined
+  });
+
+  sendLog(runId, "success", "Google Doc copy created and opened.");
+
+  return {
+    url,
+    title: file.name || title
+  };
 }
 
 async function sendLog(runId, level, message) {

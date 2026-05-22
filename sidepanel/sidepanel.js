@@ -3,6 +3,7 @@ const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const checkCompanyDuplicatesButton = document.querySelector("#checkCompanyDuplicatesButton");
+const createGoogleDocButton = document.querySelector("#createGoogleDocButton");
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
@@ -17,6 +18,7 @@ const configToggleButton = document.querySelector("#configToggleButton");
 const configPanel = document.querySelector("#configPanel");
 const spreadsheetIdInput = document.querySelector("#spreadsheetIdInput");
 const sheetNameInput = document.querySelector("#sheetNameInput");
+const resumeTemplateInput = document.querySelector("#resumeTemplateInput");
 const saveConfigButton = document.querySelector("#saveConfigButton");
 const configStatus = document.querySelector("#configStatus");
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
@@ -36,6 +38,7 @@ function setSaveButtonsDisabled(disabled) {
   if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
   if (checkCompanyDuplicatesButton) checkCompanyDuplicatesButton.disabled = disabled;
+  if (createGoogleDocButton) createGoogleDocButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
 }
 
@@ -83,6 +86,9 @@ async function loadSheetConfig() {
     if (sheetNameInput) {
       sheetNameInput.value = response.sheetName || "";
     }
+    if (resumeTemplateInput) {
+      resumeTemplateInput.value = response.resumeTemplateId || "";
+    }
   } catch (error) {
     console.error(error);
     showConfigStatus("error", error.message || "Could not load configuration.");
@@ -96,7 +102,8 @@ async function saveSheetConfig() {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_SHEET_CONFIG",
       spreadsheetId: spreadsheetIdInput?.value.trim() || "",
-      sheetName: sheetNameInput?.value.trim() || ""
+      sheetName: sheetNameInput?.value.trim() || "",
+      resumeTemplateId: resumeTemplateInput?.value.trim() || ""
     });
 
     if (!response?.ok) {
@@ -109,10 +116,13 @@ async function saveSheetConfig() {
     if (sheetNameInput) {
       sheetNameInput.value = response.sheetName || "";
     }
+    if (resumeTemplateInput) {
+      resumeTemplateInput.value = response.resumeTemplateId || "";
+    }
 
     showConfigStatus(
       "success",
-      `Saved. Using tab "${response.sheetName}" in spreadsheet ${response.spreadsheetId}.`
+      `Saved. Sheet tab "${response.sheetName}", Resume template configured.`
     );
   } catch (error) {
     console.error(error);
@@ -466,10 +476,46 @@ async function checkCompanyDuplicates() {
   }
 }
 
+async function createGoogleDocFromPanel() {
+  activeRunId = createRunId();
+
+  clearStatus();
+  clearLogs();
+  clearDeletedRows();
+
+  setSaveButtonsDisabled(true);
+  addLog("info", "Apply Now clicked. Copying template...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "CREATE_GOOGLE_DOC",
+      runId: activeRunId
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not create Google Doc.");
+    }
+
+    showStatus(
+      "success",
+      response.url || "",
+      "Created:"
+    );
+    addLog("success", "Process completed successfully.");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Something went wrong.");
+    addLog("error", error.message || "Something went wrong.");
+  } finally {
+    setSaveButtonsDisabled(false);
+  }
+}
+
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
 checkCompanyDuplicatesButton?.addEventListener("click", checkCompanyDuplicates);
+createGoogleDocButton?.addEventListener("click", createGoogleDocFromPanel);
 
 configToggleButton?.addEventListener("click", () => {
   const isOpen = configToggleButton.getAttribute("aria-expanded") === "true";

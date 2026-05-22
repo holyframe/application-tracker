@@ -51,7 +51,7 @@
         <div id="configPanel" class="config-panel" role="region" aria-label="Configuration">
           <div class="config-panel-inner">
             <p class="config-help">
-              Set the Google Sheet this extension saves to and manages.
+              Set the Google Sheet and Resume template used by this extension.
             </p>
 
             <label class="config-label" for="spreadsheetIdInput">Google Sheet URL or ID</label>
@@ -69,6 +69,15 @@
               type="text"
               class="config-input"
               placeholder="Sheet1"
+              autocomplete="off"
+            />
+
+            <label class="config-label" for="resumeTemplateInput">Resume Template</label>
+            <input
+              id="resumeTemplateInput"
+              type="text"
+              class="config-input"
+              placeholder="https://docs.google.com/document/d/..."
               autocomplete="off"
             />
 
@@ -148,6 +157,18 @@
             ×
           </button>
         </div>
+
+        <button id="createGoogleDocButton" type="button" class="primary-button">
+          <span class="button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M7 3h7l4 4v14H7z" />
+              <path d="M14 3v5h5" />
+              <path d="M12 11v6" />
+              <path d="M9.5 14h5" />
+            </svg>
+          </span>
+          <span>Apply Now</span>
+        </button>
 
         <button id="saveButton" type="button" class="primary-button">
           <span class="button-icon" aria-hidden="true">
