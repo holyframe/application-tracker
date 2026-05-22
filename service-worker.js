@@ -1,10 +1,10 @@
 // Chrome Extension MV3 background service worker.
 // Clicking the extension icon opens the side panel.
 
-const SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
-// const SPREADSHEET_ID = "YOUR_GOOGLE_SHEET_ID";
-const SHEET_NAME = "Sheet1";
+const DEFAULT_SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
+const DEFAULT_SHEET_NAME = "Sheet1";
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
+const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -16,6 +16,62 @@ const TRACKING_PARAM_KEYS = new Set([
   "gclid",
   "msclkid"
 ]);
+
+function parseSpreadsheetId(input) {
+  const raw = String(input ?? "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  const urlMatch = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (urlMatch) {
+    return urlMatch[1];
+  }
+
+  return raw;
+}
+
+async function getSheetConfig() {
+  const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
+  const config = stored[SHEET_CONFIG_STORAGE_KEY] || {};
+
+  const spreadsheetId = parseSpreadsheetId(
+    config.spreadsheetId || DEFAULT_SPREADSHEET_ID
+  );
+  const sheetName = String(config.sheetName || DEFAULT_SHEET_NAME).trim();
+
+  if (!spreadsheetId) {
+    throw new Error("Google Sheet ID is not configured.");
+  }
+
+  if (!sheetName) {
+    throw new Error("Sheet tab name is not configured.");
+  }
+
+  return { spreadsheetId, sheetName };
+}
+
+async function saveSheetConfig(spreadsheetIdInput, sheetNameInput) {
+  const spreadsheetId = parseSpreadsheetId(spreadsheetIdInput);
+  const sheetName = String(sheetNameInput ?? "").trim();
+
+  if (!spreadsheetId) {
+    throw new Error("Enter a valid Google Sheet URL or spreadsheet ID.");
+  }
+
+  if (!sheetName) {
+    throw new Error("Enter a sheet tab name.");
+  }
+
+  await chrome.storage.local.set({
+    [SHEET_CONFIG_STORAGE_KEY]: {
+      spreadsheetId,
+      sheetName
+    }
+  });
+
+  return { spreadsheetId, sheetName };
+}
 
 function normalizeUrlForStorage(url) {
   const raw = String(url ?? "").trim();
@@ -50,10 +106,20 @@ function normalizeUrlForStorage(url) {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
   chrome.sidePanel.setPanelBehavior({
     openPanelOnActionClick: true
   });
+
+  const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
+  if (!stored[SHEET_CONFIG_STORAGE_KEY]) {
+    await chrome.storage.local.set({
+      [SHEET_CONFIG_STORAGE_KEY]: {
+        spreadsheetId: DEFAULT_SPREADSHEET_ID,
+        sheetName: DEFAULT_SHEET_NAME
+      }
+    });
+  }
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -97,10 +163,35 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "GET_SHEET_CONFIG") {
+    getSheetConfig()
+      .then((config) => sendResponse({ ok: true, ...config }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not load sheet configuration."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_SHEET_CONFIG") {
+    saveSheetConfig(message.spreadsheetId, message.sheetName)
+      .then((config) => sendResponse({ ok: true, ...config }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not save sheet configuration."
+        });
+      });
+    return true;
+  }
+
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     SAVE_ALL_OPEN_TABS_URLS_TO_SHEET: saveAllOpenTabsUrlsToSheet,
-    REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet
+    REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
+    CHECK_COMPANY_DUPLICATES: checkCompanyDuplicatesInSheet
   };
 
   const run = handlers[message.type];
@@ -229,6 +320,167 @@ async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
   return { count: unpinnedWithUrl.length };
 }
 
+function extractCompanyKey(rawUrl) {
+  if (!rawUrl) return null;
+  try {
+    const parsed = new URL(rawUrl.trim());
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+
+    // Greenhouse: job-boards.greenhouse.io/<company>/jobs/...
+    if (host === "job-boards.greenhouse.io" || host === "boards.greenhouse.io") {
+      const match = path.match(/^\/([^/]+)\//);
+      if (match) return `greenhouse:${match[1]}`;
+    }
+
+    // Lever: jobs.lever.co/<company>/...
+    if (host === "jobs.lever.co") {
+      const match = path.match(/^\/([^/]+)/);
+      if (match) return `lever:${match[1]}`;
+    }
+
+    // Workday: <company>.wd1.myworkdayjobs.com / <company>.wd5.myworkdayjobs.com etc.
+    const workdayMatch = host.match(/^([^.]+)\.wd\d+\.myworkdayjobs\.com$/);
+    if (workdayMatch) return `workday:${workdayMatch[1]}`;
+
+    // Ashby: jobs.ashbyhq.com/<company>/...
+    if (host === "jobs.ashbyhq.com") {
+      const match = path.match(/^\/([^/]+)/);
+      if (match) return `ashby:${match[1]}`;
+    }
+
+    // SmartRecruiters: jobs.smartrecruiters.com/<company>/...
+    if (host === "jobs.smartrecruiters.com") {
+      const match = path.match(/^\/([^/]+)/);
+      if (match) return `smartrecruiters:${match[1]}`;
+
+    }
+
+    // Brassring / Kenexa: <company>.brassring.com or sjobs.brassring.com?partnerid=...&siteid=...
+    if (host.endsWith(".brassring.com")) {
+      const partnerId = parsed.searchParams.get("partnerid");
+      const siteId = parsed.searchParams.get("siteid");
+      if (partnerId && siteId) return `brassring:${partnerId}:${siteId}`;
+      const companyMatch = host.match(/^([^.]+)\.brassring\.com$/);
+      if (companyMatch) return `brassring:${companyMatch[1]}`;
+    }
+
+    // Fallback: use registrable domain (e.g. grafanalabs.com, datadog.com)
+    const parts = host.split(".");
+    const registrable = parts.slice(-2).join(".");
+    return `domain:${registrable}`;
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function checkCompanyDuplicatesInSheet(_note, runId) {
+  sendLog(runId, "info", "Starting company duplicate check...");
+
+  const token = await getGoogleAccessToken();
+  sendLog(runId, "success", "Google authorization token received.");
+
+  const sheetConfig = await getSheetConfig();
+  const sheetId = await getSheetIdByTitle(
+    token,
+    sheetConfig.spreadsheetId,
+    sheetConfig.sheetName
+  );
+  const values = await readSheetValuesAD(token, runId, sheetConfig);
+
+  if (values.length === 0) {
+    sendLog(runId, "info", "Sheet has no rows. Nothing to do.");
+    return { duplicateCompanyCount: 0, highlightedRowCount: 0, rowCount: 0 };
+  }
+
+  // Build map: companyKey -> list of zero-based row indices
+  const companyRowMap = new Map();
+  for (let i = 0; i < values.length; i++) {
+    const url = (values[i][2] || "").trim();
+    const key = extractCompanyKey(url);
+    if (!key) continue;
+    if (!companyRowMap.has(key)) companyRowMap.set(key, []);
+    companyRowMap.get(key).push(i);
+  }
+
+  // Collect row indices where company appears more than once
+  const rowsToHighlight = [];
+  for (const [key, indices] of companyRowMap.entries()) {
+    if (indices.length > 1) {
+      sendLog(runId, "info", `Company "${key}" found in ${indices.length} rows: ${indices.map((i) => i + 1).join(", ")}`);
+      for (const idx of indices) rowsToHighlight.push(idx);
+    }
+  }
+
+  const duplicateCompanyCount = [...companyRowMap.values()].filter((v) => v.length > 1).length;
+
+  if (rowsToHighlight.length === 0) {
+    sendLog(runId, "success", "No company duplicates found.");
+    return { duplicateCompanyCount: 0, highlightedRowCount: 0, rowCount: values.length };
+  }
+
+  sendLog(runId, "info", `Highlighting ${rowsToHighlight.length} row(s) yellow in the sheet...`);
+
+  await batchHighlightSheetRows(
+    token,
+    sheetConfig.spreadsheetId,
+    sheetId,
+    rowsToHighlight,
+    runId
+  );
+
+  sendLog(runId, "success", `Done. ${duplicateCompanyCount} company duplicate group(s), ${rowsToHighlight.length} row(s) highlighted.`);
+
+  return {
+    duplicateCompanyCount,
+    highlightedRowCount: rowsToHighlight.length,
+    rowCount: values.length
+  };
+}
+
+async function batchHighlightSheetRows(token, spreadsheetId, sheetId, rowIndicesZeroBased, runId) {
+  const YELLOW = { red: 1, green: 0.93, blue: 0.24 };
+  const chunkSize = 100;
+
+  for (let i = 0; i < rowIndicesZeroBased.length; i += chunkSize) {
+    const chunk = rowIndicesZeroBased.slice(i, i + chunkSize);
+    const requests = chunk.map((rowIndex) => ({
+      repeatCell: {
+          range: {
+          sheetId,
+          startRowIndex: rowIndex,
+          endRowIndex: rowIndex + 1,
+          startColumnIndex: 0,
+          endColumnIndex: 3
+        },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: YELLOW
+          }
+        },
+        fields: "userEnteredFormat.backgroundColor"
+      }
+    }));
+
+    const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+    const response = await fetch(batchUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ requests })
+    });
+
+    sendLog(runId, "info", `Highlight batch response status: ${response.status}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Google Sheets batchUpdate error: ${errorText}`);
+    }
+  }
+}
+
 function normalizeUrlKeyForDedupe(cellValue) {
   const raw = String(cellValue ?? "").trim();
   if (!raw) {
@@ -264,11 +516,12 @@ async function getSheetIdByTitle(token, spreadsheetId, sheetTitle) {
   return sheet.properties.sheetId;
 }
 
-async function readSheetValuesAD(token, runId) {
-  const range = encodeURIComponent(`${SHEET_NAME}!A:D`);
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}`;
+async function readSheetValuesAD(token, runId, sheetConfig) {
+  const { spreadsheetId, sheetName } = sheetConfig;
+  const range = encodeURIComponent(`${sheetName}!A:D`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`;
 
-  sendLog(runId, "info", `Reading rows from ${SHEET_NAME}...`);
+  sendLog(runId, "info", `Reading rows from ${sheetName}...`);
 
   const response = await fetch(url, {
     headers: {
@@ -330,9 +583,14 @@ async function removeDuplicateUrlsFromSheet(_note, runId) {
   const token = await getGoogleAccessToken();
   sendLog(runId, "success", "Google authorization token received.");
 
-  const sheetId = await getSheetIdByTitle(token, SPREADSHEET_ID, SHEET_NAME);
+  const sheetConfig = await getSheetConfig();
+  const sheetId = await getSheetIdByTitle(
+    token,
+    sheetConfig.spreadsheetId,
+    sheetConfig.sheetName
+  );
 
-  const values = await readSheetValuesAD(token, runId);
+  const values = await readSheetValuesAD(token, runId, sheetConfig);
 
   if (values.length === 0) {
     sendLog(runId, "info", "Sheet has no rows. Nothing to do.");
@@ -376,7 +634,7 @@ async function removeDuplicateUrlsFromSheet(_note, runId) {
 
   await batchDeleteSheetRows(
     token,
-    SPREADSHEET_ID,
+    sheetConfig.spreadsheetId,
     sheetId,
     duplicateRowIndices,
     runId
@@ -399,16 +657,17 @@ async function appendRowsToGoogleSheet(rows, runId) {
   sendLog(runId, "info", "Requesting Google authorization token...");
 
   const token = await getGoogleAccessToken();
+  const sheetConfig = await getSheetConfig();
 
   sendLog(runId, "success", "Google authorization token received.");
 
-  const range = encodeURIComponent(`${SHEET_NAME}!A:D`);
+  const range = encodeURIComponent(`${sheetConfig.sheetName}!A:D`);
   const url =
-    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}` +
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetConfig.spreadsheetId}` +
     `/values/${range}:append?valueInputOption=USER_ENTERED` +
     `&insertDataOption=INSERT_ROWS`;
 
-  sendLog(runId, "info", `Sending data to sheet: ${SHEET_NAME}`);
+  sendLog(runId, "info", `Sending data to sheet: ${sheetConfig.sheetName}`);
 
   const response = await fetch(url, {
     method: "POST",

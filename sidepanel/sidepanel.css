@@ -20,6 +20,7 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
+  font-size: 14px;
 }
 
 * {
@@ -43,39 +44,39 @@ input {
 
 .app {
   display: grid;
-  gap: 18px;
+  gap: 14px;
   min-height: 100vh;
-  padding: 28px 22px;
+  padding: 18px 16px;
 }
 
 .hero {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .eyebrow-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: #323867;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 750;
 }
 
 .eyebrow-icon {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 2px solid rgba(84, 87, 255, 0.28);
-  border-radius: 11px;
+  border-radius: 9px;
   background: rgba(84, 87, 255, 0.08);
   color: var(--primary);
 }
 
 svg {
-  width: 20px;
-  height: 20px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2.2;
@@ -90,46 +91,167 @@ p {
 }
 
 h1 {
-  font-size: clamp(38px, 10vw, 54px);
-  line-height: 0.95;
-  letter-spacing: -0.06em;
+  font-size: clamp(26px, 7vw, 34px);
+  line-height: 1;
+  letter-spacing: -0.05em;
   font-weight: 900;
   color: var(--text);
-  text-shadow: 0 10px 24px rgba(7, 11, 45, 0.08);
+  text-shadow: 0 8px 18px rgba(7, 11, 45, 0.08);
 }
 
 .hero p {
   max-width: 35ch;
   color: #4d5572;
-  font-size: 18px;
+  font-size: 13px;
   line-height: 1.45;
   letter-spacing: -0.02em;
 }
 
 .card {
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.82);
   box-shadow: var(--shadow-small);
   backdrop-filter: blur(16px);
 }
 
+.config-card {
+  display: grid;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.config-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  padding: 14px 16px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 850;
+  letter-spacing: -0.03em;
+}
+
+.config-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.config-toggle-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--primary);
+  background: rgba(84, 87, 255, 0.12);
+}
+
+.config-chevron {
+  display: grid;
+  place-items: center;
+  color: #5f6b8d;
+  transition: transform 160ms ease;
+}
+
+.config-toggle.is-open .config-chevron {
+  transform: rotate(180deg);
+}
+
+.config-panel {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.config-panel.is-hidden {
+  display: none;
+}
+
+.config-help {
+  margin: 12px 0 0;
+  color: #5f6b8d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.config-label {
+  color: #323867;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.config-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1.5px solid rgba(84, 87, 255, 0.28);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #050a24;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.config-input:focus {
+  outline: none;
+  border-color: rgba(84, 87, 255, 0.65);
+  box-shadow: 0 0 0 4px rgba(84, 87, 255, 0.12);
+}
+
+.config-save-button {
+  width: 100%;
+  min-height: 38px;
+}
+
+.config-status {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.config-status.is-hidden {
+  display: none;
+}
+
+.config-status.is-success {
+  color: var(--success);
+  background: var(--success-soft);
+  border: 1px solid var(--success-line);
+}
+
+.config-status.is-error {
+  color: var(--danger);
+  background: #fff3f5;
+  border: 1px solid rgba(199, 54, 76, 0.28);
+}
+
 .save-card {
   display: grid;
-  gap: 16px;
-  padding: 22px;
+  gap: 12px;
+  padding: 16px;
 }
 
 .card-title-row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .card-title-row h2,
 .logs-header h2 {
-  font-size: 23px;
-  line-height: 1.1;
+  font-size: 17px;
+  line-height: 1.15;
   letter-spacing: -0.04em;
   font-weight: 850;
 }
@@ -137,10 +259,10 @@ h1 {
 .sheet-icon {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 38px;
+  height: 38px;
   flex: 0 0 auto;
-  border-radius: 18px;
+  border-radius: 14px;
   color: var(--primary);
   background:
     linear-gradient(135deg, rgba(84, 87, 255, 0.2), rgba(84, 87, 255, 0.06)),
@@ -149,15 +271,15 @@ h1 {
 
 textarea {
   width: 100%;
-  min-height: 128px;
+  min-height: 96px;
   resize: vertical;
   border: 1.5px solid var(--line-strong);
-  border-radius: 16px;
+  border-radius: 12px;
   outline: none;
-  padding: 16px;
+  padding: 12px;
   background: rgba(255, 255, 255, 0.9);
   color: var(--text);
-  font-size: 16px;
+  font-size: 13px;
   line-height: 1.45;
   transition:
     border-color 160ms ease,
@@ -169,17 +291,17 @@ textarea {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  height: 54px;
-  min-height: 54px;
-  max-height: 54px;
-  padding: 0 44px 0 14px;
-  border-radius: 15px;
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  padding: 0 38px 0 12px;
+  border-radius: 12px;
   color: #050a24;
   -webkit-text-fill-color: #050a24;
   caret-color: #050a24;
   opacity: 1;
   text-shadow: none;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: -0.02em;
   background: #ffffff;
@@ -209,18 +331,18 @@ textarea {
 .note-clear-button {
   position: absolute;
   top: 50%;
-  right: 10px;
+  right: 8px;
   transform: translateY(-50%);
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: 0;
   border-radius: 999px;
   cursor: pointer;
   display: grid;
   place-items: center;
   padding: 0;
-  font-size: 18px;
-  line-height: 28px;
+  font-size: 15px;
+  line-height: 24px;
   font-weight: 700;
   color: #3d4670;
   background: rgba(84, 87, 255, 0.14);
@@ -248,19 +370,19 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 11px;
+  gap: 9px;
   width: 100%;
-  min-height: 54px;
+  min-height: 42px;
   border: 0;
-  border-radius: 15px;
-  padding: 14px 16px;
+  border-radius: 12px;
+  padding: 10px 14px;
   cursor: pointer;
   background: linear-gradient(135deg, #686bff 0%, #4245e8 100%);
   box-shadow:
-    0 16px 30px rgba(84, 87, 255, 0.26),
+    0 12px 24px rgba(84, 87, 255, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
   color: #ffffff;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 850;
   letter-spacing: -0.02em;
   transition:
@@ -293,23 +415,23 @@ textarea:focus {
 }
 
 .button-icon svg {
-  width: 22px;
-  height: 22px;
-  stroke-width: 2.6;
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.4;
 }
 
 .remove-duplicates-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 11px;
+  gap: 9px;
   width: 100%;
-  min-height: 54px;
+  min-height: 42px;
   border: 0;
-  border-radius: 15px;
-  padding: 14px 16px;
+  border-radius: 12px;
+  padding: 10px 14px;
   cursor: pointer;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 850;
   letter-spacing: -0.02em;
   color: #ffffff;
@@ -342,19 +464,74 @@ textarea:focus {
 }
 
 .remove-duplicates-button .button-icon svg {
-  width: 22px;
-  height: 22px;
-  stroke-width: 2.6;
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.4;
+}
+
+.warning-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+  color: #3d2e00;
+  background: linear-gradient(135deg, #ffe066 0%, #f5c400 100%);
+  box-shadow:
+    0 16px 30px rgba(210, 160, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    filter 160ms ease;
+}
+
+.warning-button:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 18px 34px rgba(210, 160, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.warning-button:active {
+  transform: translateY(0);
+  filter: brightness(0.96);
+}
+
+.warning-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+  transform: none;
+}
+
+.warning-button .button-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.4;
+}
+
+@media (prefers-color-scheme: dark) {
+  .warning-button {
+    color: #2a2000;
+  }
 }
 
 .status-card {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 14px;
+  gap: 10px;
   align-items: center;
   border: 1px solid var(--success-line);
-  border-radius: 18px;
-  padding: 16px;
+  border-radius: 14px;
+  padding: 12px;
   background: var(--success-soft);
   box-shadow: 0 12px 32px rgba(23, 140, 71, 0.08);
 }
@@ -365,8 +542,8 @@ textarea:focus {
 
 .deleted-rows-card {
   display: grid;
-  gap: 16px;
-  padding: 22px;
+  gap: 12px;
+  padding: 16px;
 }
 
 .deleted-rows-card.is-hidden {
@@ -374,8 +551,8 @@ textarea:focus {
 }
 
 .deleted-rows-shell {
-  min-height: 120px;
-  max-height: 240px;
+  min-height: 96px;
+  max-height: 200px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -392,10 +569,10 @@ textarea:focus {
 
 .deleted-row-item {
   border: 1px solid rgba(105, 114, 145, 0.15);
-  border-radius: 13px;
-  padding: 10px;
+  border-radius: 11px;
+  padding: 8px;
   background: rgba(255, 255, 255, 0.82);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
   color: #ffffff;
   overflow-wrap: anywhere;
@@ -410,8 +587,8 @@ textarea:focus {
 .status-icon {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   border-radius: 999px;
   background: linear-gradient(135deg, #26b85f, #168344);
   color: #ffffff;
@@ -422,16 +599,16 @@ textarea:focus {
 }
 
 .status-icon svg {
-  width: 24px;
-  height: 24px;
-  stroke-width: 3;
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.8;
 }
 
 #statusTitle {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
   color: var(--success);
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .status-card.is-error #statusTitle {
@@ -440,15 +617,15 @@ textarea:focus {
 
 #status {
   color: var(--text);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
 .logs-card {
   display: grid;
-  gap: 16px;
-  padding: 22px;
+  gap: 12px;
+  padding: 16px;
 }
 
 .logs-header {
@@ -462,14 +639,14 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 6px;
   border: 1px solid rgba(84, 87, 255, 0.24);
-  border-radius: 12px;
-  padding: 9px 12px;
+  border-radius: 10px;
+  padding: 7px 10px;
   cursor: pointer;
   background: rgba(255, 255, 255, 0.76);
   color: var(--primary);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 750;
   transition:
     background 160ms ease,
@@ -484,14 +661,14 @@ textarea:focus {
 }
 
 .secondary-button svg {
-  width: 17px;
-  height: 17px;
+  width: 14px;
+  height: 14px;
 }
 
 .logs-shell {
   position: relative;
-  min-height: 176px;
-  max-height: 280px;
+  min-height: 140px;
+  max-height: 220px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -501,9 +678,9 @@ textarea:focus {
 .empty-logs {
   display: grid;
   place-items: center;
-  gap: 8px;
-  min-height: 176px;
-  padding: 26px 16px;
+  gap: 6px;
+  min-height: 140px;
+  padding: 20px 14px;
   text-align: center;
   color: #6b728c;
 }
@@ -515,22 +692,22 @@ textarea:focus {
 .empty-icon {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 38px;
+  height: 38px;
   border: 1px dashed rgba(105, 114, 145, 0.36);
-  border-radius: 16px;
+  border-radius: 12px;
   color: #9ba2b8;
   background: rgba(255, 255, 255, 0.7);
 }
 
 .empty-logs strong {
   color: #555d78;
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .empty-logs p {
   color: #858da4;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .logs-list {
@@ -544,13 +721,13 @@ textarea:focus {
 .log-item {
   display: grid;
   grid-template-columns: auto auto 1fr;
-  gap: 8px;
+  gap: 6px;
   align-items: start;
   border: 1px solid rgba(105, 114, 145, 0.15);
-  border-radius: 13px;
-  padding: 10px;
+  border-radius: 11px;
+  padding: 8px;
   background: rgba(255, 255, 255, 0.82);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
   animation: logIn 180ms ease both;
 }
@@ -574,8 +751,8 @@ textarea:focus {
 
 .log-level {
   border-radius: 999px;
-  padding: 1px 7px;
-  font-size: 10px;
+  padding: 1px 6px;
+  font-size: 9px;
   font-weight: 850;
   letter-spacing: 0.03em;
   white-space: nowrap;
@@ -634,8 +811,23 @@ textarea:focus {
   .deleted-rows-shell,
   .logs-shell,
   .log-item,
-  .deleted-row-item {
+  .deleted-row-item,
+  .config-input {
     background: rgba(25, 28, 45, 0.82);
+  }
+
+  .config-input {
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.24);
+  }
+
+  .config-help,
+  .config-label {
+    color: #c8cee3;
+  }
+
+  .config-status.is-error {
+    background: rgba(199, 54, 76, 0.13);
   }
 
   textarea {

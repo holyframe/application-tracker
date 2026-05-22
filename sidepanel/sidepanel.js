@@ -2,6 +2,7 @@ const noteInput = document.querySelector("#noteInput");
 const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
+const checkCompanyDuplicatesButton = document.querySelector("#checkCompanyDuplicatesButton");
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
@@ -12,6 +13,12 @@ const logsList = document.querySelector("#logsList");
 const emptyLogs = document.querySelector("#emptyLogs");
 const clearLogsButton = document.querySelector("#clearLogsButton");
 const clearNoteButton = document.querySelector("#clearNoteButton");
+const configToggleButton = document.querySelector("#configToggleButton");
+const configPanel = document.querySelector("#configPanel");
+const spreadsheetIdInput = document.querySelector("#spreadsheetIdInput");
+const sheetNameInput = document.querySelector("#sheetNameInput");
+const saveConfigButton = document.querySelector("#saveConfigButton");
+const configStatus = document.querySelector("#configStatus");
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 
 let activeRunId = null;
@@ -28,6 +35,89 @@ function setSaveButtonsDisabled(disabled) {
   if (saveButton) saveButton.disabled = disabled;
   if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
+  if (checkCompanyDuplicatesButton) checkCompanyDuplicatesButton.disabled = disabled;
+  if (saveConfigButton) saveConfigButton.disabled = disabled;
+}
+
+function showConfigStatus(type, message) {
+  if (!configStatus) return;
+
+  configStatus.classList.remove("is-hidden", "is-error", "is-success");
+  configStatus.textContent = message;
+
+  if (type === "error") {
+    configStatus.classList.add("is-error");
+    return;
+  }
+
+  configStatus.classList.add("is-success");
+}
+
+function clearConfigStatus() {
+  configStatus?.classList.add("is-hidden");
+  configStatus?.classList.remove("is-error", "is-success");
+  if (configStatus) configStatus.textContent = "";
+}
+
+function setConfigPanelOpen(isOpen) {
+  if (!configToggleButton || !configPanel) return;
+
+  configToggleButton.setAttribute("aria-expanded", String(isOpen));
+  configPanel.classList.toggle("is-hidden", !isOpen);
+  configToggleButton.classList.toggle("is-open", isOpen);
+}
+
+async function loadSheetConfig() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "GET_SHEET_CONFIG"
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not load configuration.");
+    }
+
+    if (spreadsheetIdInput) {
+      spreadsheetIdInput.value = response.spreadsheetId || "";
+    }
+    if (sheetNameInput) {
+      sheetNameInput.value = response.sheetName || "";
+    }
+  } catch (error) {
+    console.error(error);
+    showConfigStatus("error", error.message || "Could not load configuration.");
+  }
+}
+
+async function saveSheetConfig() {
+  clearConfigStatus();
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "SAVE_SHEET_CONFIG",
+      spreadsheetId: spreadsheetIdInput?.value.trim() || "",
+      sheetName: sheetNameInput?.value.trim() || ""
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not save configuration.");
+    }
+
+    if (spreadsheetIdInput) {
+      spreadsheetIdInput.value = response.spreadsheetId || "";
+    }
+    if (sheetNameInput) {
+      sheetNameInput.value = response.sheetName || "";
+    }
+
+    showConfigStatus(
+      "success",
+      `Saved. Using tab "${response.sheetName}" in spreadsheet ${response.spreadsheetId}.`
+    );
+  } catch (error) {
+    console.error(error);
+    showConfigStatus("error", error.message || "Could not save configuration.");
+  }
 }
 
 function showStatus(type, message, titleText) {
@@ -326,9 +416,67 @@ chrome.runtime.onMessage.addListener((message) => {
   addLog(message.level, message.message, message.timestamp);
 });
 
+async function checkCompanyDuplicates() {
+  activeRunId = createRunId();
+
+  clearStatus();
+  clearLogs();
+  clearDeletedRows();
+
+  setSaveButtonsDisabled(true);
+  addLog("info", "Check Company Duplicates clicked. Scanning sheet...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "CHECK_COMPANY_DUPLICATES",
+      runId: activeRunId
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not check company duplicates.");
+    }
+
+    const duplicateCompanyCount = response.duplicateCompanyCount ?? 0;
+    const highlightedRowCount = response.highlightedRowCount ?? 0;
+    const rowCount = response.rowCount ?? 0;
+
+    if (rowCount === 0) {
+      showStatus("success", "The sheet has no rows yet.", "Done:");
+    } else if (duplicateCompanyCount === 0) {
+      showStatus(
+        "success",
+        `No company duplicates found among ${rowCount} row(s).`,
+        "Done:"
+      );
+    } else {
+      showStatus(
+        "success",
+        `Found ${duplicateCompanyCount} company${duplicateCompanyCount === 1 ? "" : "s"} with multiple applications. ${highlightedRowCount} row${highlightedRowCount === 1 ? "" : "s"} highlighted yellow in the sheet.`,
+        "Done:"
+      );
+    }
+
+    addLog("success", "Process completed successfully.");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Something went wrong.");
+    addLog("error", error.message || "Something went wrong.");
+  } finally {
+    setSaveButtonsDisabled(false);
+  }
+}
+
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
+checkCompanyDuplicatesButton?.addEventListener("click", checkCompanyDuplicates);
+
+configToggleButton?.addEventListener("click", () => {
+  const isOpen = configToggleButton.getAttribute("aria-expanded") === "true";
+  setConfigPanelOpen(!isOpen);
+});
+
+saveConfigButton?.addEventListener("click", saveSheetConfig);
 
 clearLogsButton?.addEventListener("click", () => {
   clearLogs();
@@ -383,3 +531,4 @@ updateLogsState();
 updateDeletedRowsState();
 updateClearNoteButtonState();
 loadNoteDraftFromStorage();
+loadSheetConfig();
