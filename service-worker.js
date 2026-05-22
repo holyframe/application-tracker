@@ -94,6 +94,9 @@ async function saveSheetConfig(
     throw new Error("Enter a valid Resume Google Doc URL or document ID.");
   }
 
+  const token = await getGoogleAccessToken();
+  await ensureSheetExists(token, spreadsheetId, sheetName);
+
   await chrome.storage.local.set({
     [SHEET_CONFIG_STORAGE_KEY]: {
       spreadsheetId,
@@ -571,6 +574,71 @@ async function getSheetIdByTitle(token, spreadsheetId, sheetTitle) {
   }
 
   return sheet.properties.sheetId;
+}
+
+async function ensureSheetExists(token, spreadsheetId, sheetTitle, runId) {
+  const fields = encodeURIComponent("sheets(properties(sheetId,title))");
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=${fields}`;
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Sheets API error: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const sheet = data.sheets?.find(
+    (s) => s.properties?.title === sheetTitle
+  );
+
+  if (sheet?.properties?.sheetId != null) {
+    return sheet.properties.sheetId;
+  }
+
+  if (runId) {
+    sendLog(runId, "info", `Sheet "${sheetTitle}" not found. Creating it...`);
+  }
+
+  const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+  const createResponse = await fetch(batchUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      requests: [
+        {
+          addSheet: {
+            properties: { title: sheetTitle }
+          }
+        }
+      ]
+    })
+  });
+
+  if (!createResponse.ok) {
+    const errorText = await createResponse.text();
+    throw new Error(`Google Sheets batchUpdate error: ${errorText}`);
+  }
+
+  const createData = await createResponse.json();
+  const newSheetId = createData.replies?.[0]?.addSheet?.properties?.sheetId;
+
+  if (newSheetId == null) {
+    throw new Error(`Failed to create sheet "${sheetTitle}".`);
+  }
+
+  if (runId) {
+    sendLog(runId, "success", `Created sheet tab "${sheetTitle}".`);
+  }
+
+  return newSheetId;
 }
 
 async function readSheetValuesAD(token, runId, sheetConfig) {
