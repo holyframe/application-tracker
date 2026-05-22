@@ -278,10 +278,19 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
 
   sendLog(runId, "success", `Found tab URL: ${tab.url}`);
 
+  const { resumeTemplateId } = await getSheetConfig();
+  const token = await getGoogleAccessToken();
+
+  const docTitle = tab.title || `Application ${new Date().toLocaleDateString()}`;
+  sendLog(runId, "info", "Creating resume copy...");
+  const resumeUrl = await copyResumeAndGetUrl(token, docTitle, resumeTemplateId, runId);
+  sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
+
   const row = [
     new Date().toISOString(),
     tab.title || "",
     urlForSheet,
+    resumeUrl,
     note || ""
   ];
 
@@ -323,13 +332,23 @@ async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
     `Found ${unpinnedWithUrl.length} non-pinned tab(s) with a URL (pinned tabs skipped).`
   );
 
+  const { resumeTemplateId } = await getSheetConfig();
+  const token = await getGoogleAccessToken();
   const timestamp = new Date().toISOString();
-  const rows = unpinnedWithUrl.map((t) => [
-    timestamp,
-    t.title || "",
-    normalizeUrlForStorage(t.url),
-    note || ""
-  ]);
+  const rows = [];
+
+  for (const t of unpinnedWithUrl) {
+    const docTitle = t.title || `Application ${new Date().toLocaleDateString()}`;
+    sendLog(runId, "info", `Creating resume copy for: ${t.title || t.url}`);
+    const resumeUrl = await copyResumeAndGetUrl(token, docTitle, resumeTemplateId, runId);
+    rows.push([
+      timestamp,
+      t.title || "",
+      normalizeUrlForStorage(t.url),
+      resumeUrl,
+      note || ""
+    ]);
+  }
 
   sendLog(runId, "info", "Preparing rows for Google Sheet...");
 
@@ -699,7 +718,7 @@ async function appendRowsToGoogleSheet(rows, runId) {
 
   sendLog(runId, "success", "Google authorization token received.");
 
-  const range = encodeURIComponent(`${sheetConfig.sheetName}!A:D`);
+  const range = encodeURIComponent(`${sheetConfig.sheetName}!A1`);
   const url =
     `https://sheets.googleapis.com/v4/spreadsheets/${sheetConfig.spreadsheetId}` +
     `/values/${range}:append?valueInputOption=USER_ENTERED` +
@@ -782,6 +801,31 @@ async function copyGoogleDocTemplate(token, title, templateId) {
   );
 
   return response;
+}
+
+async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
+  let response = await copyGoogleDocTemplate(token, title, resumeTemplateId);
+
+  if (response.status === 401 || response.status === 403) {
+    sendLog(runId, "info", "Resume copy auth error. Refreshing token and retrying...");
+    await clearCachedGoogleAccessToken(token);
+    const freshToken = await getGoogleAccessToken({ interactive: true });
+    response = await copyGoogleDocTemplate(freshToken, title, resumeTemplateId);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      formatGoogleApiError(errorText, "Could not copy resume template. Make sure your Google account can access the configured Resume Template doc.")
+    );
+  }
+
+  const file = await response.json();
+  if (!file.id) {
+    throw new Error("Google Drive API did not return a document ID for the resume copy.");
+  }
+
+  return `https://docs.google.com/document/d/${file.id}/edit`;
 }
 
 async function createGoogleDoc(_note, runId) {
