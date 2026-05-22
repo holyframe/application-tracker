@@ -63,7 +63,7 @@ function setConfigPanelOpen(isOpen) {
   if (!configToggleButton || !configPanel) return;
 
   configToggleButton.setAttribute("aria-expanded", String(isOpen));
-  configPanel.classList.toggle("is-hidden", !isOpen);
+  configPanel.classList.toggle("is-open", isOpen);
   configToggleButton.classList.toggle("is-open", isOpen);
 }
 

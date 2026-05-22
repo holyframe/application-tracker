@@ -126,39 +126,54 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   border: 0;
-  padding: 14px 16px;
+  padding: 10px 14px;
   cursor: pointer;
   background: transparent;
   color: var(--text);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 850;
   letter-spacing: -0.03em;
+  transition: background 160ms ease;
+}
+
+.config-toggle.is-open {
+  background: rgba(84, 87, 255, 0.06);
 }
 
 .config-toggle-label {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .config-toggle-icon {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
   color: var(--primary);
   background: rgba(84, 87, 255, 0.12);
+}
+
+.config-toggle-icon svg {
+  width: 14px;
+  height: 14px;
 }
 
 .config-chevron {
   display: grid;
   place-items: center;
   color: #5f6b8d;
-  transition: transform 160ms ease;
+  transition: transform 200ms ease;
+}
+
+.config-chevron svg {
+  width: 16px;
+  height: 16px;
 }
 
 .config-toggle.is-open .config-chevron {
@@ -167,37 +182,53 @@ h1 {
 
 .config-panel {
   display: grid;
-  gap: 10px;
-  padding: 0 16px 16px;
-  border-top: 1px solid var(--line);
+  grid-template-rows: 0fr;
+  border-top: 1px solid transparent;
+  transition:
+    grid-template-rows 220ms ease,
+    border-color 220ms ease;
 }
 
-.config-panel.is-hidden {
-  display: none;
+.config-panel.is-open {
+  grid-template-rows: 1fr;
+  border-top-color: var(--line);
+}
+
+.config-panel-inner {
+  overflow: hidden;
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  padding: 0 14px;
+  transition: padding 220ms ease;
+}
+
+.config-panel.is-open .config-panel-inner {
+  padding: 10px 14px 14px;
 }
 
 .config-help {
-  margin: 12px 0 0;
+  margin: 0;
   color: #5f6b8d;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .config-label {
   color: #323867;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 750;
 }
 
 .config-input {
   width: 100%;
-  height: 40px;
-  padding: 0 12px;
-  border: 1.5px solid rgba(84, 87, 255, 0.28);
-  border-radius: 12px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(84, 87, 255, 0.28);
+  border-radius: 10px;
   background: #ffffff;
   color: #050a24;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -209,15 +240,16 @@ h1 {
 
 .config-save-button {
   width: 100%;
-  min-height: 38px;
+  min-height: 32px;
+  padding: 6px 10px;
 }
 
 .config-status {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  font-size: 12px;
-  line-height: 1.45;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .config-status.is-hidden {
@@ -819,6 +851,10 @@ textarea:focus {
   .config-input {
     color: #ffffff;
     border-color: rgba(255, 255, 255, 0.24);
+  }
+
+  .config-toggle.is-open {
+    background: rgba(84, 87, 255, 0.12);
   }
 
   .config-help,

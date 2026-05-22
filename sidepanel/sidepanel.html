@@ -48,34 +48,36 @@
           </span>
         </button>
 
-        <div id="configPanel" class="config-panel is-hidden">
-          <p class="config-help">
-            Set the Google Sheet this extension saves to and manages.
-          </p>
+        <div id="configPanel" class="config-panel" role="region" aria-label="Configuration">
+          <div class="config-panel-inner">
+            <p class="config-help">
+              Set the Google Sheet this extension saves to and manages.
+            </p>
 
-          <label class="config-label" for="spreadsheetIdInput">Google Sheet URL or ID</label>
-          <input
-            id="spreadsheetIdInput"
-            type="text"
-            class="config-input"
-            placeholder="https://docs.google.com/spreadsheets/d/..."
-            autocomplete="off"
-          />
+            <label class="config-label" for="spreadsheetIdInput">Google Sheet URL or ID</label>
+            <input
+              id="spreadsheetIdInput"
+              type="text"
+              class="config-input"
+              placeholder="https://docs.google.com/spreadsheets/d/..."
+              autocomplete="off"
+            />
 
-          <label class="config-label" for="sheetNameInput">Sheet tab name</label>
-          <input
-            id="sheetNameInput"
-            type="text"
-            class="config-input"
-            placeholder="Sheet1"
-            autocomplete="off"
-          />
+            <label class="config-label" for="sheetNameInput">Sheet tab name</label>
+            <input
+              id="sheetNameInput"
+              type="text"
+              class="config-input"
+              placeholder="Sheet1"
+              autocomplete="off"
+            />
 
-          <button id="saveConfigButton" type="button" class="secondary-button config-save-button">
-            <span>Save configuration</span>
-          </button>
+            <button id="saveConfigButton" type="button" class="secondary-button config-save-button">
+              <span>Save configuration</span>
+            </button>
 
-          <p id="configStatus" class="config-status is-hidden" aria-live="polite"></p>
+            <p id="configStatus" class="config-status is-hidden" aria-live="polite"></p>
+          </div>
         </div>
       </section>
 
