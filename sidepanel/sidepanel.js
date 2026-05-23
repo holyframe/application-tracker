@@ -476,38 +476,20 @@ async function checkCompanyDuplicates() {
   }
 }
 
-async function createGoogleDocFromPanel() {
-  activeRunId = createRunId();
-
+async function openChatGptFromPanel() {
   clearStatus();
-  clearLogs();
-  clearDeletedRows();
-
-  setSaveButtonsDisabled(true);
-  addLog("info", "Apply Now clicked. Copying template...");
+  addLog("info", "Apply Now clicked. Opening ChatGPT...");
 
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: "CREATE_GOOGLE_DOC",
-      runId: activeRunId
+    await chrome.tabs.create({
+      url: "https://chatgpt.com",
+      active: true
     });
-
-    if (!response?.ok) {
-      throw new Error(response?.error || "Could not create Google Doc.");
-    }
-
-    showStatus(
-      "success",
-      response.url || "",
-      "Created:"
-    );
-    addLog("success", "Process completed successfully.");
+    addLog("success", "Opened ChatGPT.");
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
-  } finally {
-    setSaveButtonsDisabled(false);
+    showStatus("error", error.message || "Could not open ChatGPT.");
+    addLog("error", error.message || "Could not open ChatGPT.");
   }
 }
 
@@ -515,7 +497,7 @@ saveButton?.addEventListener("click", saveCurrentTabUrl);
 saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
 checkCompanyDuplicatesButton?.addEventListener("click", checkCompanyDuplicates);
-createGoogleDocButton?.addEventListener("click", createGoogleDocFromPanel);
+createGoogleDocButton?.addEventListener("click", openChatGptFromPanel);
 
 configToggleButton?.addEventListener("click", () => {
   const isOpen = configToggleButton.getAttribute("aria-expanded") === "true";

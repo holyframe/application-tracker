@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Save Current URL</title>
+    <title>Application Helper</title>
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
 
@@ -21,15 +21,15 @@
           <span>Chrome Side Panel</span>
         </div>
 
-        <h1>Save Current URL</h1>
+        <h1>Application Helper</h1>
       </header>
 
       <section class="card config-card">
         <button
           id="configToggleButton"
           type="button"
-          class="config-toggle"
-          aria-expanded="false"
+          class="config-toggle is-open"
+          aria-expanded="true"
           aria-controls="configPanel"
         >
           <span class="config-toggle-label">
@@ -48,7 +48,7 @@
           </span>
         </button>
 
-        <div id="configPanel" class="config-panel" role="region" aria-label="Configuration">
+        <div id="configPanel" class="config-panel is-open" role="region" aria-label="Configuration">
           <div class="config-panel-inner">
             <p class="config-help">
               Set the Google Sheet and Resume template used by this extension.
