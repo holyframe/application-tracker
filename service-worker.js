@@ -4,6 +4,7 @@
 const DEFAULT_SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
 const DEFAULT_SHEET_NAME = "Sheet1";
 const DEFAULT_RESUME_TEMPLATE_ID = "1oF1GQJ6bTEli1548HVyI91O803oQaeP8ec8Y81bj5zM";
+const CHATGPT_URL = "https://chatgpt.com";
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
 const TRACKING_PARAM_KEYS = new Set([
@@ -240,7 +241,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  run(message.note, message.runId)
+  const runPromise =
+    message.type === "SAVE_CURRENT_TAB_URL_TO_SHEET"
+      ? run(message.note, message.runId)
+      : run(message.runId);
+
+  runPromise
     .then((result) => sendResponse({ ok: true, ...result }))
     .catch((error) => {
       console.error(error);
@@ -294,6 +300,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
     tab.title || "",
     urlForSheet,
     resumeUrl,
+    CHATGPT_URL,
     note || ""
   ];
 
@@ -317,7 +324,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   };
 }
 
-async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
+async function saveAllOpenTabsUrlsToSheet(runId) {
   sendLog(runId, "info", "Starting save-all-tabs process...");
 
   const tabs = await chrome.tabs.query({});
@@ -349,7 +356,8 @@ async function saveAllOpenTabsUrlsToSheet(note = "", runId) {
       t.title || "",
       normalizeUrlForStorage(t.url),
       resumeUrl,
-      note || ""
+      CHATGPT_URL,
+      ""
     ]);
   }
 
@@ -434,7 +442,7 @@ function extractCompanyKey(rawUrl) {
   }
 }
 
-async function checkCompanyDuplicatesInSheet(_note, runId) {
+async function checkCompanyDuplicatesInSheet(runId) {
   sendLog(runId, "info", "Starting company duplicate check...");
 
   const token = await getGoogleAccessToken();
@@ -643,7 +651,7 @@ async function ensureSheetExists(token, spreadsheetId, sheetTitle, runId) {
 
 async function readSheetValuesAD(token, runId, sheetConfig) {
   const { spreadsheetId, sheetName } = sheetConfig;
-  const range = encodeURIComponent(`${sheetName}!A:D`);
+  const range = encodeURIComponent(`${sheetName}!A:F`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`;
 
   sendLog(runId, "info", `Reading rows from ${sheetName}...`);
@@ -702,7 +710,7 @@ async function batchDeleteSheetRows(token, spreadsheetId, sheetId, rowIndicesZer
   }
 }
 
-async function removeDuplicateUrlsFromSheet(_note, runId) {
+async function removeDuplicateUrlsFromSheet(runId) {
   sendLog(runId, "info", "Starting duplicate URL removal...");
 
   const token = await getGoogleAccessToken();
@@ -742,7 +750,9 @@ async function removeDuplicateUrlsFromSheet(_note, runId) {
       timestamp: row[0] || "",
       title: row[1] || "",
       url: row[2] || "",
-      note: row[3] || ""
+      resumeUrl: row[3] || "",
+      chatGptUrl: row[4] || "",
+      note: row[5] || ""
     };
   });
 
@@ -896,7 +906,7 @@ async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
   return `https://docs.google.com/document/d/${file.id}/edit`;
 }
 
-async function createGoogleDoc(_note, runId) {
+async function createGoogleDoc(runId) {
   sendLog(runId, "info", "Starting Google Doc creation...");
 
   const { resumeTemplateId } = await getSheetConfig();
