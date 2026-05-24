@@ -863,9 +863,13 @@ async function submitJobDescriptionForm() {
 function setConfigPanelOpen(isOpen) {
   if (!configToggleButton || !configPanel) return;
 
+  const scrollTop = document.documentElement.scrollTop;
+
   configToggleButton.setAttribute("aria-expanded", String(isOpen));
   configPanel.classList.toggle("is-open", isOpen);
   configToggleButton.classList.toggle("is-open", isOpen);
+
+  document.documentElement.scrollTop = scrollTop;
 }
 
 async function loadSheetConfig() {

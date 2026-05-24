@@ -1,4 +1,6 @@
 :root {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   color-scheme: light;
   --bg: #f7f8ff;
   --bg-soft: #ffffff;
@@ -17,10 +19,22 @@
   --danger-soft: rgba(199, 54, 76, 0.12);
   --shadow: 0 20px 60px rgba(22, 29, 72, 0.08);
   --shadow-small: 0 10px 28px rgba(22, 29, 72, 0.08);
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --input-height: 34px;
+  --button-height: 34px;
+  --card-padding: 14px;
+  --section-gap: 8px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   font-size: 14px;
+}
+
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
 }
 
 * {
@@ -44,9 +58,9 @@ input {
 
 .app {
   display: grid;
-  gap: 14px;
+  gap: var(--section-gap);
   min-height: 100vh;
-  padding: 18px 16px;
+  padding: var(--card-padding) 16px;
 }
 
 .hero {
@@ -91,7 +105,7 @@ p {
 }
 
 h1 {
-  font-size: clamp(26px, 7vw, 34px);
+  font-size: 28px;
   line-height: 1;
   letter-spacing: -0.05em;
   font-weight: 900;
@@ -102,7 +116,7 @@ h1 {
 .hero p {
   max-width: 35ch;
   color: #4d5572;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.45;
   letter-spacing: -0.02em;
 }
@@ -126,21 +140,21 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--section-gap);
   width: 100%;
   border: 0;
-  padding: 10px 14px;
+  padding: 10px var(--card-padding);
   cursor: pointer;
-  background: transparent;
+  background: rgba(84, 87, 255, 0.06);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 850;
   letter-spacing: -0.03em;
   transition: background 160ms ease;
 }
 
-.config-toggle.is-open {
-  background: rgba(84, 87, 255, 0.06);
+.config-toggle:hover {
+  background: rgba(84, 87, 255, 0.1);
 }
 
 .config-toggle-label {
@@ -183,34 +197,25 @@ h1 {
 .config-panel {
   display: grid;
   grid-template-rows: 0fr;
-  border-top: 1px solid transparent;
-  transition:
-    grid-template-rows 220ms ease,
-    border-color 220ms ease;
+  border-top: 1px solid var(--line);
 }
 
 .config-panel.is-open {
   grid-template-rows: 1fr;
-  border-top-color: var(--line);
 }
 
 .config-panel-inner {
   overflow: hidden;
   display: grid;
-  gap: 8px;
+  gap: var(--section-gap);
   min-height: 0;
-  padding: 0 14px;
-  transition: padding 220ms ease;
-}
-
-.config-panel.is-open .config-panel-inner {
-  padding: 10px 14px 14px;
+  padding: 10px var(--card-padding) var(--card-padding);
 }
 
 .config-help {
   margin: 0;
   color: #5f6b8d;
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.35;
 }
 
@@ -228,19 +233,19 @@ h1 {
 
 .config-label {
   color: #323867;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 750;
 }
 
 .config-input {
   width: 100%;
-  height: 34px;
+  height: var(--input-height);
   padding: 0 10px;
   border: 1px solid rgba(84, 87, 255, 0.28);
   border-radius: 10px;
   background: #ffffff;
   color: #050a24;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 650;
 }
 
@@ -252,7 +257,7 @@ h1 {
 
 .config-save-button {
   width: 100%;
-  min-height: 32px;
+  min-height: var(--button-height);
   padding: 6px 10px;
 }
 
@@ -260,7 +265,7 @@ h1 {
   margin: 0;
   padding: 8px 10px;
   border-radius: 8px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.35;
 }
 
@@ -282,15 +287,15 @@ h1 {
 
 .prompt-resume-selection-card {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--section-gap);
+  padding: var(--card-padding);
 }
 
 .prompt-resume-selection-help {
   margin: 0;
   color: #5f6b8d;
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: var(--text-xs);
+  line-height: 1.35;
 }
 
 .prompt-selection-section,
@@ -298,15 +303,15 @@ h1 {
 .application-save-section,
 .application-duplicate-section {
   display: grid;
-  gap: 8px;
+  gap: var(--section-gap);
   margin-top: 4px;
-  padding-top: 14px;
+  padding-top: 10px;
   border-top: 1px solid var(--line);
 }
 
 .job-description-selection-section {
   display: grid;
-  gap: 8px;
+  gap: var(--section-gap);
 }
 
 .prompt-selection-item.is-single,
@@ -317,14 +322,12 @@ h1 {
 .prompt-resume-icon {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 26px;
+  height: 26px;
   flex: 0 0 auto;
-  border-radius: 14px;
+  border-radius: 8px;
   color: var(--primary);
-  background:
-    linear-gradient(135deg, rgba(84, 87, 255, 0.2), rgba(84, 87, 255, 0.06)),
-    #f1f0ff;
+  background: rgba(84, 87, 255, 0.12);
 }
 
 .prompt-resume-list,
@@ -344,9 +347,9 @@ h1 {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.72);
   cursor: pointer;
   transition:
@@ -388,7 +391,7 @@ h1 {
 .prompt-resume-label,
 .prompt-selection-label,
 .job-description-selection-label {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--text);
@@ -486,7 +489,7 @@ h1 {
 
 .prompt-resume-add-button {
   width: 100%;
-  min-height: 34px;
+  min-height: var(--button-height);
 }
 
 .prompt-resume-list-empty,
@@ -530,7 +533,7 @@ h1 {
 
 .card-title-row h2,
 .logs-header h2 {
-  font-size: 17px;
+  font-size: var(--text-md);
   line-height: 1.15;
   letter-spacing: -0.04em;
   font-weight: 850;
@@ -540,13 +543,13 @@ textarea {
   width: 100%;
   min-height: 96px;
   resize: vertical;
-  border: 1.5px solid var(--line-strong);
-  border-radius: 12px;
+  border: 1px solid rgba(84, 87, 255, 0.28);
+  border-radius: 10px;
   outline: none;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.9);
+  padding: 10px;
+  background: #ffffff;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.45;
   transition:
     border-color 160ms ease,
@@ -562,32 +565,34 @@ textarea {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  height: 34px;
-  min-height: 34px;
-  max-height: 34px;
+  height: var(--input-height);
+  min-height: var(--input-height);
+  max-height: var(--input-height);
   padding: 0 34px 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--text);
-  -webkit-text-fill-color: var(--text);
-  caret-color: var(--text);
+  border: 1px solid rgba(84, 87, 255, 0.28);
+  border-radius: 10px;
+  color: #050a24;
+  -webkit-text-fill-color: #050a24;
+  caret-color: #050a24;
   opacity: 1;
   text-shadow: none;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 650;
   letter-spacing: -0.01em;
-  background: rgba(255, 255, 255, 0.72);
+  background: #ffffff;
   line-height: normal;
   appearance: none;
   transition:
     border-color 160ms ease,
+    box-shadow 160ms ease,
     background 160ms ease;
 }
 
 .prompt-resume-selection-card .note-input:focus {
   outline: none;
-  border-color: rgba(84, 87, 255, 0.55);
-  background: rgba(84, 87, 255, 0.08);
+  border-color: rgba(84, 87, 255, 0.65);
+  box-shadow: 0 0 0 4px rgba(84, 87, 255, 0.12);
+  background: #ffffff;
 }
 
 .prompt-resume-selection-card .note-input::placeholder {
@@ -647,19 +652,19 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  min-height: 42px;
+  min-height: var(--button-height);
   border: 0;
-  border-radius: 12px;
-  padding: 10px 14px;
+  border-radius: 10px;
+  padding: 6px 10px;
   cursor: pointer;
   background: linear-gradient(135deg, #686bff 0%, #4245e8 100%);
   box-shadow:
     0 12px 24px rgba(84, 87, 255, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
   color: #ffffff;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 850;
   letter-spacing: -0.02em;
   transition:
@@ -692,8 +697,8 @@ textarea:focus {
 }
 
 .button-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   stroke-width: 2.4;
 }
 
@@ -701,14 +706,14 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  min-height: 42px;
+  min-height: var(--button-height);
   border: 0;
-  border-radius: 12px;
-  padding: 10px 14px;
+  border-radius: 10px;
+  padding: 6px 10px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 850;
   letter-spacing: -0.02em;
   color: #ffffff;
@@ -741,8 +746,8 @@ textarea:focus {
 }
 
 .remove-duplicates-button .button-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   stroke-width: 2.4;
 }
 
@@ -750,14 +755,14 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  min-height: 42px;
+  min-height: var(--button-height);
   border: 0;
-  border-radius: 12px;
-  padding: 10px 14px;
+  border-radius: 10px;
+  padding: 6px 10px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 850;
   letter-spacing: -0.02em;
   color: #3d2e00;
@@ -790,8 +795,8 @@ textarea:focus {
 }
 
 .warning-button .button-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   stroke-width: 2.4;
 }
 
@@ -819,8 +824,8 @@ textarea:focus {
 
 .deleted-rows-card {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--section-gap);
+  padding: var(--card-padding);
 }
 
 .deleted-rows-card.is-hidden {
@@ -901,8 +906,8 @@ textarea:focus {
 
 .logs-card {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--section-gap);
+  padding: var(--card-padding);
 }
 
 .logs-header {
@@ -919,11 +924,12 @@ textarea:focus {
   gap: 6px;
   border: 1px solid rgba(84, 87, 255, 0.24);
   border-radius: 10px;
-  padding: 7px 10px;
+  padding: 6px 10px;
+  min-height: var(--button-height);
   cursor: pointer;
   background: rgba(255, 255, 255, 0.76);
   color: var(--primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 750;
   transition:
     background 160ms ease,
@@ -1159,7 +1165,7 @@ textarea:focus {
 .prompt-resume-form-modal .config-label,
 .prompt-form-modal .config-label,
 .job-description-form-modal .config-label {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .modal-actions {
@@ -1170,8 +1176,8 @@ textarea:focus {
 
 .modal-action-button {
   width: 100%;
-  min-height: 42px;
-  font-size: 13px;
+  min-height: var(--button-height);
+  font-size: var(--text-sm);
   font-weight: 850;
 }
 
@@ -1235,8 +1241,12 @@ textarea:focus {
     color: #c8cee3;
   }
 
-  .config-toggle.is-open {
+  .config-toggle {
     background: rgba(84, 87, 255, 0.12);
+  }
+
+  .config-toggle:hover {
+    background: rgba(84, 87, 255, 0.18);
   }
 
   .config-help,
@@ -1265,15 +1275,16 @@ textarea:focus {
 
   .prompt-resume-selection-card .note-input {
     background: rgba(25, 28, 45, 0.82);
-    color: var(--text);
-    -webkit-text-fill-color: var(--text);
-    caret-color: var(--text);
-    border-color: var(--line);
+    color: #ffffff;
+    -webkit-text-fill-color: #ffffff;
+    caret-color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.24);
   }
 
   .prompt-resume-selection-card .note-input:focus {
-    border-color: rgba(84, 87, 255, 0.55);
-    background: rgba(84, 87, 255, 0.12);
+    border-color: rgba(84, 87, 255, 0.65);
+    box-shadow: 0 0 0 4px rgba(84, 87, 255, 0.12);
+    background: rgba(25, 28, 45, 0.82);
   }
 
   .prompt-resume-selection-card .note-input::placeholder {
