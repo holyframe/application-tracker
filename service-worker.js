@@ -57,6 +57,15 @@ function createPromptResumeId() {
   return `prompt-resume-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function normalizePromptResumeUpdatedAt(value) {
+  const date = new Date(value ?? "");
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toISOString();
+}
+
 function normalizePromptResume(entry) {
   const label = String(entry?.label ?? entry?.name ?? "").trim();
   const content = String(entry?.content ?? entry?.docInput ?? "").trim();
@@ -65,10 +74,17 @@ function normalizePromptResume(entry) {
     return null;
   }
 
+  const isNew = !entry?.id;
+  const id = String(entry?.id || createPromptResumeId());
+  const storedUpdatedAt = normalizePromptResumeUpdatedAt(entry?.updatedAt);
+  const updatedAt =
+    storedUpdatedAt || (isNew ? new Date().toISOString() : "");
+
   return {
-    id: String(entry?.id || createPromptResumeId()),
+    id,
     label,
-    content
+    content,
+    updatedAt
   };
 }
 

@@ -23,7 +23,6 @@ const configStatus = document.querySelector("#configStatus");
 const promptResumeList = document.querySelector("#promptResumeList");
 const addPromptResumeButton = document.querySelector("#addPromptResumeButton");
 const editSelectedPromptResumeButton = document.querySelector("#editSelectedPromptResumeButton");
-const promptResumeSelectionStatus = document.querySelector("#promptResumeSelectionStatus");
 const promptResumeFormModal = document.querySelector("#promptResumeFormModal");
 const promptResumeFormModalTitle = document.querySelector("#promptResumeFormModalTitle");
 const promptResumeFormModalHelp = document.querySelector("#promptResumeFormModalHelp");
@@ -77,26 +76,6 @@ function clearConfigStatus() {
   if (configStatus) configStatus.textContent = "";
 }
 
-function showPromptResumeSelectionStatus(type, message) {
-  if (!promptResumeSelectionStatus) return;
-
-  promptResumeSelectionStatus.classList.remove("is-hidden", "is-error", "is-success");
-  promptResumeSelectionStatus.textContent = message;
-
-  if (type === "error") {
-    promptResumeSelectionStatus.classList.add("is-error");
-    return;
-  }
-
-  promptResumeSelectionStatus.classList.add("is-success");
-}
-
-function clearPromptResumeSelectionStatus() {
-  promptResumeSelectionStatus?.classList.add("is-hidden");
-  promptResumeSelectionStatus?.classList.remove("is-error", "is-success");
-  if (promptResumeSelectionStatus) promptResumeSelectionStatus.textContent = "";
-}
-
 function showPromptResumeFormModalStatus(type, message) {
   if (!promptResumeFormModalStatus) return;
 
@@ -128,6 +107,24 @@ function truncatePreviewText(text = "", maxLength = 60) {
   }
 
   return `${singleLine.slice(0, maxLength - 3)}...`;
+}
+
+function formatPromptResumeUpdatedAt(updatedAt = "") {
+  const iso = normalizePromptResumeUpdatedAtForDisplay(updatedAt);
+  if (!iso) {
+    return "";
+  }
+
+  return `Updated ${new Date(iso).toLocaleString()}`;
+}
+
+function normalizePromptResumeUpdatedAtForDisplay(value) {
+  const date = new Date(value ?? "");
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toISOString();
 }
 
 function updatePromptResumeFormModalCopy() {
@@ -180,6 +177,7 @@ function setPromptResumeFormModalOpen(isOpen) {
 }
 
 function openAddPromptResumeModal() {
+  addLog("info", "Add a Prompt Resume clicked.");
   promptResumeFormMode = "add";
   editingPromptResumeId = null;
   resetPromptResumeFormModal();
@@ -192,9 +190,12 @@ function openEditPromptResumeModal(promptResumeId) {
   );
 
   if (!promptResume) {
-    showPromptResumeSelectionStatus("error", "Selected prompt resume could not be found.");
+    const message = "Selected prompt resume could not be found.";
+    addLog("error", message);
     return;
   }
+
+  addLog("info", `Editing prompt resume: ${promptResume.label}`);
 
   promptResumeFormMode = "edit";
   editingPromptResumeId = promptResume.id;
@@ -245,8 +246,6 @@ function renderPromptResumeList() {
     return;
   }
 
-  const canRemove = promptResumeSelectionState.promptResumes.length > 1;
-
   promptResumeSelectionState.promptResumes.forEach((promptResume) => {
     const item = document.createElement("li");
     item.className = "prompt-resume-item";
@@ -276,12 +275,19 @@ function renderPromptResumeList() {
 
     copy.append(label, preview);
 
+    const updatedAtText = formatPromptResumeUpdatedAt(promptResume.updatedAt);
+    if (updatedAtText) {
+      const updated = document.createElement("span");
+      updated.className = "prompt-resume-updated";
+      updated.textContent = updatedAtText;
+      copy.append(updated);
+    }
+
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "prompt-resume-remove";
     removeButton.textContent = "×";
     removeButton.setAttribute("aria-label", `Remove ${promptResume.label}`);
-    removeButton.disabled = !canRemove;
     removeButton.addEventListener("click", (event) => {
       event.stopPropagation();
       removePromptResume(promptResume.id);
@@ -304,8 +310,6 @@ function renderPromptResumeList() {
 }
 
 async function loadPromptResumeSelection() {
-  clearPromptResumeSelectionStatus();
-
   try {
     const response = await chrome.runtime.sendMessage({
       type: "GET_PROMPT_RESUME_SELECTION"
@@ -324,10 +328,8 @@ async function loadPromptResumeSelection() {
     renderPromptResumeList();
   } catch (error) {
     console.error(error);
-    showPromptResumeSelectionStatus(
-      "error",
-      error.message || "Could not load prompt resumes."
-    );
+    const message = error.message || "Could not load prompt resumes.";
+    addLog("error", message);
   }
 }
 
@@ -351,7 +353,7 @@ async function persistPromptResumeSelection(successMessage) {
   renderPromptResumeList();
 
   if (successMessage) {
-    showPromptResumeSelectionStatus("success", successMessage);
+    addLog("success", successMessage);
   }
 }
 
@@ -360,25 +362,27 @@ async function selectPromptResume(promptResumeId) {
     return;
   }
 
-  clearPromptResumeSelectionStatus();
+  const promptResume = promptResumeSelectionState.promptResumes.find(
+    (entry) => entry.id === promptResumeId
+  );
   promptResumeSelectionState.selectedPromptResumeId = promptResumeId;
+  addLog("info", `Selected prompt resume: ${promptResume?.label || promptResumeId}`);
 
   try {
     await persistPromptResumeSelection("Prompt resume selection updated.");
   } catch (error) {
     console.error(error);
-    showPromptResumeSelectionStatus("error", error.message || "Could not update selection.");
+    const message = error.message || "Could not update selection.";
+    addLog("error", message);
     await loadPromptResumeSelection();
   }
 }
 
 async function removePromptResume(promptResumeId) {
-  clearPromptResumeSelectionStatus();
-
-  if (promptResumeSelectionState.promptResumes.length <= 1) {
-    showPromptResumeSelectionStatus("error", "Keep at least one prompt resume.");
-    return;
-  }
+  const removed = promptResumeSelectionState.promptResumes.find(
+    (entry) => entry.id === promptResumeId
+  );
+  addLog("info", `Removing prompt resume: ${removed?.label || promptResumeId}`);
 
   promptResumeSelectionState.promptResumes =
     promptResumeSelectionState.promptResumes.filter(
@@ -391,10 +395,15 @@ async function removePromptResume(promptResumeId) {
   }
 
   try {
-    await persistPromptResumeSelection("Prompt resume removed.");
+    const message =
+      promptResumeSelectionState.promptResumes.length === 0
+        ? "All prompt resumes removed."
+        : "Prompt resume removed.";
+    await persistPromptResumeSelection(message);
   } catch (error) {
     console.error(error);
-    showPromptResumeSelectionStatus("error", error.message || "Could not remove prompt resume.");
+    const message = error.message || "Could not remove prompt resume.";
+    addLog("error", message);
     await loadPromptResumeSelection();
   }
 }
@@ -406,29 +415,39 @@ async function submitPromptResumeForm() {
   const content = promptResumeContentInput?.value.trim() || "";
 
   if (!label) {
-    showPromptResumeFormModalStatus("error", "Enter a label for the prompt resume.");
+    const message = "Enter a label for the prompt resume.";
+    showPromptResumeFormModalStatus("error", message);
+    addLog("error", message);
     promptResumeLabelInput?.focus();
     return;
   }
 
   if (!content) {
-    showPromptResumeFormModalStatus("error", "Enter the prompt resume text.");
+    const message = "Enter the prompt resume text.";
+    showPromptResumeFormModalStatus("error", message);
+    addLog("error", message);
     promptResumeContentInput?.focus();
     return;
   }
+
+  const isEdit = promptResumeFormMode === "edit" && editingPromptResumeId;
+  addLog(
+    "info",
+    isEdit ? `Saving prompt resume changes: ${label}` : `Adding prompt resume: ${label}`
+  );
 
   if (promptResumeFormModalSubmitButton) {
     promptResumeFormModalSubmitButton.disabled = true;
   }
 
-  const isEdit = promptResumeFormMode === "edit" && editingPromptResumeId;
+  const updatedAt = new Date().toISOString();
   const promptResumes = isEdit
     ? promptResumeSelectionState.promptResumes.map((entry) =>
         entry.id === editingPromptResumeId
-          ? { id: entry.id, label, content }
+          ? { id: entry.id, label, content, updatedAt }
           : entry
       )
-    : [...promptResumeSelectionState.promptResumes, { label, content }];
+    : [...promptResumeSelectionState.promptResumes, { label, content, updatedAt }];
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -453,17 +472,15 @@ async function submitPromptResumeForm() {
 
     setPromptResumeFormModalOpen(false);
     renderPromptResumeList();
-    showPromptResumeSelectionStatus(
-      "success",
-      isEdit ? `"${label}" updated.` : `"${label}" added.`
-    );
+    const successMessage = isEdit ? `"${label}" updated.` : `"${label}" added.`;
+    addLog("success", successMessage);
   } catch (error) {
     console.error(error);
-    showPromptResumeFormModalStatus(
-      "error",
+    const message =
       error.message ||
-        (isEdit ? "Could not update prompt resume." : "Could not add prompt resume.")
-    );
+      (isEdit ? "Could not update prompt resume." : "Could not add prompt resume.");
+    showPromptResumeFormModalStatus("error", message);
+    addLog("error", message);
   } finally {
     if (promptResumeFormModalSubmitButton) {
       promptResumeFormModalSubmitButton.disabled = false;
@@ -506,6 +523,7 @@ async function loadSheetConfig() {
 
 async function saveSheetConfig() {
   clearConfigStatus();
+  addLog("info", "Save configuration clicked.");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -529,13 +547,14 @@ async function saveSheetConfig() {
       resumeTemplateInput.value = response.resumeTemplateId || "";
     }
 
-    showConfigStatus(
-      "success",
-      `Saved. Sheet tab "${response.sheetName}", Resume template configured.`
-    );
+    const successMessage = `Saved. Sheet tab "${response.sheetName}", Resume template configured.`;
+    showConfigStatus("success", successMessage);
+    addLog("success", successMessage);
   } catch (error) {
     console.error(error);
-    showConfigStatus("error", error.message || "Could not save configuration.");
+    const message = error.message || "Could not save configuration.";
+    showConfigStatus("error", message);
+    addLog("error", message);
   }
 }
 
@@ -641,7 +660,6 @@ async function saveCurrentTabUrl() {
   activeRunId = createRunId();
 
   clearStatus();
-  clearLogs();
   clearDeletedRows();
 
   setSaveButtonsDisabled(true);
@@ -698,7 +716,6 @@ async function removeDuplicateSheetRows() {
   activeRunId = createRunId();
 
   clearStatus();
-  clearLogs();
   clearDeletedRows();
 
   setSaveButtonsDisabled(true);
@@ -755,7 +772,6 @@ async function saveAllOpenTabUrls() {
   activeRunId = createRunId();
 
   clearStatus();
-  clearLogs();
   clearDeletedRows();
 
   const noteValue = noteInput?.value.trim() || "";
@@ -800,7 +816,6 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "HOTKEY_SAVE_STARTED") {
     activeRunId = message.runId;
     clearStatus();
-    clearLogs();
     clearDeletedRows();
     setSaveButtonsDisabled(true);
     addLog("info", "Hotkey detected. Starting save process...");
@@ -839,7 +854,6 @@ async function checkCompanyDuplicates() {
   activeRunId = createRunId();
 
   clearStatus();
-  clearLogs();
   clearDeletedRows();
 
   setSaveButtonsDisabled(true);
@@ -920,6 +934,7 @@ document.addEventListener("keydown", (event) => {
 
 clearLogsButton?.addEventListener("click", () => {
   clearLogs();
+  addLog("info", "Process logs cleared.");
 });
 
 clearNoteButton?.addEventListener("click", () => {
