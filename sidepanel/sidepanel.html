@@ -178,9 +178,9 @@
         </button>
       </section>
 
-      <section class="card resume-selection-card">
+      <section class="card prompt-resume-selection-card">
         <div class="card-title-row">
-          <span class="resume-icon" aria-hidden="true">
+          <span class="prompt-resume-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
               <path d="M7 3h7l4 4v14H7z" />
               <path d="M14 3v5h5" />
@@ -193,25 +193,25 @@
           <h2>Prompt Resume Selection</h2>
         </div>
 
-        <p class="resume-selection-help">
+        <p class="prompt-resume-selection-help">
           Choose which prompt resume to use when optimizing resume.
         </p>
 
-        <ul id="resumeTemplatesList" class="resume-templates-list" aria-label="Resumes"></ul>
+        <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
 
         <button
-          id="editSelectedResumeButton"
+          id="editSelectedPromptResumeButton"
           type="button"
-          class="secondary-button resume-edit-button is-hidden"
+          class="secondary-button prompt-resume-edit-button is-hidden"
         >
-          <span>View / Edit Selected Resume</span>
+          <span>View / Edit Selected Prompt Resume</span>
         </button>
 
-        <button id="addResumeTemplateButton" type="button" class="secondary-button resume-add-button">
-          <span>Add Resume</span>
+        <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
+          <span>Add a Prompt Resume</span>
         </button>
 
-        <p id="resumeSelectionStatus" class="config-status is-hidden" aria-live="polite"></p>
+        <p id="promptResumeSelectionStatus" class="config-status is-hidden" aria-live="polite"></p>
       </section>
 
       <section id="statusCard" class="status-card is-hidden" aria-live="polite">
@@ -290,25 +290,25 @@
     </main>
 
     <div
-      id="addResumeModal"
+      id="promptResumeFormModal"
       class="modal is-hidden"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="addResumeModalTitle"
+      aria-labelledby="promptResumeFormModalTitle"
       aria-hidden="true"
     >
       <button
-        id="addResumeModalBackdrop"
+        id="promptResumeFormModalBackdrop"
         type="button"
         class="modal-backdrop"
-        aria-label="Close add resume dialog"
+        aria-label="Close prompt resume dialog"
       ></button>
 
       <div class="modal-panel">
         <div class="modal-header">
-          <h2 id="addResumeModalTitle">Add Resume</h2>
+          <h2 id="promptResumeFormModalTitle">Add a Prompt Resume</h2>
           <button
-            id="addResumeModalCloseButton"
+            id="promptResumeFormModalCloseButton"
             type="button"
             class="modal-close-button"
             aria-label="Close"
@@ -317,13 +317,13 @@
           </button>
         </div>
 
-        <p id="addResumeModalHelp" class="modal-help">Add a labeled resume Google Doc to your selection list.</p>
+        <p id="promptResumeFormModalHelp" class="modal-help">Add a label and the prompt resume text.</p>
 
         <div class="modal-form">
           <div class="config-field">
-            <label class="config-label" for="newResumeNameInput">Label</label>
+            <label class="config-label" for="promptResumeLabelInput">Label</label>
             <input
-              id="newResumeNameInput"
+              id="promptResumeLabelInput"
               type="text"
               class="config-input"
               placeholder="e.g. Frontend"
@@ -332,26 +332,25 @@
           </div>
 
           <div class="config-field">
-            <label class="config-label" for="newResumeDocInput">Google Doc URL or ID</label>
-            <input
-              id="newResumeDocInput"
-              type="text"
-              class="config-input"
-              placeholder="https://docs.google.com/document/d/..."
-              autocomplete="off"
-            />
+            <label class="config-label" for="promptResumeContentInput">Prompt resume text</label>
+            <textarea
+              id="promptResumeContentInput"
+              class="prompt-resume-content-input"
+              placeholder="Paste or type the prompt resume content..."
+              rows="8"
+            ></textarea>
           </div>
         </div>
 
-        <p id="addResumeModalStatus" class="config-status is-hidden" aria-live="polite"></p>
+        <p id="promptResumeFormModalStatus" class="config-status is-hidden" aria-live="polite"></p>
 
         <div class="modal-actions">
-          <button id="addResumeModalCancelButton" type="button" class="secondary-button modal-action-button">
+          <button id="promptResumeFormModalCancelButton" type="button" class="secondary-button modal-action-button">
             <span>Cancel</span>
           </button>
 
-          <button id="addResumeModalSubmitButton" type="button" class="primary-button modal-action-button">
-            <span>Add Resume</span>
+          <button id="promptResumeFormModalSubmitButton" type="button" class="primary-button modal-action-button">
+            <span>Add a Prompt Resume</span>
           </button>
         </div>
       </div>

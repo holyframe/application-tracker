@@ -7,7 +7,8 @@ const DEFAULT_RESUME_TEMPLATE_ID = "1oF1GQJ6bTEli1548HVyI91O803oQaeP8ec8Y81bj5zM
 const CHATGPT_URL = "https://chatgpt.com";
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
-const RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
+const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
+const LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -48,63 +49,99 @@ function parseGoogleDocId(input) {
   return raw;
 }
 
-function createResumeTemplateId() {
+function createPromptResumeId() {
   if (crypto.randomUUID) {
     return crypto.randomUUID();
   }
 
-  return `resume-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `prompt-resume-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function normalizeResumeEntry(entry) {
-  const name = String(entry?.name ?? "").trim();
-  const docId = parseGoogleDocId(entry?.docId || entry?.docInput || "");
+function normalizePromptResume(entry) {
+  const label = String(entry?.label ?? entry?.name ?? "").trim();
+  const content = String(entry?.content ?? entry?.docInput ?? "").trim();
 
-  if (!name || !docId) {
+  if (!label || !content) {
     return null;
   }
 
   return {
-    id: String(entry?.id || createResumeTemplateId()),
-    name,
-    docId
+    id: String(entry?.id || createPromptResumeId()),
+    label,
+    content
   };
 }
 
-async function getResumeSelectionState() {
-  const stored = await chrome.storage.local.get(RESUME_SELECTION_STORAGE_KEY);
-  const selection = stored[RESUME_SELECTION_STORAGE_KEY];
+async function loadPromptResumeSelectionRecord() {
+  const stored = await chrome.storage.local.get([
+    PROMPT_RESUME_SELECTION_STORAGE_KEY,
+    LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY
+  ]);
 
-  if (selection) {
-    const templates = (Array.isArray(selection.templates) ? selection.templates : [])
-      .map(normalizeResumeEntry)
-      .filter(Boolean);
-
-    const selectedId = templates.some(
-      (entry) => entry.id === selection.selectedId
-    )
-      ? selection.selectedId
-      : templates[0]?.id || "";
-
-    return { templates, selectedId };
+  if (stored[PROMPT_RESUME_SELECTION_STORAGE_KEY]) {
+    return stored[PROMPT_RESUME_SELECTION_STORAGE_KEY];
   }
 
-  return { templates: [], selectedId: "" };
+  if (stored[LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY]) {
+    const legacy = stored[LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY];
+    const migrated = {
+      promptResumes: legacy.promptResumes ?? legacy.templates ?? [],
+      selectedPromptResumeId:
+        legacy.selectedPromptResumeId ?? legacy.selectedId ?? ""
+    };
+
+    await chrome.storage.local.set({
+      [PROMPT_RESUME_SELECTION_STORAGE_KEY]: migrated
+    });
+
+    return migrated;
+  }
+
+  return null;
 }
 
-async function saveResumeSelectionState(templatesInput, selectedIdInput) {
-  const templates = (Array.isArray(templatesInput) ? templatesInput : [])
-    .map(normalizeResumeEntry)
+async function getPromptResumeSelectionState() {
+  const selection = await loadPromptResumeSelectionRecord();
+
+  if (selection) {
+    const promptResumes = (
+      Array.isArray(selection.promptResumes) ? selection.promptResumes : []
+    )
+      .map(normalizePromptResume)
+      .filter(Boolean);
+
+    const selectedPromptResumeId = promptResumes.some(
+      (entry) => entry.id === selection.selectedPromptResumeId
+    )
+      ? selection.selectedPromptResumeId
+      : promptResumes[0]?.id || "";
+
+    return { promptResumes, selectedPromptResumeId };
+  }
+
+  return { promptResumes: [], selectedPromptResumeId: "" };
+}
+
+async function savePromptResumeSelectionState(
+  promptResumesInput,
+  selectedPromptResumeIdInput
+) {
+  const promptResumes = (
+    Array.isArray(promptResumesInput) ? promptResumesInput : []
+  )
+    .map(normalizePromptResume)
     .filter(Boolean);
 
-  const selectedId = templates.some((entry) => entry.id === selectedIdInput)
-    ? selectedIdInput
-    : templates[0]?.id || "";
+  const selectedPromptResumeId = promptResumes.some(
+    (entry) => entry.id === selectedPromptResumeIdInput
+  )
+    ? selectedPromptResumeIdInput
+    : promptResumes[0]?.id || "";
 
-  const state = { templates, selectedId };
+  const state = { promptResumes, selectedPromptResumeId };
 
   await chrome.storage.local.set({
-    [RESUME_SELECTION_STORAGE_KEY]: state
+    [PROMPT_RESUME_SELECTION_STORAGE_KEY]: state
   });
 
   return state;
@@ -292,25 +329,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "GET_RESUME_SELECTION") {
-    getResumeSelectionState()
+  if (message.type === "GET_PROMPT_RESUME_SELECTION") {
+    getPromptResumeSelectionState()
       .then((state) => sendResponse({ ok: true, ...state }))
       .catch((error) => {
         sendResponse({
           ok: false,
-          error: error.message || "Could not load resume selection."
+          error: error.message || "Could not load prompt resume selection."
         });
       });
     return true;
   }
 
-  if (message.type === "SAVE_RESUME_SELECTION") {
-    saveResumeSelectionState(message.templates, message.selectedId)
+  if (message.type === "SAVE_PROMPT_RESUME_SELECTION") {
+    savePromptResumeSelectionState(
+      message.promptResumes ?? message.templates,
+      message.selectedPromptResumeId ?? message.selectedId
+    )
       .then((state) => sendResponse({ ok: true, ...state }))
       .catch((error) => {
         sendResponse({
           ok: false,
-          error: error.message || "Could not save resume selection."
+          error: error.message || "Could not save prompt resume selection."
         });
       });
     return true;

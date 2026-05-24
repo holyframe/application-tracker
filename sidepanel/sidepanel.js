@@ -20,20 +20,20 @@ const sheetNameInput = document.querySelector("#sheetNameInput");
 const resumeTemplateInput = document.querySelector("#resumeTemplateInput");
 const saveConfigButton = document.querySelector("#saveConfigButton");
 const configStatus = document.querySelector("#configStatus");
-const resumeTemplatesList = document.querySelector("#resumeTemplatesList");
-const addResumeTemplateButton = document.querySelector("#addResumeTemplateButton");
-const editSelectedResumeButton = document.querySelector("#editSelectedResumeButton");
-const resumeSelectionStatus = document.querySelector("#resumeSelectionStatus");
-const addResumeModal = document.querySelector("#addResumeModal");
-const addResumeModalTitle = document.querySelector("#addResumeModalTitle");
-const addResumeModalHelp = document.querySelector("#addResumeModalHelp");
-const addResumeModalBackdrop = document.querySelector("#addResumeModalBackdrop");
-const addResumeModalCloseButton = document.querySelector("#addResumeModalCloseButton");
-const addResumeModalCancelButton = document.querySelector("#addResumeModalCancelButton");
-const addResumeModalSubmitButton = document.querySelector("#addResumeModalSubmitButton");
-const addResumeModalStatus = document.querySelector("#addResumeModalStatus");
-const newResumeNameInput = document.querySelector("#newResumeNameInput");
-const newResumeDocInput = document.querySelector("#newResumeDocInput");
+const promptResumeList = document.querySelector("#promptResumeList");
+const addPromptResumeButton = document.querySelector("#addPromptResumeButton");
+const editSelectedPromptResumeButton = document.querySelector("#editSelectedPromptResumeButton");
+const promptResumeSelectionStatus = document.querySelector("#promptResumeSelectionStatus");
+const promptResumeFormModal = document.querySelector("#promptResumeFormModal");
+const promptResumeFormModalTitle = document.querySelector("#promptResumeFormModalTitle");
+const promptResumeFormModalHelp = document.querySelector("#promptResumeFormModalHelp");
+const promptResumeFormModalBackdrop = document.querySelector("#promptResumeFormModalBackdrop");
+const promptResumeFormModalCloseButton = document.querySelector("#promptResumeFormModalCloseButton");
+const promptResumeFormModalCancelButton = document.querySelector("#promptResumeFormModalCancelButton");
+const promptResumeFormModalSubmitButton = document.querySelector("#promptResumeFormModalSubmitButton");
+const promptResumeFormModalStatus = document.querySelector("#promptResumeFormModalStatus");
+const promptResumeLabelInput = document.querySelector("#promptResumeLabelInput");
+const promptResumeContentInput = document.querySelector("#promptResumeContentInput");
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 
 let activeRunId = null;
@@ -52,9 +52,9 @@ function setSaveButtonsDisabled(disabled) {
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
   if (checkCompanyDuplicatesButton) checkCompanyDuplicatesButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
-  if (addResumeTemplateButton) addResumeTemplateButton.disabled = disabled;
-  if (editSelectedResumeButton) editSelectedResumeButton.disabled = disabled;
-  if (addResumeModalSubmitButton) addResumeModalSubmitButton.disabled = disabled;
+  if (addPromptResumeButton) addPromptResumeButton.disabled = disabled;
+  if (editSelectedPromptResumeButton) editSelectedPromptResumeButton.disabled = disabled;
+  if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
 }
 
 function showConfigStatus(type, message) {
@@ -77,385 +77,396 @@ function clearConfigStatus() {
   if (configStatus) configStatus.textContent = "";
 }
 
-function showResumeSelectionStatus(type, message) {
-  if (!resumeSelectionStatus) return;
+function showPromptResumeSelectionStatus(type, message) {
+  if (!promptResumeSelectionStatus) return;
 
-  resumeSelectionStatus.classList.remove("is-hidden", "is-error", "is-success");
-  resumeSelectionStatus.textContent = message;
+  promptResumeSelectionStatus.classList.remove("is-hidden", "is-error", "is-success");
+  promptResumeSelectionStatus.textContent = message;
 
   if (type === "error") {
-    resumeSelectionStatus.classList.add("is-error");
+    promptResumeSelectionStatus.classList.add("is-error");
     return;
   }
 
-  resumeSelectionStatus.classList.add("is-success");
+  promptResumeSelectionStatus.classList.add("is-success");
 }
 
-function clearResumeSelectionStatus() {
-  resumeSelectionStatus?.classList.add("is-hidden");
-  resumeSelectionStatus?.classList.remove("is-error", "is-success");
-  if (resumeSelectionStatus) resumeSelectionStatus.textContent = "";
+function clearPromptResumeSelectionStatus() {
+  promptResumeSelectionStatus?.classList.add("is-hidden");
+  promptResumeSelectionStatus?.classList.remove("is-error", "is-success");
+  if (promptResumeSelectionStatus) promptResumeSelectionStatus.textContent = "";
 }
 
-function showAddResumeModalStatus(type, message) {
-  if (!addResumeModalStatus) return;
+function showPromptResumeFormModalStatus(type, message) {
+  if (!promptResumeFormModalStatus) return;
 
-  addResumeModalStatus.classList.remove("is-hidden", "is-error", "is-success");
-  addResumeModalStatus.textContent = message;
-  addResumeModalStatus.classList.add(type === "error" ? "is-error" : "is-success");
+  promptResumeFormModalStatus.classList.remove("is-hidden", "is-error", "is-success");
+  promptResumeFormModalStatus.textContent = message;
+  promptResumeFormModalStatus.classList.add(type === "error" ? "is-error" : "is-success");
 }
 
-function clearAddResumeModalStatus() {
-  addResumeModalStatus?.classList.add("is-hidden");
-  addResumeModalStatus?.classList.remove("is-error", "is-success");
-  if (addResumeModalStatus) addResumeModalStatus.textContent = "";
+function clearPromptResumeFormModalStatus() {
+  promptResumeFormModalStatus?.classList.add("is-hidden");
+  promptResumeFormModalStatus?.classList.remove("is-error", "is-success");
+  if (promptResumeFormModalStatus) promptResumeFormModalStatus.textContent = "";
 }
 
-function resetAddResumeModalForm() {
-  if (newResumeNameInput) newResumeNameInput.value = "";
-  if (newResumeDocInput) newResumeDocInput.value = "";
-  clearAddResumeModalStatus();
+function resetPromptResumeFormModal() {
+  if (promptResumeLabelInput) promptResumeLabelInput.value = "";
+  if (promptResumeContentInput) promptResumeContentInput.value = "";
+  clearPromptResumeFormModalStatus();
 }
 
-let resumeFormMode = "add";
-let editingResumeId = null;
+let promptResumeFormMode = "add";
+let editingPromptResumeId = null;
 
-function formatResumeDocInput(docId = "") {
-  if (!docId) {
-    return "";
+function truncatePreviewText(text = "", maxLength = 60) {
+  const singleLine = String(text).replace(/\s+/g, " ").trim();
+
+  if (singleLine.length <= maxLength) {
+    return singleLine;
   }
 
-  if (docId.includes("/")) {
-    return docId;
-  }
-
-  return `https://docs.google.com/document/d/${docId}/edit`;
+  return `${singleLine.slice(0, maxLength - 3)}...`;
 }
 
-function updateResumeFormModalCopy() {
-  const isEdit = resumeFormMode === "edit";
+function updatePromptResumeFormModalCopy() {
+  const isEdit = promptResumeFormMode === "edit";
 
-  if (addResumeModalTitle) {
-    addResumeModalTitle.textContent = isEdit ? "Edit Resume" : "Add Resume";
+  if (promptResumeFormModalTitle) {
+    promptResumeFormModalTitle.textContent = isEdit
+      ? "Edit Prompt Resume"
+      : "Add a Prompt Resume";
   }
 
-  if (addResumeModalHelp) {
-    addResumeModalHelp.textContent = isEdit
-      ? "View or update the selected resume details."
-      : "Add a labeled resume Google Doc to your selection list.";
+  if (promptResumeFormModalHelp) {
+    promptResumeFormModalHelp.textContent = isEdit
+      ? "View or update the prompt resume text."
+      : "Add a label and the prompt resume text.";
   }
 
-  if (addResumeModalSubmitButton) {
-    addResumeModalSubmitButton.textContent = isEdit ? "Save Changes" : "Add Resume";
+  if (promptResumeFormModalSubmitButton) {
+    promptResumeFormModalSubmitButton.textContent = isEdit
+      ? "Save Changes"
+      : "Add a Prompt Resume";
   }
 
-  if (addResumeModalBackdrop) {
-    addResumeModalBackdrop.setAttribute(
+  if (promptResumeFormModalBackdrop) {
+    promptResumeFormModalBackdrop.setAttribute(
       "aria-label",
-      isEdit ? "Close edit resume dialog" : "Close add resume dialog"
+      isEdit ? "Close edit prompt resume dialog" : "Close add prompt resume dialog"
     );
   }
 }
 
-function setAddResumeModalOpen(isOpen) {
-  if (!addResumeModal) return;
+function setPromptResumeFormModalOpen(isOpen) {
+  if (!promptResumeFormModal) return;
 
-  addResumeModal.classList.toggle("is-hidden", !isOpen);
-  addResumeModal.setAttribute("aria-hidden", String(!isOpen));
+  promptResumeFormModal.classList.toggle("is-hidden", !isOpen);
+  promptResumeFormModal.setAttribute("aria-hidden", String(!isOpen));
 
   if (isOpen) {
-    updateResumeFormModalCopy();
-    clearAddResumeModalStatus();
-    newResumeNameInput?.focus();
+    updatePromptResumeFormModalCopy();
+    clearPromptResumeFormModalStatus();
+    promptResumeLabelInput?.focus();
     return;
   }
 
-  resumeFormMode = "add";
-  editingResumeId = null;
-  resetAddResumeModalForm();
-  updateResumeFormModalCopy();
-  editSelectedResumeButton?.focus();
+  promptResumeFormMode = "add";
+  editingPromptResumeId = null;
+  resetPromptResumeFormModal();
+  updatePromptResumeFormModalCopy();
+  editSelectedPromptResumeButton?.focus();
 }
 
-function openAddResumeModal() {
-  resumeFormMode = "add";
-  editingResumeId = null;
-  resetAddResumeModalForm();
-  setAddResumeModalOpen(true);
+function openAddPromptResumeModal() {
+  promptResumeFormMode = "add";
+  editingPromptResumeId = null;
+  resetPromptResumeFormModal();
+  setPromptResumeFormModalOpen(true);
 }
 
-function openEditResumeModal(resumeId) {
-  const resume = resumeSelectionState.templates.find((entry) => entry.id === resumeId);
-
-  if (!resume) {
-    showResumeSelectionStatus("error", "Selected resume could not be found.");
-    return;
-  }
-
-  resumeFormMode = "edit";
-  editingResumeId = resume.id;
-
-  if (newResumeNameInput) newResumeNameInput.value = resume.name;
-  if (newResumeDocInput) newResumeDocInput.value = formatResumeDocInput(resume.docId);
-
-  setAddResumeModalOpen(true);
-}
-
-function openEditSelectedResumeModal() {
-  if (!resumeSelectionState.selectedId) {
-    return;
-  }
-
-  openEditResumeModal(resumeSelectionState.selectedId);
-}
-
-function updateEditSelectedResumeButton() {
-  if (!editSelectedResumeButton) return;
-
-  const hasSelection = resumeSelectionState.templates.some(
-    (entry) => entry.id === resumeSelectionState.selectedId
+function openEditPromptResumeModal(promptResumeId) {
+  const promptResume = promptResumeSelectionState.promptResumes.find(
+    (entry) => entry.id === promptResumeId
   );
 
-  editSelectedResumeButton.classList.toggle("is-hidden", !hasSelection);
-  editSelectedResumeButton.disabled = !hasSelection;
-}
-
-function truncateDocId(docId = "") {
-  if (docId.length <= 18) {
-    return docId;
-  }
-
-  return `${docId.slice(0, 8)}...${docId.slice(-6)}`;
-}
-
-let resumeSelectionState = {
-  templates: [],
-  selectedId: ""
-};
-
-function renderResumeTemplatesList() {
-  if (!resumeTemplatesList) return;
-
-  resumeTemplatesList.innerHTML = "";
-
-  if (resumeSelectionState.templates.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "resume-templates-empty";
-    empty.textContent = "No resumes yet. Add one below.";
-    resumeTemplatesList.appendChild(empty);
-    updateEditSelectedResumeButton();
+  if (!promptResume) {
+    showPromptResumeSelectionStatus("error", "Selected prompt resume could not be found.");
     return;
   }
 
-  const canRemove = resumeSelectionState.templates.length > 1;
+  promptResumeFormMode = "edit";
+  editingPromptResumeId = promptResume.id;
 
-  resumeSelectionState.templates.forEach((template) => {
+  if (promptResumeLabelInput) promptResumeLabelInput.value = promptResume.label;
+  if (promptResumeContentInput) {
+    promptResumeContentInput.value = promptResume.content || "";
+  }
+
+  setPromptResumeFormModalOpen(true);
+}
+
+function openEditSelectedPromptResumeModal() {
+  if (!promptResumeSelectionState.selectedPromptResumeId) {
+    return;
+  }
+
+  openEditPromptResumeModal(promptResumeSelectionState.selectedPromptResumeId);
+}
+
+function updateEditSelectedPromptResumeButton() {
+  if (!editSelectedPromptResumeButton) return;
+
+  const hasSelection = promptResumeSelectionState.promptResumes.some(
+    (entry) => entry.id === promptResumeSelectionState.selectedPromptResumeId
+  );
+
+  editSelectedPromptResumeButton.classList.toggle("is-hidden", !hasSelection);
+  editSelectedPromptResumeButton.disabled = !hasSelection;
+}
+
+let promptResumeSelectionState = {
+  promptResumes: [],
+  selectedPromptResumeId: ""
+};
+
+function renderPromptResumeList() {
+  if (!promptResumeList) return;
+
+  promptResumeList.innerHTML = "";
+
+  if (promptResumeSelectionState.promptResumes.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "prompt-resume-list-empty";
+    empty.textContent = "No prompt resumes yet. Add one below.";
+    promptResumeList.appendChild(empty);
+    updateEditSelectedPromptResumeButton();
+    return;
+  }
+
+  const canRemove = promptResumeSelectionState.promptResumes.length > 1;
+
+  promptResumeSelectionState.promptResumes.forEach((promptResume) => {
     const item = document.createElement("li");
-    item.className = "resume-template-item";
+    item.className = "prompt-resume-item";
     item.classList.toggle(
       "is-selected",
-      template.id === resumeSelectionState.selectedId
+      promptResume.id === promptResumeSelectionState.selectedPromptResumeId
     );
 
     const radio = document.createElement("input");
     radio.type = "radio";
-    radio.name = "resumeTemplate";
-    radio.value = template.id;
-    radio.checked = template.id === resumeSelectionState.selectedId;
-    radio.setAttribute("aria-label", `Use ${template.name}`);
+    radio.name = "promptResume";
+    radio.value = promptResume.id;
+    radio.checked =
+      promptResume.id === promptResumeSelectionState.selectedPromptResumeId;
+    radio.setAttribute("aria-label", `Use ${promptResume.label}`);
 
     const copy = document.createElement("div");
-    copy.className = "resume-template-copy";
+    copy.className = "prompt-resume-copy";
 
-    const name = document.createElement("span");
-    name.className = "resume-template-name";
-    name.textContent = template.name;
+    const label = document.createElement("span");
+    label.className = "prompt-resume-label";
+    label.textContent = promptResume.label;
 
-    const doc = document.createElement("span");
-    doc.className = "resume-template-doc";
-    doc.textContent = truncateDocId(template.docId);
+    const preview = document.createElement("span");
+    preview.className = "prompt-resume-preview";
+    preview.textContent = truncatePreviewText(promptResume.content);
 
-    copy.append(name, doc);
+    copy.append(label, preview);
 
     const removeButton = document.createElement("button");
     removeButton.type = "button";
-    removeButton.className = "resume-template-remove";
+    removeButton.className = "prompt-resume-remove";
     removeButton.textContent = "×";
-    removeButton.setAttribute("aria-label", `Remove ${template.name}`);
+    removeButton.setAttribute("aria-label", `Remove ${promptResume.label}`);
     removeButton.disabled = !canRemove;
     removeButton.addEventListener("click", (event) => {
       event.stopPropagation();
-      removeResumeTemplate(template.id);
+      removePromptResume(promptResume.id);
     });
 
     item.addEventListener("click", () => {
-      selectResumeTemplate(template.id);
+      selectPromptResume(promptResume.id);
     });
 
     radio.addEventListener("click", (event) => {
       event.stopPropagation();
-      selectResumeTemplate(template.id);
+      selectPromptResume(promptResume.id);
     });
 
     item.append(radio, copy, removeButton);
-    resumeTemplatesList.appendChild(item);
+    promptResumeList.appendChild(item);
   });
 
-  updateEditSelectedResumeButton();
+  updateEditSelectedPromptResumeButton();
 }
 
-async function loadResumeSelection() {
-  clearResumeSelectionStatus();
+async function loadPromptResumeSelection() {
+  clearPromptResumeSelectionStatus();
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: "GET_RESUME_SELECTION"
+      type: "GET_PROMPT_RESUME_SELECTION"
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error || "Could not load resumes.");
+      throw new Error(response?.error || "Could not load prompt resumes.");
     }
 
-    resumeSelectionState = {
-      templates: Array.isArray(response.templates) ? response.templates : [],
-      selectedId: response.selectedId || ""
+    promptResumeSelectionState = {
+      promptResumes: Array.isArray(response.promptResumes)
+        ? response.promptResumes
+        : [],
+      selectedPromptResumeId: response.selectedPromptResumeId || ""
     };
-    renderResumeTemplatesList();
+    renderPromptResumeList();
   } catch (error) {
     console.error(error);
-    showResumeSelectionStatus("error", error.message || "Could not load resumes.");
+    showPromptResumeSelectionStatus(
+      "error",
+      error.message || "Could not load prompt resumes."
+    );
   }
 }
 
-async function persistResumeSelection(successMessage) {
+async function persistPromptResumeSelection(successMessage) {
   const response = await chrome.runtime.sendMessage({
-    type: "SAVE_RESUME_SELECTION",
-    templates: resumeSelectionState.templates,
-    selectedId: resumeSelectionState.selectedId
+    type: "SAVE_PROMPT_RESUME_SELECTION",
+    promptResumes: promptResumeSelectionState.promptResumes,
+    selectedPromptResumeId: promptResumeSelectionState.selectedPromptResumeId
   });
 
   if (!response?.ok) {
-    throw new Error(response?.error || "Could not save resume selection.");
+    throw new Error(response?.error || "Could not save prompt resume selection.");
   }
 
-  resumeSelectionState = {
-    templates: Array.isArray(response.templates) ? response.templates : [],
-    selectedId: response.selectedId || ""
+  promptResumeSelectionState = {
+    promptResumes: Array.isArray(response.promptResumes)
+      ? response.promptResumes
+      : [],
+    selectedPromptResumeId: response.selectedPromptResumeId || ""
   };
-  renderResumeTemplatesList();
+  renderPromptResumeList();
 
   if (successMessage) {
-    showResumeSelectionStatus("success", successMessage);
+    showPromptResumeSelectionStatus("success", successMessage);
   }
 }
 
-async function selectResumeTemplate(templateId) {
-  if (templateId === resumeSelectionState.selectedId) {
+async function selectPromptResume(promptResumeId) {
+  if (promptResumeId === promptResumeSelectionState.selectedPromptResumeId) {
     return;
   }
 
-  clearResumeSelectionStatus();
-  resumeSelectionState.selectedId = templateId;
+  clearPromptResumeSelectionStatus();
+  promptResumeSelectionState.selectedPromptResumeId = promptResumeId;
 
   try {
-    await persistResumeSelection("Resume selection updated.");
+    await persistPromptResumeSelection("Prompt resume selection updated.");
   } catch (error) {
     console.error(error);
-    showResumeSelectionStatus("error", error.message || "Could not update selection.");
-    await loadResumeSelection();
+    showPromptResumeSelectionStatus("error", error.message || "Could not update selection.");
+    await loadPromptResumeSelection();
   }
 }
 
-async function removeResumeTemplate(templateId) {
-  clearResumeSelectionStatus();
+async function removePromptResume(promptResumeId) {
+  clearPromptResumeSelectionStatus();
 
-  if (resumeSelectionState.templates.length <= 1) {
-    showResumeSelectionStatus("error", "Keep at least one resume.");
+  if (promptResumeSelectionState.promptResumes.length <= 1) {
+    showPromptResumeSelectionStatus("error", "Keep at least one prompt resume.");
     return;
   }
 
-  resumeSelectionState.templates = resumeSelectionState.templates.filter(
-    (template) => template.id !== templateId
-  );
+  promptResumeSelectionState.promptResumes =
+    promptResumeSelectionState.promptResumes.filter(
+      (entry) => entry.id !== promptResumeId
+    );
 
-  if (resumeSelectionState.selectedId === templateId) {
-    resumeSelectionState.selectedId = resumeSelectionState.templates[0]?.id || "";
+  if (promptResumeSelectionState.selectedPromptResumeId === promptResumeId) {
+    promptResumeSelectionState.selectedPromptResumeId =
+      promptResumeSelectionState.promptResumes[0]?.id || "";
   }
 
   try {
-    await persistResumeSelection("Resume removed.");
+    await persistPromptResumeSelection("Prompt resume removed.");
   } catch (error) {
     console.error(error);
-    showResumeSelectionStatus("error", error.message || "Could not remove resume.");
-    await loadResumeSelection();
+    showPromptResumeSelectionStatus("error", error.message || "Could not remove prompt resume.");
+    await loadPromptResumeSelection();
   }
 }
 
-async function submitResumeForm() {
-  clearAddResumeModalStatus();
+async function submitPromptResumeForm() {
+  clearPromptResumeFormModalStatus();
 
-  const name = newResumeNameInput?.value.trim() || "";
-  const docInput = newResumeDocInput?.value.trim() || "";
+  const label = promptResumeLabelInput?.value.trim() || "";
+  const content = promptResumeContentInput?.value.trim() || "";
 
-  if (!name) {
-    showAddResumeModalStatus("error", "Enter a label for the resume.");
-    newResumeNameInput?.focus();
+  if (!label) {
+    showPromptResumeFormModalStatus("error", "Enter a label for the prompt resume.");
+    promptResumeLabelInput?.focus();
     return;
   }
 
-  if (!docInput) {
-    showAddResumeModalStatus("error", "Enter a Google Doc URL or document ID.");
-    newResumeDocInput?.focus();
+  if (!content) {
+    showPromptResumeFormModalStatus("error", "Enter the prompt resume text.");
+    promptResumeContentInput?.focus();
     return;
   }
 
-  if (addResumeModalSubmitButton) {
-    addResumeModalSubmitButton.disabled = true;
+  if (promptResumeFormModalSubmitButton) {
+    promptResumeFormModalSubmitButton.disabled = true;
   }
 
-  const isEdit = resumeFormMode === "edit" && editingResumeId;
-  const templates = isEdit
-    ? resumeSelectionState.templates.map((entry) =>
-        entry.id === editingResumeId
-          ? { id: entry.id, name, docInput }
+  const isEdit = promptResumeFormMode === "edit" && editingPromptResumeId;
+  const promptResumes = isEdit
+    ? promptResumeSelectionState.promptResumes.map((entry) =>
+        entry.id === editingPromptResumeId
+          ? { id: entry.id, label, content }
           : entry
       )
-    : [...resumeSelectionState.templates, { name, docInput }];
+    : [...promptResumeSelectionState.promptResumes, { label, content }];
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: "SAVE_RESUME_SELECTION",
-      templates,
-      selectedId: resumeSelectionState.selectedId
+      type: "SAVE_PROMPT_RESUME_SELECTION",
+      promptResumes,
+      selectedPromptResumeId: promptResumeSelectionState.selectedPromptResumeId
     });
 
     if (!response?.ok) {
       throw new Error(
         response?.error ||
-          (isEdit ? "Could not update resume." : "Could not add resume.")
+          (isEdit ? "Could not update prompt resume." : "Could not add prompt resume.")
       );
     }
 
-    resumeSelectionState = {
-      templates: Array.isArray(response.templates) ? response.templates : [],
-      selectedId: response.selectedId || ""
+    promptResumeSelectionState = {
+      promptResumes: Array.isArray(response.promptResumes)
+        ? response.promptResumes
+        : [],
+      selectedPromptResumeId: response.selectedPromptResumeId || ""
     };
 
-    setAddResumeModalOpen(false);
-    renderResumeTemplatesList();
-    showResumeSelectionStatus(
+    setPromptResumeFormModalOpen(false);
+    renderPromptResumeList();
+    showPromptResumeSelectionStatus(
       "success",
-      isEdit ? `"${name}" updated.` : `"${name}" added.`
+      isEdit ? `"${label}" updated.` : `"${label}" added.`
     );
   } catch (error) {
     console.error(error);
-    showAddResumeModalStatus(
+    showPromptResumeFormModalStatus(
       "error",
-      error.message || (isEdit ? "Could not update resume." : "Could not add resume.")
+      error.message ||
+        (isEdit ? "Could not update prompt resume." : "Could not add prompt resume.")
     );
   } finally {
-    if (addResumeModalSubmitButton) {
-      addResumeModalSubmitButton.disabled = false;
+    if (promptResumeFormModalSubmitButton) {
+      promptResumeFormModalSubmitButton.disabled = false;
     }
   }
 }
@@ -886,28 +897,25 @@ configToggleButton?.addEventListener("click", () => {
 
 saveConfigButton?.addEventListener("click", saveSheetConfig);
 
-addResumeTemplateButton?.addEventListener("click", openAddResumeModal);
-editSelectedResumeButton?.addEventListener("click", openEditSelectedResumeModal);
-addResumeModalBackdrop?.addEventListener("click", () => setAddResumeModalOpen(false));
-addResumeModalCloseButton?.addEventListener("click", () => setAddResumeModalOpen(false));
-addResumeModalCancelButton?.addEventListener("click", () => setAddResumeModalOpen(false));
-addResumeModalSubmitButton?.addEventListener("click", submitResumeForm);
-
-newResumeDocInput?.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" || event.isComposing) {
-    return;
-  }
-
-  event.preventDefault();
-  submitResumeForm();
-});
+addPromptResumeButton?.addEventListener("click", openAddPromptResumeModal);
+editSelectedPromptResumeButton?.addEventListener("click", openEditSelectedPromptResumeModal);
+promptResumeFormModalBackdrop?.addEventListener("click", () =>
+  setPromptResumeFormModalOpen(false)
+);
+promptResumeFormModalCloseButton?.addEventListener("click", () =>
+  setPromptResumeFormModalOpen(false)
+);
+promptResumeFormModalCancelButton?.addEventListener("click", () =>
+  setPromptResumeFormModalOpen(false)
+);
+promptResumeFormModalSubmitButton?.addEventListener("click", submitPromptResumeForm);
 
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape" || addResumeModal?.classList.contains("is-hidden")) {
+  if (event.key !== "Escape" || promptResumeFormModal?.classList.contains("is-hidden")) {
     return;
   }
 
-  setAddResumeModalOpen(false);
+  setPromptResumeFormModalOpen(false);
 });
 
 clearLogsButton?.addEventListener("click", () => {
@@ -964,4 +972,4 @@ updateDeletedRowsState();
 updateClearNoteButtonState();
 loadNoteDraftFromStorage();
 loadSheetConfig();
-loadResumeSelection();
+loadPromptResumeSelection();

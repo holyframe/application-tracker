@@ -286,20 +286,20 @@ h1 {
   padding: 16px;
 }
 
-.resume-selection-card {
+.prompt-resume-selection-card {
   display: grid;
   gap: 12px;
   padding: 16px;
 }
 
-.resume-selection-help {
+.prompt-resume-selection-help {
   margin: 0;
   color: #5f6b8d;
   font-size: 12px;
   line-height: 1.4;
 }
 
-.resume-icon {
+.prompt-resume-icon {
   display: grid;
   place-items: center;
   width: 38px;
@@ -312,7 +312,7 @@ h1 {
     #f1f0ff;
 }
 
-.resume-templates-list {
+.prompt-resume-list {
   display: grid;
   gap: 8px;
   margin: 0;
@@ -320,7 +320,7 @@ h1 {
   list-style: none;
 }
 
-.resume-template-item {
+.prompt-resume-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -335,16 +335,16 @@ h1 {
     background 160ms ease;
 }
 
-.resume-template-item:hover {
+.prompt-resume-item:hover {
   border-color: rgba(84, 87, 255, 0.35);
 }
 
-.resume-template-item.is-selected {
+.prompt-resume-item.is-selected {
   border-color: rgba(84, 87, 255, 0.55);
   background: rgba(84, 87, 255, 0.08);
 }
 
-.resume-template-item input[type="radio"] {
+.prompt-resume-item input[type="radio"] {
   width: 16px;
   height: 16px;
   margin: 0;
@@ -352,20 +352,20 @@ h1 {
   cursor: pointer;
 }
 
-.resume-template-copy {
+.prompt-resume-copy {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.resume-template-name {
+.prompt-resume-label {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--text);
 }
 
-.resume-template-doc {
+.prompt-resume-preview {
   font-size: 11px;
   color: var(--muted);
   overflow: hidden;
@@ -373,7 +373,7 @@ h1 {
   white-space: nowrap;
 }
 
-.resume-template-remove {
+.prompt-resume-remove {
   border: 0;
   border-radius: 999px;
   width: 28px;
@@ -386,27 +386,27 @@ h1 {
   line-height: 1;
 }
 
-.resume-template-remove:hover {
+.prompt-resume-remove:hover {
   color: var(--danger);
   background: var(--danger-soft);
 }
 
-.resume-template-remove:disabled {
+.prompt-resume-remove:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 
-.resume-add-button,
-.resume-edit-button {
+.prompt-resume-add-button,
+.prompt-resume-edit-button {
   width: 100%;
   min-height: 34px;
 }
 
-.resume-edit-button.is-hidden {
+.prompt-resume-edit-button.is-hidden {
   display: none;
 }
 
-.resume-templates-empty {
+.prompt-resume-list-empty {
   margin: 0;
   padding: 12px;
   border: 1px dashed var(--line-strong);
@@ -1045,6 +1045,11 @@ textarea:focus {
   gap: 8px;
 }
 
+.prompt-resume-content-input {
+  min-height: 160px;
+  resize: vertical;
+}
+
 .modal-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1101,15 +1106,15 @@ textarea:focus {
     border-color: rgba(255, 255, 255, 0.24);
   }
 
-  .resume-template-item {
+  .prompt-resume-item {
     background: rgba(25, 28, 45, 0.82);
   }
 
-  .resume-template-item.is-selected {
+  .prompt-resume-item.is-selected {
     background: rgba(84, 87, 255, 0.12);
   }
 
-  .resume-templates-empty {
+  .prompt-resume-list-empty {
     color: #c8cee3;
   }
 
