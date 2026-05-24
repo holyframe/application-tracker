@@ -10,6 +10,7 @@ const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
 const PROMPT_SELECTION_STORAGE_KEY = "promptSelection";
+const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -67,6 +68,10 @@ function normalizeUpdatedAt(value) {
   return date.toISOString();
 }
 
+function normalizePromptContent(value) {
+  return String(value ?? "").trim();
+}
+
 function normalizeLabeledTextEntry(entry, createId) {
   const label = String(entry?.label ?? entry?.name ?? "").trim();
   const content = String(entry?.content ?? entry?.docInput ?? "").trim();
@@ -90,66 +95,6 @@ function normalizeLabeledTextEntry(entry, createId) {
 
 function normalizePromptResume(entry) {
   return normalizeLabeledTextEntry(entry, createPromptResumeId);
-}
-
-function normalizeSinglePromptState(value) {
-  if (value && typeof value === "object" && !Array.isArray(value.prompts)) {
-    const content = String(value.content ?? "").trim();
-    const updatedAt = content ? normalizeUpdatedAt(value.updatedAt) : "";
-    const isSelected =
-      content && (value.isSelected === undefined ? true : Boolean(value.isSelected));
-
-    return { content, updatedAt, isSelected };
-  }
-
-  if (value && Array.isArray(value.prompts)) {
-    const prompts = value.prompts
-      .map((entry) => normalizeLabeledTextEntry(entry, createPromptResumeId))
-      .filter(Boolean);
-    const selected =
-      prompts.find((entry) => entry.id === value.selectedPromptId) || prompts[0];
-    const content = selected?.content || "";
-
-    return {
-      content,
-      updatedAt: selected?.updatedAt || "",
-      isSelected: Boolean(content)
-    };
-  }
-
-  return { content: "", updatedAt: "", isSelected: false };
-}
-
-async function getPromptSelectionState() {
-  const stored = await chrome.storage.local.get(PROMPT_SELECTION_STORAGE_KEY);
-  const state = normalizeSinglePromptState(stored[PROMPT_SELECTION_STORAGE_KEY]);
-
-  if (
-    stored[PROMPT_SELECTION_STORAGE_KEY] &&
-    Array.isArray(stored[PROMPT_SELECTION_STORAGE_KEY].prompts)
-  ) {
-    await chrome.storage.local.set({
-      [PROMPT_SELECTION_STORAGE_KEY]: state
-    });
-  }
-
-  return state;
-}
-
-async function savePromptSelectionState(stateInput) {
-  const content = String(stateInput?.content ?? "").trim();
-  const updatedAt = content
-    ? normalizeUpdatedAt(stateInput?.updatedAt) || new Date().toISOString()
-    : "";
-  const isSelected = content ? Boolean(stateInput?.isSelected) : false;
-
-  const state = { content, updatedAt, isSelected };
-
-  await chrome.storage.local.set({
-    [PROMPT_SELECTION_STORAGE_KEY]: state
-  });
-
-  return state;
 }
 
 async function loadPromptResumeSelectionRecord() {
@@ -222,6 +167,107 @@ async function savePromptResumeSelectionState(
 
   await chrome.storage.local.set({
     [PROMPT_RESUME_SELECTION_STORAGE_KEY]: state
+  });
+
+  return state;
+}
+
+async function loadPromptSelectionRecord() {
+  const stored = await chrome.storage.local.get(PROMPT_SELECTION_STORAGE_KEY);
+  const selection = stored[PROMPT_SELECTION_STORAGE_KEY];
+
+  if (!selection) {
+    return null;
+  }
+
+  if (typeof selection.content === "string") {
+    return {
+      content: normalizePromptContent(selection.content),
+      updatedAt: normalizeUpdatedAt(selection.updatedAt)
+    };
+  }
+
+  const prompts = Array.isArray(selection.prompts) ? selection.prompts : [];
+  const selected =
+    prompts.find((entry) => entry.id === selection.selectedPromptId) || prompts[0];
+
+  if (!selected) {
+    return { content: "", updatedAt: "" };
+  }
+
+  const migrated = {
+    content: normalizePromptContent(selected.content),
+    updatedAt: normalizeUpdatedAt(selected.updatedAt)
+  };
+
+  await chrome.storage.local.set({
+    [PROMPT_SELECTION_STORAGE_KEY]: migrated
+  });
+
+  return migrated;
+}
+
+async function getPromptSelectionState() {
+  const selection = await loadPromptSelectionRecord();
+
+  if (selection) {
+    return selection;
+  }
+
+  return { content: "", updatedAt: "" };
+}
+
+async function savePromptSelectionState(contentInput) {
+  const content = normalizePromptContent(contentInput);
+  const state = {
+    content,
+    updatedAt: content ? new Date().toISOString() : ""
+  };
+
+  await chrome.storage.local.set({
+    [PROMPT_SELECTION_STORAGE_KEY]: state
+  });
+
+  return state;
+}
+
+async function loadJobDescriptionSelectionRecord() {
+  const stored = await chrome.storage.local.get(JOB_DESCRIPTION_SELECTION_STORAGE_KEY);
+  const selection = stored[JOB_DESCRIPTION_SELECTION_STORAGE_KEY];
+
+  if (!selection) {
+    return null;
+  }
+
+  if (typeof selection.content === "string") {
+    return {
+      content: normalizePromptContent(selection.content),
+      updatedAt: normalizeUpdatedAt(selection.updatedAt)
+    };
+  }
+
+  return { content: "", updatedAt: "" };
+}
+
+async function getJobDescriptionSelectionState() {
+  const selection = await loadJobDescriptionSelectionRecord();
+
+  if (selection) {
+    return selection;
+  }
+
+  return { content: "", updatedAt: "" };
+}
+
+async function saveJobDescriptionSelectionState(contentInput) {
+  const content = normalizePromptContent(contentInput);
+  const state = {
+    content,
+    updatedAt: content ? new Date().toISOString() : ""
+  };
+
+  await chrome.storage.local.set({
+    [JOB_DESCRIPTION_SELECTION_STORAGE_KEY]: state
   });
 
   return state;
@@ -449,16 +495,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "SAVE_PROMPT_SELECTION") {
-    savePromptSelectionState({
-      content: message.content,
-      updatedAt: message.updatedAt,
-      isSelected: message.isSelected
-    })
+    savePromptSelectionState(message.content)
       .then((state) => sendResponse({ ok: true, ...state }))
       .catch((error) => {
         sendResponse({
           ok: false,
           error: error.message || "Could not save prompt selection."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "GET_JOB_DESCRIPTION_SELECTION") {
+    getJobDescriptionSelectionState()
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not load job description selection."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_JOB_DESCRIPTION_SELECTION") {
+    saveJobDescriptionSelectionState(message.content)
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not save job description selection."
         });
       });
     return true;

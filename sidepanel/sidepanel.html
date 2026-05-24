@@ -206,6 +206,14 @@
         <div class="prompt-selection-section">
           <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
         </div>
+
+        <div class="job-description-selection-section">
+          <ul
+            id="jobDescriptionList"
+            class="job-description-selection-list"
+            aria-label="Job description"
+          ></ul>
+        </div>
       </section>
 
       <section id="statusCard" class="status-card is-hidden" aria-live="polite">
@@ -362,7 +370,7 @@
         id="promptFormModalBackdrop"
         type="button"
         class="modal-backdrop"
-        aria-label="Close prompt dialog"
+        aria-label="Close edit prompt dialog"
       ></button>
 
       <div class="modal-panel">
@@ -378,8 +386,6 @@
           </button>
         </div>
 
-        <p id="promptFormModalHelp" class="modal-help">View or update the prompt text.</p>
-
         <div class="modal-form">
           <div class="config-field">
             <label class="config-label" for="promptContentInput">Prompt text</label>
@@ -392,14 +398,72 @@
           </div>
         </div>
 
-        <p id="promptFormModalStatus" class="config-status is-hidden" aria-live="polite"></p>
-
         <div class="modal-actions">
           <button id="promptFormModalCancelButton" type="button" class="secondary-button modal-action-button">
             <span>Cancel</span>
           </button>
 
           <button id="promptFormModalSubmitButton" type="button" class="primary-button modal-action-button">
+            <span>Save Changes</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="jobDescriptionFormModal"
+      class="modal job-description-form-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="jobDescriptionFormModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="jobDescriptionFormModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close edit job description dialog"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="jobDescriptionFormModalTitle">Edit Job Description</h2>
+          <button
+            id="jobDescriptionFormModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="modal-form">
+          <div class="config-field">
+            <label class="config-label" for="jobDescriptionContentInput">Job description text</label>
+            <textarea
+              id="jobDescriptionContentInput"
+              class="job-description-content-input"
+              placeholder="Paste or type the job description..."
+              rows="20"
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button
+            id="jobDescriptionFormModalCancelButton"
+            type="button"
+            class="secondary-button modal-action-button"
+          >
+            <span>Cancel</span>
+          </button>
+
+          <button
+            id="jobDescriptionFormModalSubmitButton"
+            type="button"
+            class="primary-button modal-action-button"
+          >
             <span>Save Changes</span>
           </button>
         </div>

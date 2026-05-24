@@ -299,12 +299,18 @@ h1 {
   line-height: 1.4;
 }
 
-.prompt-selection-section {
+.prompt-selection-section,
+.job-description-selection-section {
   display: grid;
-  gap: 12px;
+  gap: 8px;
   margin-top: 4px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+.prompt-selection-item.is-single,
+.job-description-selection-item.is-single {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .prompt-resume-icon {
@@ -321,7 +327,8 @@ h1 {
 }
 
 .prompt-resume-list,
-.prompt-selection-list {
+.prompt-selection-list,
+.job-description-selection-list {
   display: grid;
   gap: 8px;
   margin: 0;
@@ -330,7 +337,8 @@ h1 {
 }
 
 .prompt-resume-item,
-.prompt-selection-item {
+.prompt-selection-item,
+.job-description-selection-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -346,18 +354,21 @@ h1 {
 }
 
 .prompt-resume-item:hover,
-.prompt-selection-item:hover {
+.prompt-selection-item:hover,
+.job-description-selection-item:hover {
   border-color: rgba(84, 87, 255, 0.35);
 }
 
 .prompt-resume-item.is-selected,
-.prompt-selection-item.is-selected {
+.prompt-selection-item.is-selected,
+.job-description-selection-item.is-selected {
   border-color: rgba(84, 87, 255, 0.55);
   background: rgba(84, 87, 255, 0.08);
 }
 
 .prompt-resume-item input[type="radio"],
-.prompt-selection-item input[type="radio"] {
+.prompt-selection-item input[type="radio"],
+.job-description-selection-item input[type="radio"] {
   width: 16px;
   height: 16px;
   margin: 0;
@@ -366,14 +377,16 @@ h1 {
 }
 
 .prompt-resume-copy,
-.prompt-selection-copy {
+.prompt-selection-copy,
+.job-description-selection-copy {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
 .prompt-resume-label,
-.prompt-selection-label {
+.prompt-selection-label,
+.job-description-selection-label {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -389,15 +402,28 @@ h1 {
   white-space: nowrap;
 }
 
+.job-description-selection-preview {
+  font-size: 11px;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 .prompt-resume-updated,
-.prompt-selection-updated {
+.prompt-selection-updated,
+.job-description-selection-updated {
   font-size: 10px;
   color: var(--muted-light);
   letter-spacing: -0.01em;
 }
 
 .prompt-resume-actions,
-.prompt-selection-actions {
+.prompt-selection-actions,
+.job-description-selection-actions {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -406,7 +432,9 @@ h1 {
 .prompt-resume-edit,
 .prompt-resume-remove,
 .prompt-selection-edit,
-.prompt-selection-remove {
+.prompt-selection-remove,
+.job-description-selection-edit,
+.job-description-selection-remove {
   display: grid;
   place-items: center;
   border: 0;
@@ -420,32 +448,37 @@ h1 {
 }
 
 .prompt-resume-edit svg,
-.prompt-selection-edit svg {
+.prompt-selection-edit svg,
+.job-description-selection-edit svg {
   width: 14px;
   height: 14px;
   stroke-width: 2.2;
 }
 
 .prompt-resume-edit:hover,
-.prompt-selection-edit:hover {
+.prompt-selection-edit:hover,
+.job-description-selection-edit:hover {
   color: var(--primary-dark);
   background: rgba(84, 87, 255, 0.2);
 }
 
 .prompt-resume-remove,
-.prompt-selection-remove {
+.prompt-selection-remove,
+.job-description-selection-remove {
   font-size: 16px;
   line-height: 1;
 }
 
 .prompt-resume-remove:hover,
-.prompt-selection-remove:hover {
+.prompt-selection-remove:hover,
+.job-description-selection-remove:hover {
   color: var(--danger);
   background: var(--danger-soft);
 }
 
 .prompt-resume-remove:disabled,
-.prompt-selection-remove:disabled {
+.prompt-selection-remove:disabled,
+.job-description-selection-remove:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
@@ -1096,25 +1129,29 @@ textarea:focus {
 }
 
 .prompt-resume-content-input,
-.prompt-content-input {
+.prompt-content-input,
+.job-description-content-input {
   min-height: 160px;
   resize: vertical;
 }
 
 .prompt-resume-form-modal .modal-panel,
-.prompt-form-modal .modal-panel {
+.prompt-form-modal .modal-panel,
+.job-description-form-modal .modal-panel {
   width: min(100%, 800px);
   max-height: min(92vh, 875px);
   overflow-y: auto;
 }
 
 .prompt-resume-form-modal .prompt-resume-content-input,
-.prompt-form-modal .prompt-content-input {
+.prompt-form-modal .prompt-content-input,
+.job-description-form-modal .job-description-content-input {
   min-height: 400px;
 }
 
 .prompt-resume-form-modal .config-label,
-.prompt-form-modal .config-label {
+.prompt-form-modal .config-label,
+.job-description-form-modal .config-label {
   font-size: 13px;
 }
 
@@ -1175,12 +1212,14 @@ textarea:focus {
   }
 
   .prompt-resume-item,
-  .prompt-selection-item {
+  .prompt-selection-item,
+  .job-description-selection-item {
     background: rgba(25, 28, 45, 0.82);
   }
 
   .prompt-resume-item.is-selected,
-  .prompt-selection-item.is-selected {
+  .prompt-selection-item.is-selected,
+  .job-description-selection-item.is-selected {
     background: rgba(84, 87, 255, 0.12);
   }
 
