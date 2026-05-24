@@ -3,7 +3,6 @@ const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const checkCompanyDuplicatesButton = document.querySelector("#checkCompanyDuplicatesButton");
-const createGoogleDocButton = document.querySelector("#createGoogleDocButton");
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
@@ -38,7 +37,6 @@ function setSaveButtonsDisabled(disabled) {
   if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
   if (checkCompanyDuplicatesButton) checkCompanyDuplicatesButton.disabled = disabled;
-  if (createGoogleDocButton) createGoogleDocButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
 }
 
@@ -476,28 +474,10 @@ async function checkCompanyDuplicates() {
   }
 }
 
-async function openChatGptFromPanel() {
-  clearStatus();
-  addLog("info", "Apply Now clicked. Opening ChatGPT...");
-
-  try {
-    await chrome.tabs.create({
-      url: "https://chatgpt.com",
-      active: true
-    });
-    addLog("success", "Opened ChatGPT.");
-  } catch (error) {
-    console.error(error);
-    showStatus("error", error.message || "Could not open ChatGPT.");
-    addLog("error", error.message || "Could not open ChatGPT.");
-  }
-}
-
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
 checkCompanyDuplicatesButton?.addEventListener("click", checkCompanyDuplicates);
-createGoogleDocButton?.addEventListener("click", openChatGptFromPanel);
 
 configToggleButton?.addEventListener("click", () => {
   const isOpen = configToggleButton.getAttribute("aria-expanded") === "true";
