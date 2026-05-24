@@ -24,105 +24,6 @@
         <h1>Application Helper</h1>
       </header>
 
-      <section class="card config-card">
-        <button
-          id="configToggleButton"
-          type="button"
-          class="config-toggle is-open"
-          aria-expanded="true"
-          aria-controls="configPanel"
-        >
-          <span class="config-toggle-label">
-            <span class="config-toggle-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </span>
-            <span>App Setting</span>
-          </span>
-          <span class="config-chevron" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </span>
-        </button>
-
-        <div id="configPanel" class="config-panel is-open" role="region" aria-label="App Setting">
-          <div class="config-panel-inner">
-            <p class="config-help">
-              Set the Google Sheet and Resume template used by this extension.
-            </p>
-
-            <div class="config-field-row">
-              <div class="config-field">
-                <label class="config-label" for="spreadsheetIdInput">Google Sheet URL or ID</label>
-                <input
-                  id="spreadsheetIdInput"
-                  type="text"
-                  class="config-input"
-                  placeholder="https://docs.google.com/spreadsheets/d/..."
-                  autocomplete="off"
-                />
-              </div>
-
-              <div class="config-field">
-                <label class="config-label" for="sheetNameInput">Sheet tab name</label>
-                <input
-                  id="sheetNameInput"
-                  type="text"
-                  class="config-input"
-                  placeholder="Sheet1"
-                  autocomplete="off"
-                />
-              </div>
-            </div>
-
-            <label class="config-label" for="resumeTemplateInput">Resume Template</label>
-            <input
-              id="resumeTemplateInput"
-              type="text"
-              class="config-input"
-              placeholder="https://docs.google.com/document/d/..."
-              autocomplete="off"
-            />
-
-            <div class="prompt-selection-section">
-              <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
-            </div>
-
-            <div class="prompt-resume-add-section">
-              <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
-                <span>Add a Prompt Resume</span>
-              </button>
-            </div>
-
-            <button id="saveConfigButton" type="button" class="secondary-button config-save-button">
-              <span>Save configuration</span>
-            </button>
-
-            <p id="configStatus" class="config-status is-hidden" aria-live="polite"></p>
-          </div>
-        </div>
-      </section>
-
-      <section class="card save-card">
-        <div class="card-title-row">
-          <span class="sheet-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M7 3h7l4 4v14H7z" />
-              <path d="M14 3v5h5" />
-              <path d="M9.5 11h7" />
-              <path d="M9.5 14h7" />
-              <path d="M9.5 17h7" />
-              <path d="M12 11v6" />
-            </svg>
-          </span>
-
-          <h2>Save to Google Sheet</h2>
-        </div>
-      </section>
-
       <section class="card prompt-resume-selection-card">
         <div class="card-title-row">
           <span class="prompt-resume-icon" aria-hidden="true">
@@ -259,6 +160,88 @@
           </div>
 
           <ul id="deletedRowsList" class="deleted-rows-list"></ul>
+        </div>
+      </section>
+
+      <section class="card config-card">
+        <button
+          id="configToggleButton"
+          type="button"
+          class="config-toggle is-open"
+          aria-expanded="true"
+          aria-controls="configPanel"
+        >
+          <span class="config-toggle-label">
+            <span class="config-toggle-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </span>
+            <span>App Setting</span>
+          </span>
+          <span class="config-chevron" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </span>
+        </button>
+
+        <div id="configPanel" class="config-panel is-open" role="region" aria-label="App Setting">
+          <div class="config-panel-inner">
+            <p class="config-help">
+              Set the Google Sheet and Resume template used by this extension.
+            </p>
+
+            <div class="config-field-row">
+              <div class="config-field">
+                <label class="config-label" for="spreadsheetIdInput">Google Sheet URL or ID</label>
+                <input
+                  id="spreadsheetIdInput"
+                  type="text"
+                  class="config-input"
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  autocomplete="off"
+                />
+              </div>
+
+              <div class="config-field">
+                <label class="config-label" for="sheetNameInput">Sheet tab name</label>
+                <input
+                  id="sheetNameInput"
+                  type="text"
+                  class="config-input"
+                  placeholder="Sheet1"
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+
+            <label class="config-label" for="resumeTemplateInput">Resume Template</label>
+            <input
+              id="resumeTemplateInput"
+              type="text"
+              class="config-input"
+              placeholder="https://docs.google.com/document/d/..."
+              autocomplete="off"
+            />
+
+            <div class="prompt-selection-section">
+              <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
+            </div>
+
+            <div class="prompt-resume-add-section">
+              <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
+                <span>Add a Prompt Resume</span>
+              </button>
+            </div>
+
+            <button id="saveConfigButton" type="button" class="secondary-button config-save-button">
+              <span>Save configuration</span>
+            </button>
+
+            <p id="configStatus" class="config-status is-hidden" aria-live="polite"></p>
+          </div>
         </div>
       </section>
 

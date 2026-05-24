@@ -280,12 +280,6 @@ h1 {
   border: 1px solid rgba(199, 54, 76, 0.28);
 }
 
-.save-card {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-}
-
 .prompt-resume-selection-card {
   display: grid;
   gap: 12px;
@@ -540,19 +534,6 @@ h1 {
   line-height: 1.15;
   letter-spacing: -0.04em;
   font-weight: 850;
-}
-
-.sheet-icon {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  border-radius: 14px;
-  color: var(--primary);
-  background:
-    linear-gradient(135deg, rgba(84, 87, 255, 0.2), rgba(84, 87, 255, 0.06)),
-    #f1f0ff;
 }
 
 textarea {
