@@ -22,7 +22,6 @@ const saveConfigButton = document.querySelector("#saveConfigButton");
 const configStatus = document.querySelector("#configStatus");
 const promptResumeList = document.querySelector("#promptResumeList");
 const addPromptResumeButton = document.querySelector("#addPromptResumeButton");
-const editSelectedPromptResumeButton = document.querySelector("#editSelectedPromptResumeButton");
 const promptResumeFormModal = document.querySelector("#promptResumeFormModal");
 const promptResumeFormModalTitle = document.querySelector("#promptResumeFormModalTitle");
 const promptResumeFormModalHelp = document.querySelector("#promptResumeFormModalHelp");
@@ -52,7 +51,6 @@ function setSaveButtonsDisabled(disabled) {
   if (checkCompanyDuplicatesButton) checkCompanyDuplicatesButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
   if (addPromptResumeButton) addPromptResumeButton.disabled = disabled;
-  if (editSelectedPromptResumeButton) editSelectedPromptResumeButton.disabled = disabled;
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
 }
 
@@ -173,7 +171,7 @@ function setPromptResumeFormModalOpen(isOpen) {
   editingPromptResumeId = null;
   resetPromptResumeFormModal();
   updatePromptResumeFormModalCopy();
-  editSelectedPromptResumeButton?.focus();
+  addPromptResumeButton?.focus();
 }
 
 function openAddPromptResumeModal() {
@@ -208,25 +206,6 @@ function openEditPromptResumeModal(promptResumeId) {
   setPromptResumeFormModalOpen(true);
 }
 
-function openEditSelectedPromptResumeModal() {
-  if (!promptResumeSelectionState.selectedPromptResumeId) {
-    return;
-  }
-
-  openEditPromptResumeModal(promptResumeSelectionState.selectedPromptResumeId);
-}
-
-function updateEditSelectedPromptResumeButton() {
-  if (!editSelectedPromptResumeButton) return;
-
-  const hasSelection = promptResumeSelectionState.promptResumes.some(
-    (entry) => entry.id === promptResumeSelectionState.selectedPromptResumeId
-  );
-
-  editSelectedPromptResumeButton.classList.toggle("is-hidden", !hasSelection);
-  editSelectedPromptResumeButton.disabled = !hasSelection;
-}
-
 let promptResumeSelectionState = {
   promptResumes: [],
   selectedPromptResumeId: ""
@@ -242,7 +221,6 @@ function renderPromptResumeList() {
     empty.className = "prompt-resume-list-empty";
     empty.textContent = "No prompt resumes yet. Add one below.";
     promptResumeList.appendChild(empty);
-    updateEditSelectedPromptResumeButton();
     return;
   }
 
@@ -283,6 +261,30 @@ function renderPromptResumeList() {
       copy.append(updated);
     }
 
+    const actions = document.createElement("div");
+    actions.className = "prompt-resume-actions";
+
+    const isSelected =
+      promptResume.id === promptResumeSelectionState.selectedPromptResumeId;
+
+    if (isSelected) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "prompt-resume-edit";
+      editButton.setAttribute("aria-label", `View or edit ${promptResume.label}`);
+      editButton.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </svg>
+      `;
+      editButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openEditPromptResumeModal(promptResume.id);
+      });
+      actions.append(editButton);
+    }
+
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "prompt-resume-remove";
@@ -293,6 +295,8 @@ function renderPromptResumeList() {
       removePromptResume(promptResume.id);
     });
 
+    actions.append(removeButton);
+
     item.addEventListener("click", () => {
       selectPromptResume(promptResume.id);
     });
@@ -302,11 +306,9 @@ function renderPromptResumeList() {
       selectPromptResume(promptResume.id);
     });
 
-    item.append(radio, copy, removeButton);
+    item.append(radio, copy, actions);
     promptResumeList.appendChild(item);
   });
-
-  updateEditSelectedPromptResumeButton();
 }
 
 async function loadPromptResumeSelection() {
@@ -912,7 +914,6 @@ configToggleButton?.addEventListener("click", () => {
 saveConfigButton?.addEventListener("click", saveSheetConfig);
 
 addPromptResumeButton?.addEventListener("click", openAddPromptResumeModal);
-editSelectedPromptResumeButton?.addEventListener("click", openEditSelectedPromptResumeModal);
 promptResumeFormModalBackdrop?.addEventListener("click", () =>
   setPromptResumeFormModalOpen(false)
 );

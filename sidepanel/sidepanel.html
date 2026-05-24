@@ -199,14 +199,6 @@
 
         <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
 
-        <button
-          id="editSelectedPromptResumeButton"
-          type="button"
-          class="secondary-button prompt-resume-edit-button is-hidden"
-        >
-          <span>View / Edit Selected Prompt Resume</span>
-        </button>
-
         <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
           <span>Add a Prompt Resume</span>
         </button>
@@ -289,7 +281,7 @@
 
     <div
       id="promptResumeFormModal"
-      class="modal is-hidden"
+      class="modal prompt-resume-form-modal is-hidden"
       role="dialog"
       aria-modal="true"
       aria-labelledby="promptResumeFormModalTitle"
@@ -335,7 +327,7 @@
               id="promptResumeContentInput"
               class="prompt-resume-content-input"
               placeholder="Paste or type the prompt resume content..."
-              rows="8"
+              rows="20"
             ></textarea>
           </div>
         </div>

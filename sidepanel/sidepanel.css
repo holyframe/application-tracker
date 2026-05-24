@@ -379,7 +379,16 @@ h1 {
   letter-spacing: -0.01em;
 }
 
+.prompt-resume-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prompt-resume-edit,
 .prompt-resume-remove {
+  display: grid;
+  place-items: center;
   border: 0;
   border-radius: 999px;
   width: 28px;
@@ -388,6 +397,20 @@ h1 {
   cursor: pointer;
   color: #5f6b8d;
   background: rgba(84, 87, 255, 0.1);
+}
+
+.prompt-resume-edit svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.2;
+}
+
+.prompt-resume-edit:hover {
+  color: var(--primary-dark);
+  background: rgba(84, 87, 255, 0.2);
+}
+
+.prompt-resume-remove {
   font-size: 16px;
   line-height: 1;
 }
@@ -402,14 +425,9 @@ h1 {
   cursor: not-allowed;
 }
 
-.prompt-resume-add-button,
-.prompt-resume-edit-button {
+.prompt-resume-add-button {
   width: 100%;
   min-height: 34px;
-}
-
-.prompt-resume-edit-button.is-hidden {
-  display: none;
 }
 
 .prompt-resume-list-empty {
@@ -1056,6 +1074,20 @@ textarea:focus {
   resize: vertical;
 }
 
+.prompt-resume-form-modal .modal-panel {
+  width: min(100%, 800px);
+  max-height: min(92vh, 875px);
+  overflow-y: auto;
+}
+
+.prompt-resume-form-modal .prompt-resume-content-input {
+  min-height: 400px;
+}
+
+.prompt-resume-form-modal .config-label {
+  font-size: 13px;
+}
+
 .modal-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1139,6 +1171,17 @@ textarea:focus {
 
   textarea {
     color: var(--text);
+  }
+
+  textarea:focus {
+    background: rgba(10, 14, 28, 0.98);
+    color: #ffffff;
+    -webkit-text-fill-color: #ffffff;
+    caret-color: #ffffff;
+  }
+
+  textarea::placeholder {
+    color: #c2cbea;
   }
 
   .note-input {
