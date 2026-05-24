@@ -299,6 +299,14 @@ h1 {
   line-height: 1.4;
 }
 
+.prompt-selection-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
 .prompt-resume-icon {
   display: grid;
   place-items: center;
@@ -312,7 +320,8 @@ h1 {
     #f1f0ff;
 }
 
-.prompt-resume-list {
+.prompt-resume-list,
+.prompt-selection-list {
   display: grid;
   gap: 8px;
   margin: 0;
@@ -320,7 +329,8 @@ h1 {
   list-style: none;
 }
 
-.prompt-resume-item {
+.prompt-resume-item,
+.prompt-selection-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -335,16 +345,19 @@ h1 {
     background 160ms ease;
 }
 
-.prompt-resume-item:hover {
+.prompt-resume-item:hover,
+.prompt-selection-item:hover {
   border-color: rgba(84, 87, 255, 0.35);
 }
 
-.prompt-resume-item.is-selected {
+.prompt-resume-item.is-selected,
+.prompt-selection-item.is-selected {
   border-color: rgba(84, 87, 255, 0.55);
   background: rgba(84, 87, 255, 0.08);
 }
 
-.prompt-resume-item input[type="radio"] {
+.prompt-resume-item input[type="radio"],
+.prompt-selection-item input[type="radio"] {
   width: 16px;
   height: 16px;
   margin: 0;
@@ -352,20 +365,23 @@ h1 {
   cursor: pointer;
 }
 
-.prompt-resume-copy {
+.prompt-resume-copy,
+.prompt-selection-copy {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.prompt-resume-label {
+.prompt-resume-label,
+.prompt-selection-label {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--text);
 }
 
-.prompt-resume-preview {
+.prompt-resume-preview,
+.prompt-selection-preview {
   font-size: 11px;
   color: var(--muted);
   overflow: hidden;
@@ -373,20 +389,24 @@ h1 {
   white-space: nowrap;
 }
 
-.prompt-resume-updated {
+.prompt-resume-updated,
+.prompt-selection-updated {
   font-size: 10px;
   color: var(--muted-light);
   letter-spacing: -0.01em;
 }
 
-.prompt-resume-actions {
+.prompt-resume-actions,
+.prompt-selection-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 .prompt-resume-edit,
-.prompt-resume-remove {
+.prompt-resume-remove,
+.prompt-selection-edit,
+.prompt-selection-remove {
   display: grid;
   place-items: center;
   border: 0;
@@ -399,28 +419,33 @@ h1 {
   background: rgba(84, 87, 255, 0.1);
 }
 
-.prompt-resume-edit svg {
+.prompt-resume-edit svg,
+.prompt-selection-edit svg {
   width: 14px;
   height: 14px;
   stroke-width: 2.2;
 }
 
-.prompt-resume-edit:hover {
+.prompt-resume-edit:hover,
+.prompt-selection-edit:hover {
   color: var(--primary-dark);
   background: rgba(84, 87, 255, 0.2);
 }
 
-.prompt-resume-remove {
+.prompt-resume-remove,
+.prompt-selection-remove {
   font-size: 16px;
   line-height: 1;
 }
 
-.prompt-resume-remove:hover {
+.prompt-resume-remove:hover,
+.prompt-selection-remove:hover {
   color: var(--danger);
   background: var(--danger-soft);
 }
 
-.prompt-resume-remove:disabled {
+.prompt-resume-remove:disabled,
+.prompt-selection-remove:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
@@ -430,7 +455,8 @@ h1 {
   min-height: 34px;
 }
 
-.prompt-resume-list-empty {
+.prompt-resume-list-empty,
+.prompt-selection-list-empty {
   margin: 0;
   padding: 12px;
   border: 1px dashed var(--line-strong);
@@ -1069,22 +1095,26 @@ textarea:focus {
   gap: 8px;
 }
 
-.prompt-resume-content-input {
+.prompt-resume-content-input,
+.prompt-content-input {
   min-height: 160px;
   resize: vertical;
 }
 
-.prompt-resume-form-modal .modal-panel {
+.prompt-resume-form-modal .modal-panel,
+.prompt-form-modal .modal-panel {
   width: min(100%, 800px);
   max-height: min(92vh, 875px);
   overflow-y: auto;
 }
 
-.prompt-resume-form-modal .prompt-resume-content-input {
+.prompt-resume-form-modal .prompt-resume-content-input,
+.prompt-form-modal .prompt-content-input {
   min-height: 400px;
 }
 
-.prompt-resume-form-modal .config-label {
+.prompt-resume-form-modal .config-label,
+.prompt-form-modal .config-label {
   font-size: 13px;
 }
 
@@ -1144,15 +1174,18 @@ textarea:focus {
     border-color: rgba(255, 255, 255, 0.24);
   }
 
-  .prompt-resume-item {
+  .prompt-resume-item,
+  .prompt-selection-item {
     background: rgba(25, 28, 45, 0.82);
   }
 
-  .prompt-resume-item.is-selected {
+  .prompt-resume-item.is-selected,
+  .prompt-selection-item.is-selected {
     background: rgba(84, 87, 255, 0.12);
   }
 
-  .prompt-resume-list-empty {
+  .prompt-resume-list-empty,
+  .prompt-selection-list-empty {
     color: #c8cee3;
   }
 

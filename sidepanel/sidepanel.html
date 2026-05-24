@@ -202,6 +202,10 @@
         <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
           <span>Add a Prompt Resume</span>
         </button>
+
+        <div class="prompt-selection-section">
+          <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
+        </div>
       </section>
 
       <section id="statusCard" class="status-card is-hidden" aria-live="polite">
@@ -341,6 +345,62 @@
 
           <button id="promptResumeFormModalSubmitButton" type="button" class="primary-button modal-action-button">
             <span>Add a Prompt Resume</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="promptFormModal"
+      class="modal prompt-form-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="promptFormModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="promptFormModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close prompt dialog"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="promptFormModalTitle">Edit Prompt</h2>
+          <button
+            id="promptFormModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <p id="promptFormModalHelp" class="modal-help">View or update the prompt text.</p>
+
+        <div class="modal-form">
+          <div class="config-field">
+            <label class="config-label" for="promptContentInput">Prompt text</label>
+            <textarea
+              id="promptContentInput"
+              class="prompt-content-input"
+              placeholder="Paste or type the prompt content..."
+              rows="20"
+            ></textarea>
+          </div>
+        </div>
+
+        <p id="promptFormModalStatus" class="config-status is-hidden" aria-live="polite"></p>
+
+        <div class="modal-actions">
+          <button id="promptFormModalCancelButton" type="button" class="secondary-button modal-action-button">
+            <span>Cancel</span>
+          </button>
+
+          <button id="promptFormModalSubmitButton" type="button" class="primary-button modal-action-button">
+            <span>Save Changes</span>
           </button>
         </div>
       </div>

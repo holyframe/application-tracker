@@ -9,6 +9,7 @@ const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
+const PROMPT_SELECTION_STORAGE_KEY = "promptSelection";
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -57,7 +58,7 @@ function createPromptResumeId() {
   return `prompt-resume-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function normalizePromptResumeUpdatedAt(value) {
+function normalizeUpdatedAt(value) {
   const date = new Date(value ?? "");
   if (Number.isNaN(date.getTime())) {
     return "";
@@ -66,7 +67,7 @@ function normalizePromptResumeUpdatedAt(value) {
   return date.toISOString();
 }
 
-function normalizePromptResume(entry) {
+function normalizeLabeledTextEntry(entry, createId) {
   const label = String(entry?.label ?? entry?.name ?? "").trim();
   const content = String(entry?.content ?? entry?.docInput ?? "").trim();
 
@@ -75,10 +76,9 @@ function normalizePromptResume(entry) {
   }
 
   const isNew = !entry?.id;
-  const id = String(entry?.id || createPromptResumeId());
-  const storedUpdatedAt = normalizePromptResumeUpdatedAt(entry?.updatedAt);
-  const updatedAt =
-    storedUpdatedAt || (isNew ? new Date().toISOString() : "");
+  const id = String(entry?.id || createId());
+  const storedUpdatedAt = normalizeUpdatedAt(entry?.updatedAt);
+  const updatedAt = storedUpdatedAt || (isNew ? new Date().toISOString() : "");
 
   return {
     id,
@@ -86,6 +86,70 @@ function normalizePromptResume(entry) {
     content,
     updatedAt
   };
+}
+
+function normalizePromptResume(entry) {
+  return normalizeLabeledTextEntry(entry, createPromptResumeId);
+}
+
+function normalizeSinglePromptState(value) {
+  if (value && typeof value === "object" && !Array.isArray(value.prompts)) {
+    const content = String(value.content ?? "").trim();
+    const updatedAt = content ? normalizeUpdatedAt(value.updatedAt) : "";
+    const isSelected =
+      content && (value.isSelected === undefined ? true : Boolean(value.isSelected));
+
+    return { content, updatedAt, isSelected };
+  }
+
+  if (value && Array.isArray(value.prompts)) {
+    const prompts = value.prompts
+      .map((entry) => normalizeLabeledTextEntry(entry, createPromptResumeId))
+      .filter(Boolean);
+    const selected =
+      prompts.find((entry) => entry.id === value.selectedPromptId) || prompts[0];
+    const content = selected?.content || "";
+
+    return {
+      content,
+      updatedAt: selected?.updatedAt || "",
+      isSelected: Boolean(content)
+    };
+  }
+
+  return { content: "", updatedAt: "", isSelected: false };
+}
+
+async function getPromptSelectionState() {
+  const stored = await chrome.storage.local.get(PROMPT_SELECTION_STORAGE_KEY);
+  const state = normalizeSinglePromptState(stored[PROMPT_SELECTION_STORAGE_KEY]);
+
+  if (
+    stored[PROMPT_SELECTION_STORAGE_KEY] &&
+    Array.isArray(stored[PROMPT_SELECTION_STORAGE_KEY].prompts)
+  ) {
+    await chrome.storage.local.set({
+      [PROMPT_SELECTION_STORAGE_KEY]: state
+    });
+  }
+
+  return state;
+}
+
+async function savePromptSelectionState(stateInput) {
+  const content = String(stateInput?.content ?? "").trim();
+  const updatedAt = content
+    ? normalizeUpdatedAt(stateInput?.updatedAt) || new Date().toISOString()
+    : "";
+  const isSelected = content ? Boolean(stateInput?.isSelected) : false;
+
+  const state = { content, updatedAt, isSelected };
+
+  await chrome.storage.local.set({
+    [PROMPT_SELECTION_STORAGE_KEY]: state
+  });
+
+  return state;
 }
 
 async function loadPromptResumeSelectionRecord() {
@@ -367,6 +431,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           ok: false,
           error: error.message || "Could not save prompt resume selection."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "GET_PROMPT_SELECTION") {
+    getPromptSelectionState()
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not load prompt selection."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_PROMPT_SELECTION") {
+    savePromptSelectionState({
+      content: message.content,
+      updatedAt: message.updatedAt,
+      isSelected: message.isSelected
+    })
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not save prompt selection."
         });
       });
     return true;

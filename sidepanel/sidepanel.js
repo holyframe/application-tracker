@@ -32,6 +32,16 @@ const promptResumeFormModalSubmitButton = document.querySelector("#promptResumeF
 const promptResumeFormModalStatus = document.querySelector("#promptResumeFormModalStatus");
 const promptResumeLabelInput = document.querySelector("#promptResumeLabelInput");
 const promptResumeContentInput = document.querySelector("#promptResumeContentInput");
+const promptList = document.querySelector("#promptList");
+const promptFormModal = document.querySelector("#promptFormModal");
+const promptFormModalTitle = document.querySelector("#promptFormModalTitle");
+const promptFormModalHelp = document.querySelector("#promptFormModalHelp");
+const promptFormModalBackdrop = document.querySelector("#promptFormModalBackdrop");
+const promptFormModalCloseButton = document.querySelector("#promptFormModalCloseButton");
+const promptFormModalCancelButton = document.querySelector("#promptFormModalCancelButton");
+const promptFormModalSubmitButton = document.querySelector("#promptFormModalSubmitButton");
+const promptFormModalStatus = document.querySelector("#promptFormModalStatus");
+const promptContentInput = document.querySelector("#promptContentInput");
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 
 let activeRunId = null;
@@ -52,6 +62,7 @@ function setSaveButtonsDisabled(disabled) {
   if (saveConfigButton) saveConfigButton.disabled = disabled;
   if (addPromptResumeButton) addPromptResumeButton.disabled = disabled;
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
+  if (promptFormModalSubmitButton) promptFormModalSubmitButton.disabled = disabled;
 }
 
 function showConfigStatus(type, message) {
@@ -486,6 +497,279 @@ async function submitPromptResumeForm() {
   } finally {
     if (promptResumeFormModalSubmitButton) {
       promptResumeFormModalSubmitButton.disabled = false;
+    }
+  }
+}
+
+function showPromptFormModalStatus(type, message) {
+  if (!promptFormModalStatus) return;
+
+  promptFormModalStatus.classList.remove("is-hidden", "is-error", "is-success");
+  promptFormModalStatus.textContent = message;
+  promptFormModalStatus.classList.add(type === "error" ? "is-error" : "is-success");
+}
+
+function clearPromptFormModalStatus() {
+  promptFormModalStatus?.classList.add("is-hidden");
+  promptFormModalStatus?.classList.remove("is-error", "is-success");
+  if (promptFormModalStatus) promptFormModalStatus.textContent = "";
+}
+
+function resetPromptFormModal() {
+  if (promptContentInput) promptContentInput.value = "";
+  clearPromptFormModalStatus();
+}
+
+function setPromptFormModalOpen(isOpen) {
+  if (!promptFormModal) return;
+
+  promptFormModal.classList.toggle("is-hidden", !isOpen);
+  promptFormModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    clearPromptFormModalStatus();
+    promptContentInput?.focus();
+    return;
+  }
+
+  resetPromptFormModal();
+}
+
+function openEditPromptModal() {
+  addLog("info", "Editing prompt.");
+
+  if (promptContentInput) {
+    promptContentInput.value = promptState.content || "";
+  }
+
+  setPromptFormModalOpen(true);
+}
+
+let promptState = {
+  content: "",
+  updatedAt: "",
+  isSelected: false
+};
+
+const GPT_PROMPT_LABEL = "GPT Prompt";
+
+function renderPromptList() {
+  if (!promptList) return;
+
+  promptList.innerHTML = "";
+
+  const item = document.createElement("li");
+  item.className = "prompt-selection-item";
+  item.classList.toggle("is-selected", promptState.isSelected);
+
+  const radio = document.createElement("input");
+  radio.type = "radio";
+  radio.name = "gptPrompt";
+  radio.value = "gpt-prompt";
+  radio.checked = promptState.isSelected;
+  radio.setAttribute("aria-label", `Use ${GPT_PROMPT_LABEL}`);
+
+  const copy = document.createElement("div");
+  copy.className = "prompt-selection-copy";
+
+  const label = document.createElement("span");
+  label.className = "prompt-selection-label";
+  label.textContent = GPT_PROMPT_LABEL;
+
+  copy.append(label);
+
+  const updatedAtText = formatPromptResumeUpdatedAt(promptState.updatedAt);
+  if (updatedAtText) {
+    const updated = document.createElement("span");
+    updated.className = "prompt-selection-updated";
+    updated.textContent = updatedAtText;
+    copy.append(updated);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "prompt-selection-actions";
+
+  if (promptState.isSelected) {
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "prompt-selection-edit";
+    editButton.setAttribute("aria-label", `View or edit ${GPT_PROMPT_LABEL}`);
+    editButton.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    `;
+    editButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openEditPromptModal();
+    });
+    actions.append(editButton);
+  }
+
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "prompt-selection-remove";
+  clearButton.textContent = "×";
+  clearButton.setAttribute("aria-label", `Clear ${GPT_PROMPT_LABEL}`);
+  clearButton.disabled = !promptState.content;
+  clearButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    clearPrompt();
+  });
+
+  actions.append(clearButton);
+
+  item.addEventListener("click", () => {
+    selectPrompt();
+  });
+
+  radio.addEventListener("click", (event) => {
+    event.stopPropagation();
+    selectPrompt();
+  });
+
+  item.append(radio, copy, actions);
+  promptList.appendChild(item);
+}
+
+async function persistPromptState(nextState, successMessage) {
+  const response = await chrome.runtime.sendMessage({
+    type: "SAVE_PROMPT_SELECTION",
+    content: nextState.content,
+    updatedAt: nextState.updatedAt,
+    isSelected: nextState.isSelected
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Could not save prompt.");
+  }
+
+  promptState = {
+    content: String(response.content ?? ""),
+    updatedAt: response.updatedAt || "",
+    isSelected: Boolean(response.isSelected)
+  };
+  renderPromptList();
+
+  if (successMessage) {
+    addLog("success", successMessage);
+  }
+}
+
+async function loadPromptSelection() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "GET_PROMPT_SELECTION"
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not load prompt.");
+    }
+
+    promptState = {
+      content: String(response.content ?? ""),
+      updatedAt: response.updatedAt || "",
+      isSelected: Boolean(response.isSelected)
+    };
+    renderPromptList();
+  } catch (error) {
+    console.error(error);
+    const message = error.message || "Could not load prompt.";
+    addLog("error", message);
+  }
+}
+
+async function selectPrompt() {
+  if (promptState.isSelected) {
+    return;
+  }
+
+  addLog("info", `Selected ${GPT_PROMPT_LABEL}.`);
+
+  try {
+    await persistPromptState(
+      { ...promptState, isSelected: true },
+      "GPT prompt selected."
+    );
+  } catch (error) {
+    console.error(error);
+    const message = error.message || "Could not update selection.";
+    addLog("error", message);
+    await loadPromptSelection();
+  }
+}
+
+async function clearPrompt() {
+  if (!promptState.content) {
+    return;
+  }
+
+  addLog("info", `Clearing ${GPT_PROMPT_LABEL}.`);
+
+  try {
+    await persistPromptState(
+      { content: "", updatedAt: "", isSelected: false },
+      "GPT prompt cleared."
+    );
+  } catch (error) {
+    console.error(error);
+    const message = error.message || "Could not clear prompt.";
+    addLog("error", message);
+    await loadPromptSelection();
+  }
+}
+
+async function submitPromptForm() {
+  clearPromptFormModalStatus();
+
+  const content = promptContentInput?.value.trim() || "";
+
+  if (!content) {
+    const message = "Enter the prompt text.";
+    showPromptFormModalStatus("error", message);
+    addLog("error", message);
+    promptContentInput?.focus();
+    return;
+  }
+
+  addLog("info", "Saving prompt changes.");
+
+  if (promptFormModalSubmitButton) {
+    promptFormModalSubmitButton.disabled = true;
+  }
+
+  const updatedAt = new Date().toISOString();
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "SAVE_PROMPT_SELECTION",
+      content,
+      updatedAt,
+      isSelected: true
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not update prompt.");
+    }
+
+    promptState = {
+      content: String(response.content ?? ""),
+      updatedAt: response.updatedAt || "",
+      isSelected: Boolean(response.isSelected)
+    };
+
+    setPromptFormModalOpen(false);
+    renderPromptList();
+    addLog("success", "GPT prompt updated.");
+  } catch (error) {
+    console.error(error);
+    const message = error.message || "Could not update prompt.";
+    showPromptFormModalStatus("error", message);
+    addLog("error", message);
+  } finally {
+    if (promptFormModalSubmitButton) {
+      promptFormModalSubmitButton.disabled = false;
     }
   }
 }
@@ -925,12 +1209,24 @@ promptResumeFormModalCancelButton?.addEventListener("click", () =>
 );
 promptResumeFormModalSubmitButton?.addEventListener("click", submitPromptResumeForm);
 
+promptFormModalBackdrop?.addEventListener("click", () => setPromptFormModalOpen(false));
+promptFormModalCloseButton?.addEventListener("click", () => setPromptFormModalOpen(false));
+promptFormModalCancelButton?.addEventListener("click", () => setPromptFormModalOpen(false));
+promptFormModalSubmitButton?.addEventListener("click", submitPromptForm);
+
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape" || promptResumeFormModal?.classList.contains("is-hidden")) {
+  if (event.key !== "Escape") {
     return;
   }
 
-  setPromptResumeFormModalOpen(false);
+  if (promptResumeFormModal && !promptResumeFormModal.classList.contains("is-hidden")) {
+    setPromptResumeFormModalOpen(false);
+    return;
+  }
+
+  if (promptFormModal && !promptFormModal.classList.contains("is-hidden")) {
+    setPromptFormModalOpen(false);
+  }
 });
 
 clearLogsButton?.addEventListener("click", () => {
@@ -989,3 +1285,4 @@ updateClearNoteButtonState();
 loadNoteDraftFromStorage();
 loadSheetConfig();
 loadPromptResumeSelection();
+loadPromptSelection();
