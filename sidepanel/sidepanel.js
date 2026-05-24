@@ -530,7 +530,9 @@ function setPromptFormModalOpen(isOpen) {
   }
 
   if (promptContentInput) promptContentInput.value = "";
-  promptList?.querySelector(".prompt-selection-edit")?.focus();
+  promptList
+    ?.querySelector(".prompt-selection-edit, .prompt-selection-list-empty-action")
+    ?.focus();
 }
 
 function openEditPromptModal() {
@@ -542,22 +544,36 @@ function renderPromptCard() {
 
   promptList.innerHTML = "";
 
+  if (!promptState.content) {
+    const empty = document.createElement("p");
+    empty.className = "prompt-selection-list-empty prompt-selection-list-empty-action";
+    empty.textContent = "No GPT prompt yet.";
+    empty.addEventListener("click", openEditPromptModal);
+    promptList.appendChild(empty);
+    return;
+  }
+
   const item = document.createElement("li");
-  item.className = "prompt-selection-item is-selected is-single";
+  item.className = "prompt-selection-item is-selected";
+
+  const radio = document.createElement("input");
+  radio.type = "radio";
+  radio.name = "prompt";
+  radio.value = "gpt-prompt";
+  radio.checked = true;
+  radio.setAttribute("aria-label", "Use GPT Prompt");
 
   const copy = document.createElement("div");
   copy.className = "prompt-selection-copy";
 
-  const preview = document.createElement("span");
-  preview.className = "prompt-selection-preview";
-  preview.textContent = promptState.content
-    ? truncatePreviewText(promptState.content)
-    : "No prompt text yet.";
+  const label = document.createElement("span");
+  label.className = "prompt-selection-label";
+  label.textContent = "GPT Prompt";
 
-  copy.append(preview);
+  copy.append(label);
 
   const updatedAtText = formatPromptResumeUpdatedAt(promptState.updatedAt);
-  if (promptState.content && updatedAtText) {
+  if (updatedAtText) {
     const updated = document.createElement("span");
     updated.className = "prompt-selection-updated";
     updated.textContent = updatedAtText;
@@ -570,7 +586,7 @@ function renderPromptCard() {
   const editButton = document.createElement("button");
   editButton.type = "button";
   editButton.className = "prompt-selection-edit";
-  editButton.setAttribute("aria-label", "View or edit prompt");
+  editButton.setAttribute("aria-label", "View or edit GPT Prompt");
   editButton.innerHTML = `
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 20h9" />
@@ -584,24 +600,18 @@ function renderPromptCard() {
 
   actions.append(editButton);
 
-  if (promptState.content) {
-    const clearButton = document.createElement("button");
-    clearButton.type = "button";
-    clearButton.className = "prompt-selection-remove";
-    clearButton.textContent = "×";
-    clearButton.setAttribute("aria-label", "Clear prompt");
-    clearButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      clearPrompt();
-    });
-    actions.append(clearButton);
-  }
-
-  item.addEventListener("click", () => {
-    openEditPromptModal();
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "prompt-selection-remove";
+  clearButton.textContent = "×";
+  clearButton.setAttribute("aria-label", "Clear GPT Prompt");
+  clearButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    clearPrompt();
   });
+  actions.append(clearButton);
 
-  item.append(copy, actions);
+  item.append(radio, copy, actions);
   promptList.appendChild(item);
 }
 

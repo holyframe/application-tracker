@@ -500,6 +500,15 @@ h1 {
   text-align: center;
 }
 
+.prompt-selection-list-empty-action {
+  cursor: pointer;
+}
+
+.prompt-selection-list-empty-action:hover {
+  border-color: rgba(84, 87, 255, 0.35);
+  color: var(--text);
+}
+
 .sheet-duplicate-actions {
   display: flex;
   gap: 10px;
