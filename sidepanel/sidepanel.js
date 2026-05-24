@@ -20,6 +20,20 @@ const sheetNameInput = document.querySelector("#sheetNameInput");
 const resumeTemplateInput = document.querySelector("#resumeTemplateInput");
 const saveConfigButton = document.querySelector("#saveConfigButton");
 const configStatus = document.querySelector("#configStatus");
+const resumeTemplatesList = document.querySelector("#resumeTemplatesList");
+const addResumeTemplateButton = document.querySelector("#addResumeTemplateButton");
+const editSelectedResumeButton = document.querySelector("#editSelectedResumeButton");
+const resumeSelectionStatus = document.querySelector("#resumeSelectionStatus");
+const addResumeModal = document.querySelector("#addResumeModal");
+const addResumeModalTitle = document.querySelector("#addResumeModalTitle");
+const addResumeModalHelp = document.querySelector("#addResumeModalHelp");
+const addResumeModalBackdrop = document.querySelector("#addResumeModalBackdrop");
+const addResumeModalCloseButton = document.querySelector("#addResumeModalCloseButton");
+const addResumeModalCancelButton = document.querySelector("#addResumeModalCancelButton");
+const addResumeModalSubmitButton = document.querySelector("#addResumeModalSubmitButton");
+const addResumeModalStatus = document.querySelector("#addResumeModalStatus");
+const newResumeNameInput = document.querySelector("#newResumeNameInput");
+const newResumeDocInput = document.querySelector("#newResumeDocInput");
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 
 let activeRunId = null;
@@ -38,6 +52,9 @@ function setSaveButtonsDisabled(disabled) {
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
   if (checkCompanyDuplicatesButton) checkCompanyDuplicatesButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
+  if (addResumeTemplateButton) addResumeTemplateButton.disabled = disabled;
+  if (editSelectedResumeButton) editSelectedResumeButton.disabled = disabled;
+  if (addResumeModalSubmitButton) addResumeModalSubmitButton.disabled = disabled;
 }
 
 function showConfigStatus(type, message) {
@@ -58,6 +75,389 @@ function clearConfigStatus() {
   configStatus?.classList.add("is-hidden");
   configStatus?.classList.remove("is-error", "is-success");
   if (configStatus) configStatus.textContent = "";
+}
+
+function showResumeSelectionStatus(type, message) {
+  if (!resumeSelectionStatus) return;
+
+  resumeSelectionStatus.classList.remove("is-hidden", "is-error", "is-success");
+  resumeSelectionStatus.textContent = message;
+
+  if (type === "error") {
+    resumeSelectionStatus.classList.add("is-error");
+    return;
+  }
+
+  resumeSelectionStatus.classList.add("is-success");
+}
+
+function clearResumeSelectionStatus() {
+  resumeSelectionStatus?.classList.add("is-hidden");
+  resumeSelectionStatus?.classList.remove("is-error", "is-success");
+  if (resumeSelectionStatus) resumeSelectionStatus.textContent = "";
+}
+
+function showAddResumeModalStatus(type, message) {
+  if (!addResumeModalStatus) return;
+
+  addResumeModalStatus.classList.remove("is-hidden", "is-error", "is-success");
+  addResumeModalStatus.textContent = message;
+  addResumeModalStatus.classList.add(type === "error" ? "is-error" : "is-success");
+}
+
+function clearAddResumeModalStatus() {
+  addResumeModalStatus?.classList.add("is-hidden");
+  addResumeModalStatus?.classList.remove("is-error", "is-success");
+  if (addResumeModalStatus) addResumeModalStatus.textContent = "";
+}
+
+function resetAddResumeModalForm() {
+  if (newResumeNameInput) newResumeNameInput.value = "";
+  if (newResumeDocInput) newResumeDocInput.value = "";
+  clearAddResumeModalStatus();
+}
+
+let resumeFormMode = "add";
+let editingResumeId = null;
+
+function formatResumeDocInput(docId = "") {
+  if (!docId) {
+    return "";
+  }
+
+  if (docId.includes("/")) {
+    return docId;
+  }
+
+  return `https://docs.google.com/document/d/${docId}/edit`;
+}
+
+function updateResumeFormModalCopy() {
+  const isEdit = resumeFormMode === "edit";
+
+  if (addResumeModalTitle) {
+    addResumeModalTitle.textContent = isEdit ? "Edit Resume" : "Add Resume";
+  }
+
+  if (addResumeModalHelp) {
+    addResumeModalHelp.textContent = isEdit
+      ? "View or update the selected resume details."
+      : "Add a labeled resume Google Doc to your selection list.";
+  }
+
+  if (addResumeModalSubmitButton) {
+    addResumeModalSubmitButton.textContent = isEdit ? "Save Changes" : "Add Resume";
+  }
+
+  if (addResumeModalBackdrop) {
+    addResumeModalBackdrop.setAttribute(
+      "aria-label",
+      isEdit ? "Close edit resume dialog" : "Close add resume dialog"
+    );
+  }
+}
+
+function setAddResumeModalOpen(isOpen) {
+  if (!addResumeModal) return;
+
+  addResumeModal.classList.toggle("is-hidden", !isOpen);
+  addResumeModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    updateResumeFormModalCopy();
+    clearAddResumeModalStatus();
+    newResumeNameInput?.focus();
+    return;
+  }
+
+  resumeFormMode = "add";
+  editingResumeId = null;
+  resetAddResumeModalForm();
+  updateResumeFormModalCopy();
+  editSelectedResumeButton?.focus();
+}
+
+function openAddResumeModal() {
+  resumeFormMode = "add";
+  editingResumeId = null;
+  resetAddResumeModalForm();
+  setAddResumeModalOpen(true);
+}
+
+function openEditResumeModal(resumeId) {
+  const resume = resumeSelectionState.templates.find((entry) => entry.id === resumeId);
+
+  if (!resume) {
+    showResumeSelectionStatus("error", "Selected resume could not be found.");
+    return;
+  }
+
+  resumeFormMode = "edit";
+  editingResumeId = resume.id;
+
+  if (newResumeNameInput) newResumeNameInput.value = resume.name;
+  if (newResumeDocInput) newResumeDocInput.value = formatResumeDocInput(resume.docId);
+
+  setAddResumeModalOpen(true);
+}
+
+function openEditSelectedResumeModal() {
+  if (!resumeSelectionState.selectedId) {
+    return;
+  }
+
+  openEditResumeModal(resumeSelectionState.selectedId);
+}
+
+function updateEditSelectedResumeButton() {
+  if (!editSelectedResumeButton) return;
+
+  const hasSelection = resumeSelectionState.templates.some(
+    (entry) => entry.id === resumeSelectionState.selectedId
+  );
+
+  editSelectedResumeButton.classList.toggle("is-hidden", !hasSelection);
+  editSelectedResumeButton.disabled = !hasSelection;
+}
+
+function truncateDocId(docId = "") {
+  if (docId.length <= 18) {
+    return docId;
+  }
+
+  return `${docId.slice(0, 8)}...${docId.slice(-6)}`;
+}
+
+let resumeSelectionState = {
+  templates: [],
+  selectedId: ""
+};
+
+function renderResumeTemplatesList() {
+  if (!resumeTemplatesList) return;
+
+  resumeTemplatesList.innerHTML = "";
+
+  if (resumeSelectionState.templates.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "resume-templates-empty";
+    empty.textContent = "No resumes yet. Add one below.";
+    resumeTemplatesList.appendChild(empty);
+    updateEditSelectedResumeButton();
+    return;
+  }
+
+  const canRemove = resumeSelectionState.templates.length > 1;
+
+  resumeSelectionState.templates.forEach((template) => {
+    const item = document.createElement("li");
+    item.className = "resume-template-item";
+    item.classList.toggle(
+      "is-selected",
+      template.id === resumeSelectionState.selectedId
+    );
+
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "resumeTemplate";
+    radio.value = template.id;
+    radio.checked = template.id === resumeSelectionState.selectedId;
+    radio.setAttribute("aria-label", `Use ${template.name}`);
+
+    const copy = document.createElement("div");
+    copy.className = "resume-template-copy";
+
+    const name = document.createElement("span");
+    name.className = "resume-template-name";
+    name.textContent = template.name;
+
+    const doc = document.createElement("span");
+    doc.className = "resume-template-doc";
+    doc.textContent = truncateDocId(template.docId);
+
+    copy.append(name, doc);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "resume-template-remove";
+    removeButton.textContent = "×";
+    removeButton.setAttribute("aria-label", `Remove ${template.name}`);
+    removeButton.disabled = !canRemove;
+    removeButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      removeResumeTemplate(template.id);
+    });
+
+    item.addEventListener("click", () => {
+      selectResumeTemplate(template.id);
+    });
+
+    radio.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectResumeTemplate(template.id);
+    });
+
+    item.append(radio, copy, removeButton);
+    resumeTemplatesList.appendChild(item);
+  });
+
+  updateEditSelectedResumeButton();
+}
+
+async function loadResumeSelection() {
+  clearResumeSelectionStatus();
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "GET_RESUME_SELECTION"
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not load resumes.");
+    }
+
+    resumeSelectionState = {
+      templates: Array.isArray(response.templates) ? response.templates : [],
+      selectedId: response.selectedId || ""
+    };
+    renderResumeTemplatesList();
+  } catch (error) {
+    console.error(error);
+    showResumeSelectionStatus("error", error.message || "Could not load resumes.");
+  }
+}
+
+async function persistResumeSelection(successMessage) {
+  const response = await chrome.runtime.sendMessage({
+    type: "SAVE_RESUME_SELECTION",
+    templates: resumeSelectionState.templates,
+    selectedId: resumeSelectionState.selectedId
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Could not save resume selection.");
+  }
+
+  resumeSelectionState = {
+    templates: Array.isArray(response.templates) ? response.templates : [],
+    selectedId: response.selectedId || ""
+  };
+  renderResumeTemplatesList();
+
+  if (successMessage) {
+    showResumeSelectionStatus("success", successMessage);
+  }
+}
+
+async function selectResumeTemplate(templateId) {
+  if (templateId === resumeSelectionState.selectedId) {
+    return;
+  }
+
+  clearResumeSelectionStatus();
+  resumeSelectionState.selectedId = templateId;
+
+  try {
+    await persistResumeSelection("Resume selection updated.");
+  } catch (error) {
+    console.error(error);
+    showResumeSelectionStatus("error", error.message || "Could not update selection.");
+    await loadResumeSelection();
+  }
+}
+
+async function removeResumeTemplate(templateId) {
+  clearResumeSelectionStatus();
+
+  if (resumeSelectionState.templates.length <= 1) {
+    showResumeSelectionStatus("error", "Keep at least one resume.");
+    return;
+  }
+
+  resumeSelectionState.templates = resumeSelectionState.templates.filter(
+    (template) => template.id !== templateId
+  );
+
+  if (resumeSelectionState.selectedId === templateId) {
+    resumeSelectionState.selectedId = resumeSelectionState.templates[0]?.id || "";
+  }
+
+  try {
+    await persistResumeSelection("Resume removed.");
+  } catch (error) {
+    console.error(error);
+    showResumeSelectionStatus("error", error.message || "Could not remove resume.");
+    await loadResumeSelection();
+  }
+}
+
+async function submitResumeForm() {
+  clearAddResumeModalStatus();
+
+  const name = newResumeNameInput?.value.trim() || "";
+  const docInput = newResumeDocInput?.value.trim() || "";
+
+  if (!name) {
+    showAddResumeModalStatus("error", "Enter a label for the resume.");
+    newResumeNameInput?.focus();
+    return;
+  }
+
+  if (!docInput) {
+    showAddResumeModalStatus("error", "Enter a Google Doc URL or document ID.");
+    newResumeDocInput?.focus();
+    return;
+  }
+
+  if (addResumeModalSubmitButton) {
+    addResumeModalSubmitButton.disabled = true;
+  }
+
+  const isEdit = resumeFormMode === "edit" && editingResumeId;
+  const templates = isEdit
+    ? resumeSelectionState.templates.map((entry) =>
+        entry.id === editingResumeId
+          ? { id: entry.id, name, docInput }
+          : entry
+      )
+    : [...resumeSelectionState.templates, { name, docInput }];
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "SAVE_RESUME_SELECTION",
+      templates,
+      selectedId: resumeSelectionState.selectedId
+    });
+
+    if (!response?.ok) {
+      throw new Error(
+        response?.error ||
+          (isEdit ? "Could not update resume." : "Could not add resume.")
+      );
+    }
+
+    resumeSelectionState = {
+      templates: Array.isArray(response.templates) ? response.templates : [],
+      selectedId: response.selectedId || ""
+    };
+
+    setAddResumeModalOpen(false);
+    renderResumeTemplatesList();
+    showResumeSelectionStatus(
+      "success",
+      isEdit ? `"${name}" updated.` : `"${name}" added.`
+    );
+  } catch (error) {
+    console.error(error);
+    showAddResumeModalStatus(
+      "error",
+      error.message || (isEdit ? "Could not update resume." : "Could not add resume.")
+    );
+  } finally {
+    if (addResumeModalSubmitButton) {
+      addResumeModalSubmitButton.disabled = false;
+    }
+  }
 }
 
 function setConfigPanelOpen(isOpen) {
@@ -486,6 +886,30 @@ configToggleButton?.addEventListener("click", () => {
 
 saveConfigButton?.addEventListener("click", saveSheetConfig);
 
+addResumeTemplateButton?.addEventListener("click", openAddResumeModal);
+editSelectedResumeButton?.addEventListener("click", openEditSelectedResumeModal);
+addResumeModalBackdrop?.addEventListener("click", () => setAddResumeModalOpen(false));
+addResumeModalCloseButton?.addEventListener("click", () => setAddResumeModalOpen(false));
+addResumeModalCancelButton?.addEventListener("click", () => setAddResumeModalOpen(false));
+addResumeModalSubmitButton?.addEventListener("click", submitResumeForm);
+
+newResumeDocInput?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.isComposing) {
+    return;
+  }
+
+  event.preventDefault();
+  submitResumeForm();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || addResumeModal?.classList.contains("is-hidden")) {
+    return;
+  }
+
+  setAddResumeModalOpen(false);
+});
+
 clearLogsButton?.addEventListener("click", () => {
   clearLogs();
 });
@@ -540,3 +964,4 @@ updateDeletedRowsState();
 updateClearNoteButtonState();
 loadNoteDraftFromStorage();
 loadSheetConfig();
+loadResumeSelection();

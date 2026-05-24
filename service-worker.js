@@ -7,6 +7,7 @@ const DEFAULT_RESUME_TEMPLATE_ID = "1oF1GQJ6bTEli1548HVyI91O803oQaeP8ec8Y81bj5zM
 const CHATGPT_URL = "https://chatgpt.com";
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
+const RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -45,6 +46,68 @@ function parseGoogleDocId(input) {
   }
 
   return raw;
+}
+
+function createResumeTemplateId() {
+  if (crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return `resume-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeResumeEntry(entry) {
+  const name = String(entry?.name ?? "").trim();
+  const docId = parseGoogleDocId(entry?.docId || entry?.docInput || "");
+
+  if (!name || !docId) {
+    return null;
+  }
+
+  return {
+    id: String(entry?.id || createResumeTemplateId()),
+    name,
+    docId
+  };
+}
+
+async function getResumeSelectionState() {
+  const stored = await chrome.storage.local.get(RESUME_SELECTION_STORAGE_KEY);
+  const selection = stored[RESUME_SELECTION_STORAGE_KEY];
+
+  if (selection) {
+    const templates = (Array.isArray(selection.templates) ? selection.templates : [])
+      .map(normalizeResumeEntry)
+      .filter(Boolean);
+
+    const selectedId = templates.some(
+      (entry) => entry.id === selection.selectedId
+    )
+      ? selection.selectedId
+      : templates[0]?.id || "";
+
+    return { templates, selectedId };
+  }
+
+  return { templates: [], selectedId: "" };
+}
+
+async function saveResumeSelectionState(templatesInput, selectedIdInput) {
+  const templates = (Array.isArray(templatesInput) ? templatesInput : [])
+    .map(normalizeResumeEntry)
+    .filter(Boolean);
+
+  const selectedId = templates.some((entry) => entry.id === selectedIdInput)
+    ? selectedIdInput
+    : templates[0]?.id || "";
+
+  const state = { templates, selectedId };
+
+  await chrome.storage.local.set({
+    [RESUME_SELECTION_STORAGE_KEY]: state
+  });
+
+  return state;
 }
 
 async function getSheetConfig() {
@@ -157,6 +220,7 @@ chrome.runtime.onInstalled.addListener(async () => {
         config.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID
     }
   });
+
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -223,6 +287,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           ok: false,
           error: error.message || "Could not save sheet configuration."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "GET_RESUME_SELECTION") {
+    getResumeSelectionState()
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not load resume selection."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_RESUME_SELECTION") {
+    saveResumeSelectionState(message.templates, message.selectedId)
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not save resume selection."
         });
       });
     return true;

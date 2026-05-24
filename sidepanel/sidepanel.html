@@ -178,6 +178,42 @@
         </button>
       </section>
 
+      <section class="card resume-selection-card">
+        <div class="card-title-row">
+          <span class="resume-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M7 3h7l4 4v14H7z" />
+              <path d="M14 3v5h5" />
+              <path d="M9.5 11h5" />
+              <path d="M9.5 14h5" />
+              <path d="M9.5 17h3.5" />
+            </svg>
+          </span>
+
+          <h2>Prompt Resume Selection</h2>
+        </div>
+
+        <p class="resume-selection-help">
+          Choose which prompt resume to use when optimizing resume.
+        </p>
+
+        <ul id="resumeTemplatesList" class="resume-templates-list" aria-label="Resumes"></ul>
+
+        <button
+          id="editSelectedResumeButton"
+          type="button"
+          class="secondary-button resume-edit-button is-hidden"
+        >
+          <span>View / Edit Selected Resume</span>
+        </button>
+
+        <button id="addResumeTemplateButton" type="button" class="secondary-button resume-add-button">
+          <span>Add Resume</span>
+        </button>
+
+        <p id="resumeSelectionStatus" class="config-status is-hidden" aria-live="polite"></p>
+      </section>
+
       <section id="statusCard" class="status-card is-hidden" aria-live="polite">
         <span class="status-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
@@ -252,6 +288,74 @@
         </div>
       </section>
     </main>
+
+    <div
+      id="addResumeModal"
+      class="modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="addResumeModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="addResumeModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close add resume dialog"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="addResumeModalTitle">Add Resume</h2>
+          <button
+            id="addResumeModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <p id="addResumeModalHelp" class="modal-help">Add a labeled resume Google Doc to your selection list.</p>
+
+        <div class="modal-form">
+          <div class="config-field">
+            <label class="config-label" for="newResumeNameInput">Label</label>
+            <input
+              id="newResumeNameInput"
+              type="text"
+              class="config-input"
+              placeholder="e.g. Frontend"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="config-field">
+            <label class="config-label" for="newResumeDocInput">Google Doc URL or ID</label>
+            <input
+              id="newResumeDocInput"
+              type="text"
+              class="config-input"
+              placeholder="https://docs.google.com/document/d/..."
+              autocomplete="off"
+            />
+          </div>
+        </div>
+
+        <p id="addResumeModalStatus" class="config-status is-hidden" aria-live="polite"></p>
+
+        <div class="modal-actions">
+          <button id="addResumeModalCancelButton" type="button" class="secondary-button modal-action-button">
+            <span>Cancel</span>
+          </button>
+
+          <button id="addResumeModalSubmitButton" type="button" class="primary-button modal-action-button">
+            <span>Add Resume</span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <script src="sidepanel.js"></script>
   </body>
