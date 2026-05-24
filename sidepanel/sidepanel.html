@@ -39,7 +39,7 @@
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </span>
-            <span>App configuration</span>
+            <span>App Setting</span>
           </span>
           <span class="config-chevron" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -48,7 +48,7 @@
           </span>
         </button>
 
-        <div id="configPanel" class="config-panel is-open" role="region" aria-label="App configuration">
+        <div id="configPanel" class="config-panel is-open" role="region" aria-label="App Setting">
           <div class="config-panel-inner">
             <p class="config-help">
               Set the Google Sheet and Resume template used by this extension.
@@ -87,6 +87,16 @@
               autocomplete="off"
             />
 
+            <div class="prompt-selection-section">
+              <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
+            </div>
+
+            <div class="prompt-resume-add-section">
+              <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
+                <span>Add a Prompt Resume</span>
+              </button>
+            </div>
+
             <button id="saveConfigButton" type="button" class="secondary-button config-save-button">
               <span>Save configuration</span>
             </button>
@@ -111,18 +121,71 @@
 
           <h2>Save to Google Sheet</h2>
         </div>
+      </section>
 
-        <button id="saveAllTabsButton" type="button" class="primary-button">
-          <span class="button-icon" aria-hidden="true">
+      <section class="card prompt-resume-selection-card">
+        <div class="card-title-row">
+          <span class="prompt-resume-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
-              <path d="M8 6h12M8 12h12M8 18h8" />
-              <path d="M5 6h.01M5 12h.01M5 18h.01" />
+              <path d="M7 3h7l4 4v14H7z" />
+              <path d="M14 3v5h5" />
+              <path d="M9.5 11h5" />
+              <path d="M9.5 14h5" />
+              <path d="M9.5 17h3.5" />
             </svg>
           </span>
-          <span>Save all tabs</span>
-        </button>
 
-        <div class="sheet-duplicate-actions">
+          <h2>Application Management</h2>
+        </div>
+
+        <div class="job-description-selection-section">
+          <p class="prompt-resume-selection-help">Add a job description</p>
+
+          <ul
+            id="jobDescriptionList"
+            class="job-description-selection-list"
+            aria-label="Job description"
+          ></ul>
+        </div>
+
+        <p class="prompt-resume-selection-help">
+          Choose which prompt resume to use when optimizing resume.
+        </p>
+
+        <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
+
+        <div class="application-save-section">
+          <button id="saveButton" type="button" class="primary-button">
+            <span class="button-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 16V8" />
+                <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
+                <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
+              </svg>
+            </span>
+            <span>Save current tab</span>
+          </button>
+
+          <div class="note-input-wrap">
+            <input
+              id="noteInput"
+              type="text"
+              class="note-input"
+              placeholder="Add a note for the commnet on the application"
+            />
+            <button
+              id="clearNoteButton"
+              type="button"
+              class="note-clear-button is-hidden"
+              aria-label="Clear note"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div class="application-duplicate-section">
+          <div class="sheet-duplicate-actions">
           <button id="removeDuplicatesButton" type="button" class="remove-duplicates-button">
             <span class="button-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
@@ -147,73 +210,18 @@
             </span>
             <span>Check Company Duplicates</span>
           </button>
+          </div>
         </div>
 
-        <div class="note-input-wrap">
-          <input
-            id="noteInput"
-            type="text"
-            class="note-input"
-            placeholder="Add a note for the commnet on the application"
-          />
-          <button
-            id="clearNoteButton"
-            type="button"
-            class="note-clear-button is-hidden"
-            aria-label="Clear note"
-          >
-            ×
-          </button>
-        </div>
-
-        <button id="saveButton" type="button" class="primary-button">
+        <button id="saveAllTabsButton" type="button" class="primary-button">
           <span class="button-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
-              <path d="M12 16V8" />
-              <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
-              <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
+              <path d="M8 6h12M8 12h12M8 18h8" />
+              <path d="M5 6h.01M5 12h.01M5 18h.01" />
             </svg>
           </span>
-          <span>Save current tab</span>
+          <span>Save all tabs</span>
         </button>
-      </section>
-
-      <section class="card prompt-resume-selection-card">
-        <div class="card-title-row">
-          <span class="prompt-resume-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M7 3h7l4 4v14H7z" />
-              <path d="M14 3v5h5" />
-              <path d="M9.5 11h5" />
-              <path d="M9.5 14h5" />
-              <path d="M9.5 17h3.5" />
-            </svg>
-          </span>
-
-          <h2>Prompt Resume Selection</h2>
-        </div>
-
-        <p class="prompt-resume-selection-help">
-          Choose which prompt resume to use when optimizing resume.
-        </p>
-
-        <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
-
-        <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
-          <span>Add a Prompt Resume</span>
-        </button>
-
-        <div class="prompt-selection-section">
-          <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
-        </div>
-
-        <div class="job-description-selection-section">
-          <ul
-            id="jobDescriptionList"
-            class="job-description-selection-list"
-            aria-label="Job description"
-          ></ul>
-        </div>
       </section>
 
       <section id="statusCard" class="status-card is-hidden" aria-live="polite">

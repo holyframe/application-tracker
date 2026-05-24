@@ -300,12 +300,19 @@ h1 {
 }
 
 .prompt-selection-section,
-.job-description-selection-section {
+.prompt-resume-add-section,
+.application-save-section,
+.application-duplicate-section {
   display: grid;
   gap: 8px;
   margin-top: 4px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+.job-description-selection-section {
+  display: grid;
+  gap: 8px;
 }
 
 .prompt-selection-item.is-single,
@@ -566,48 +573,57 @@ textarea {
     background 160ms ease;
 }
 
-.note-input {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  height: 42px;
-  min-height: 42px;
-  max-height: 42px;
-  padding: 0 38px 0 12px;
-  border-radius: 12px;
-  color: #050a24;
-  -webkit-text-fill-color: #050a24;
-  caret-color: #050a24;
-  opacity: 1;
-  text-shadow: none;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  background: #ffffff;
-  border-color: rgba(84, 87, 255, 0.45);
-  line-height: normal;
-  appearance: none;
-}
-
-.note-input-wrap {
+.prompt-resume-selection-card .note-input-wrap {
   position: relative;
 }
 
-.note-input::placeholder {
-  color: #5f6b8d;
+.prompt-resume-selection-card .note-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  height: 34px;
+  min-height: 34px;
+  max-height: 34px;
+  padding: 0 34px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  -webkit-text-fill-color: var(--text);
+  caret-color: var(--text);
+  opacity: 1;
+  text-shadow: none;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  background: rgba(255, 255, 255, 0.72);
+  line-height: normal;
+  appearance: none;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
 }
 
-.note-input::-webkit-scrollbar {
+.prompt-resume-selection-card .note-input:focus {
+  outline: none;
+  border-color: rgba(84, 87, 255, 0.55);
+  background: rgba(84, 87, 255, 0.08);
+}
+
+.prompt-resume-selection-card .note-input::placeholder {
+  color: var(--muted);
+}
+
+.prompt-resume-selection-card .note-input::-webkit-scrollbar {
   width: 0;
   height: 0;
 }
 
-.note-input::-ms-clear,
-.note-input::-ms-reveal {
+.prompt-resume-selection-card .note-input::-ms-clear,
+.prompt-resume-selection-card .note-input::-ms-reveal {
   display: none;
 }
 
-.note-clear-button {
+.prompt-resume-selection-card .note-clear-button {
   position: absolute;
   top: 50%;
   right: 8px;
@@ -623,15 +639,16 @@ textarea {
   font-size: 15px;
   line-height: 24px;
   font-weight: 700;
-  color: #3d4670;
-  background: rgba(84, 87, 255, 0.14);
+  color: #5f6b8d;
+  background: rgba(84, 87, 255, 0.1);
 }
 
-.note-clear-button:hover {
-  background: rgba(84, 87, 255, 0.24);
+.prompt-resume-selection-card .note-clear-button:hover {
+  color: var(--primary-dark);
+  background: rgba(84, 87, 255, 0.2);
 }
 
-.note-clear-button.is-hidden {
+.prompt-resume-selection-card .note-clear-button.is-hidden {
   display: none;
 }
 
@@ -1265,27 +1282,30 @@ textarea:focus {
     color: #c2cbea;
   }
 
-  .note-input {
-    color: #ffffff;
-    -webkit-text-fill-color: #ffffff;
-    caret-color: #ffffff;
-    opacity: 1;
-    text-shadow: none;
-    background: rgba(10, 14, 28, 0.98);
-    border-color: rgba(255, 255, 255, 0.42);
+  .prompt-resume-selection-card .note-input {
+    background: rgba(25, 28, 45, 0.82);
+    color: var(--text);
+    -webkit-text-fill-color: var(--text);
+    caret-color: var(--text);
+    border-color: var(--line);
   }
 
-  .note-input::placeholder {
-    color: #c2cbea;
+  .prompt-resume-selection-card .note-input:focus {
+    border-color: rgba(84, 87, 255, 0.55);
+    background: rgba(84, 87, 255, 0.12);
   }
 
-  .note-clear-button {
-    color: #ecf1ff;
-    background: rgba(255, 255, 255, 0.16);
+  .prompt-resume-selection-card .note-input::placeholder {
+    color: #c8cee3;
   }
 
-  .note-clear-button:hover {
-    background: rgba(255, 255, 255, 0.24);
+  .prompt-resume-selection-card .note-clear-button {
+    color: #c8cee3;
+    background: rgba(84, 87, 255, 0.12);
+  }
+
+  .prompt-resume-selection-card .note-clear-button:hover {
+    background: rgba(84, 87, 255, 0.22);
   }
 
   .status-card {
