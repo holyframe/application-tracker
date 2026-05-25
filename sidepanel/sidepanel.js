@@ -1289,7 +1289,7 @@ async function runCurrentAppAction(mode = "save") {
     "info",
     mode === "apply"
       ? "Apply Now clicked. Starting process..."
-      : "Save current app clicked. Starting process..."
+      : "Save App clicked. Starting process..."
   );
 
   try {
