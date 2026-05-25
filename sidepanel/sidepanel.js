@@ -1038,11 +1038,51 @@ async function refreshApplicationInputsAfterSave() {
   await Promise.all([loadPromptResumeSelection(), loadJobDescriptionSelection()]);
 }
 
-async function saveCurrentTabUrl() {
-  activeRunId = createRunId();
+function validateSaveCurrentTabInputs() {
+  const missing = [];
 
+  if (!promptState.content?.trim()) {
+    missing.push("GPT prompt");
+  }
+
+  if (!jobDescriptionState.content?.trim()) {
+    missing.push("job description");
+  }
+
+  const hasSelectedResume =
+    Boolean(promptResumeSelectionState.selectedPromptResumeId) &&
+    promptResumeSelectionState.promptResumes.some(
+      (entry) => entry.id === promptResumeSelectionState.selectedPromptResumeId
+    );
+
+  if (!hasSelectedResume) {
+    missing.push("prompt resume selection");
+  }
+
+  if (missing.length === 0) {
+    return { ok: true };
+  }
+
+  const message =
+    missing.length === 1
+      ? `${missing[0]} is required before saving.`
+      : `These are required before saving: ${missing.join(", ")}.`;
+
+  return { ok: false, error: message, missing };
+}
+
+async function saveCurrentTabUrl() {
   clearStatus();
   clearDeletedRows();
+
+  const validation = validateSaveCurrentTabInputs();
+  if (!validation.ok) {
+    showStatus("error", validation.error);
+    addLog("error", validation.error);
+    return;
+  }
+
+  activeRunId = createRunId();
 
   setSaveButtonsDisabled(true);
   addLog("info", "Button clicked. Starting process...");

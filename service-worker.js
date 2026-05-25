@@ -472,6 +472,52 @@ function isChatGptConversationUrl(url = "") {
   return /\/c\/[a-zA-Z0-9-]+/.test(url);
 }
 
+function formatSaveValidationError(missing) {
+  if (missing.length === 1) {
+    return `${missing[0]} is required before saving.`;
+  }
+
+  return `These are required before saving: ${missing.join(", ")}.`;
+}
+
+async function validateApplicationInputsForSave() {
+  const [promptState, jobDescriptionState, resumeState] = await Promise.all([
+    getPromptSelectionState(),
+    getJobDescriptionSelectionState(),
+    getPromptResumeSelectionState()
+  ]);
+
+  const missing = [];
+
+  if (!promptState.content?.trim()) {
+    missing.push("GPT prompt");
+  }
+
+  if (!jobDescriptionState.content?.trim()) {
+    missing.push("job description");
+  }
+
+  const hasSelectedResume =
+    Boolean(resumeState.selectedPromptResumeId) &&
+    resumeState.promptResumes.some(
+      (entry) => entry.id === resumeState.selectedPromptResumeId
+    );
+
+  if (!hasSelectedResume) {
+    missing.push("prompt resume selection");
+  }
+
+  if (missing.length === 0) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    missing,
+    error: formatSaveValidationError(missing)
+  };
+}
+
 async function buildChatGptMessageFromStorage() {
   const [promptState, jobDescriptionState, resumeState] = await Promise.all([
     getPromptSelectionState(),
@@ -508,11 +554,14 @@ async function resolveExistingChatGptTabUrl(runId) {
 
   if (tab?.url && isChatGptUrl(tab.url)) {
     sendLog(runId, "info", `Using existing ChatGPT tab URL: ${tab.url}`);
-    return tab.url;
+    return {
+      url: tab.url,
+      tabId: typeof tab.id === "number" ? tab.id : null
+    };
   }
 
   sendLog(runId, "info", `No ChatGPT tab found. Using default URL: ${CHATGPT_URL}`);
-  return CHATGPT_URL;
+  return { url: CHATGPT_URL, tabId: null };
 }
 
 async function resolveChatGptUrlAfterSend(tabId, runId) {
@@ -586,7 +635,10 @@ async function sendToChatGptAndGetUrl(text, runId) {
   const chatGptUrl = await resolveChatGptUrlAfterSend(tab.id, runId);
   sendLog(runId, "success", `Prompt sent to ChatGPT: ${chatGptUrl}`);
 
-  return chatGptUrl;
+  return {
+    url: chatGptUrl,
+    tabId: tab.id
+  };
 }
 
 async function scheduleSaveCheckReminder({ jobTitle = "", chatGptUrl = "" } = {}, runId) {
@@ -870,6 +922,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function saveCurrentTabUrlToSheet(note = "", runId) {
   sendLog(runId, "info", "Starting save process...");
 
+  const validation = await validateApplicationInputsForSave();
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+
   sendLog(runId, "info", "Checking current active tab...");
 
   const [tab] = await chrome.tabs.query({
@@ -903,16 +960,21 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   sendLog(runId, "info", "Preparing ChatGPT prompt...");
   const chatGptMessage = await buildChatGptMessageFromStorage();
   let chatGptUrl = CHATGPT_URL;
+  let chatGptTabId = null;
 
   if (chatGptMessage) {
-    chatGptUrl = await sendToChatGptAndGetUrl(chatGptMessage, runId);
+    const chatGptResult = await sendToChatGptAndGetUrl(chatGptMessage, runId);
+    chatGptUrl = chatGptResult.url;
+    chatGptTabId = chatGptResult.tabId;
   } else {
     sendLog(
       runId,
       "info",
       "No GPT prompt, job description, or prompt resume configured."
     );
-    chatGptUrl = await resolveExistingChatGptTabUrl(runId);
+    const chatGptResult = await resolveExistingChatGptTabUrl(runId);
+    chatGptUrl = chatGptResult.url;
+    chatGptTabId = chatGptResult.tabId;
   }
 
   const row = [
@@ -937,6 +999,16 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   await chrome.tabs.remove(tab.id);
   sendLog(runId, "success", "Current tab closed.");
 
+  if (typeof chatGptTabId === "number") {
+    sendLog(runId, "info", "Closing ChatGPT tab...");
+    try {
+      await chrome.tabs.remove(chatGptTabId);
+      sendLog(runId, "success", "ChatGPT tab closed.");
+    } catch (error) {
+      sendLog(runId, "info", "ChatGPT tab was already closed.");
+    }
+  }
+
   await resetApplicationInputsAfterSave(runId);
 
   await scheduleSaveCheckReminder(
@@ -947,7 +1019,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
     runId
   );
 
-  sendLog(runId, "success", "Finished. URL saved and tab closed.");
+  sendLog(runId, "success", "Finished. Job and ChatGPT tabs closed.");
 
   return {
     url: urlForSheet,
