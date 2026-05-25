@@ -1,6 +1,7 @@
 const noteInput = document.querySelector("#noteInput");
 const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
+const applyNowButton = document.querySelector("#applyNowButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const checkCompanyDuplicatesButton = document.querySelector("#checkCompanyDuplicatesButton");
 const statusCard = document.querySelector("#statusCard");
@@ -65,6 +66,7 @@ function createRunId() {
 }
 
 function setSaveButtonsDisabled(disabled) {
+  if (applyNowButton) applyNowButton.disabled = disabled;
   if (saveButton) saveButton.disabled = disabled;
   if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
@@ -1222,7 +1224,42 @@ function validateSaveCurrentTabInputs() {
   return { ok: false, error: message, missing };
 }
 
-async function saveCurrentTabUrl() {
+async function validateActiveBrowserTabForAppAction() {
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true
+  });
+
+  if (!tab) {
+    return { ok: false, error: "No active tab found." };
+  }
+
+  if (!tab.url) {
+    return { ok: false, error: "Current tab does not have a URL." };
+  }
+
+  if (tab.pinned) {
+    return {
+      ok: false,
+      error: "Pinned tabs are not supported. Unpin the tab and try again."
+    };
+  }
+
+  if (
+    typeof tab.groupId === "number" &&
+    tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE
+  ) {
+    return {
+      ok: false,
+      error:
+        "Grouped tabs are not supported. Ungroup the tab or open it outside a tab group and try again."
+    };
+  }
+
+  return { ok: true };
+}
+
+async function runCurrentAppAction(mode = "save") {
   if (!guardExtensionUiAction()) {
     return;
   }
@@ -1237,17 +1274,30 @@ async function saveCurrentTabUrl() {
     return;
   }
 
+  const tabValidation = await validateActiveBrowserTabForAppAction();
+  if (!tabValidation.ok) {
+    showStatus("error", tabValidation.error);
+    addLog("error", tabValidation.error);
+    return;
+  }
+
   activeRunId = createRunId();
 
   applyExtensionUiLockState(true);
   setSaveButtonsDisabled(true);
-  addLog("info", "Button clicked. Starting process...");
+  addLog(
+    "info",
+    mode === "apply"
+      ? "Apply Now clicked. Starting process..."
+      : "Save current app clicked. Starting process..."
+  );
 
   try {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_CURRENT_TAB_URL_TO_SHEET",
       runId: activeRunId,
-      note: noteInput?.value.trim() || ""
+      note: noteInput?.value.trim() || "",
+      mode
     });
 
     if (!response?.ok) {
@@ -1263,7 +1313,12 @@ async function saveCurrentTabUrl() {
     }
 
     showStatus("success", response.url);
-    addLog("success", "Process completed successfully.");
+    addLog(
+      "success",
+      mode === "apply"
+        ? "Application tabs grouped successfully."
+        : "Process completed successfully."
+    );
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Something went wrong.");
@@ -1272,6 +1327,14 @@ async function saveCurrentTabUrl() {
   } finally {
     setSaveButtonsDisabled(isExtensionUiLocked);
   }
+}
+
+async function saveCurrentTabUrl() {
+  await runCurrentAppAction("save");
+}
+
+async function applyNow() {
+  await runCurrentAppAction("apply");
 }
 
 async function loadNoteDraftFromStorage() {
@@ -1500,6 +1563,7 @@ async function checkCompanyDuplicates() {
   }
 }
 
+applyNowButton?.addEventListener("click", applyNow);
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
@@ -1601,7 +1665,7 @@ noteInput?.addEventListener("keydown", (event) => {
 
   event.preventDefault();
 
-  if (saveButton?.disabled) {
+  if (saveButton?.disabled && applyNowButton?.disabled) {
     return;
   }
 
