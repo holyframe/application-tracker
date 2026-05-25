@@ -139,11 +139,14 @@ async function getPromptResumeSelectionState() {
       .map(normalizePromptResume)
       .filter(Boolean);
 
-    const selectedPromptResumeId = promptResumes.some(
-      (entry) => entry.id === selection.selectedPromptResumeId
-    )
-      ? selection.selectedPromptResumeId
-      : promptResumes[0]?.id || "";
+    const selectedPromptResumeId =
+      selection.selectedPromptResumeId === ""
+        ? ""
+        : promptResumes.some(
+              (entry) => entry.id === selection.selectedPromptResumeId
+            )
+          ? selection.selectedPromptResumeId
+          : promptResumes[0]?.id || "";
 
     return { promptResumes, selectedPromptResumeId };
   }
@@ -161,11 +164,12 @@ async function savePromptResumeSelectionState(
     .map(normalizePromptResume)
     .filter(Boolean);
 
-  const selectedPromptResumeId = promptResumes.some(
-    (entry) => entry.id === selectedPromptResumeIdInput
-  )
-    ? selectedPromptResumeIdInput
-    : promptResumes[0]?.id || "";
+  const selectedPromptResumeId =
+    selectedPromptResumeIdInput === ""
+      ? ""
+      : promptResumes.some((entry) => entry.id === selectedPromptResumeIdInput)
+        ? selectedPromptResumeIdInput
+        : promptResumes[0]?.id || "";
 
   const state = { promptResumes, selectedPromptResumeId };
 
@@ -174,6 +178,19 @@ async function savePromptResumeSelectionState(
   });
 
   return state;
+}
+
+async function resetApplicationInputsAfterSave(runId) {
+  const resumeState = await getPromptResumeSelectionState();
+
+  await savePromptResumeSelectionState(resumeState.promptResumes, "");
+  await saveJobDescriptionSelectionState("");
+
+  sendLog(
+    runId,
+    "info",
+    "Cleared prompt resume selection and job description."
+  );
 }
 
 async function loadPromptSelectionRecord() {
@@ -919,6 +936,8 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   sendLog(runId, "info", "Closing current tab...");
   await chrome.tabs.remove(tab.id);
   sendLog(runId, "success", "Current tab closed.");
+
+  await resetApplicationInputsAfterSave(runId);
 
   await scheduleSaveCheckReminder(
     {

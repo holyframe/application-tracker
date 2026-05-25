@@ -47,6 +47,8 @@ const jobDescriptionFormModalCancelButton = document.querySelector("#jobDescript
 const jobDescriptionFormModalSubmitButton = document.querySelector("#jobDescriptionFormModalSubmitButton");
 const jobDescriptionContentInput = document.querySelector("#jobDescriptionContentInput");
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
+const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
+const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 
 let activeRunId = null;
 
@@ -1032,6 +1034,10 @@ function updateClearNoteButtonState() {
   clearNoteButton.classList.toggle("is-hidden", !hasText);
 }
 
+async function refreshApplicationInputsAfterSave() {
+  await Promise.all([loadPromptResumeSelection(), loadJobDescriptionSelection()]);
+}
+
 async function saveCurrentTabUrl() {
   activeRunId = createRunId();
 
@@ -1062,6 +1068,7 @@ async function saveCurrentTabUrl() {
 
     showStatus("success", response.url);
     addLog("success", "Process completed successfully.");
+    await refreshApplicationInputsAfterSave();
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Something went wrong.");
@@ -1206,6 +1213,9 @@ chrome.runtime.onMessage.addListener((message) => {
     if (message.ok) {
       showStatus("success", message.url || "", "Saved:");
       addLog("success", "Process completed successfully.");
+      refreshApplicationInputsAfterSave().catch((error) => {
+        console.error("Could not refresh application inputs:", error);
+      });
     } else {
       showStatus("error", message.error || "Something went wrong.");
       addLog("error", message.error || "Something went wrong.");
@@ -1376,13 +1386,24 @@ noteInput?.addEventListener("keydown", (event) => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "local" || !changes[NOTE_DRAFT_STORAGE_KEY] || !noteInput) {
+  if (areaName !== "local") {
     return;
   }
 
-  const nextValue = changes[NOTE_DRAFT_STORAGE_KEY].newValue;
-  noteInput.value = typeof nextValue === "string" ? nextValue : "";
-  updateClearNoteButtonState();
+  if (changes[NOTE_DRAFT_STORAGE_KEY] && noteInput) {
+    const nextValue = changes[NOTE_DRAFT_STORAGE_KEY].newValue;
+    noteInput.value = typeof nextValue === "string" ? nextValue : "";
+    updateClearNoteButtonState();
+  }
+
+  if (
+    changes[PROMPT_RESUME_SELECTION_STORAGE_KEY] ||
+    changes[JOB_DESCRIPTION_SELECTION_STORAGE_KEY]
+  ) {
+    refreshApplicationInputsAfterSave().catch((error) => {
+      console.error("Could not refresh application inputs:", error);
+    });
+  }
 });
 
 updateLogsState();
