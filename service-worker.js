@@ -13,11 +13,12 @@ const PROMPT_SELECTION_STORAGE_KEY = "promptSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const SAVE_CHECK_REMINDER_ALARM_NAME = "save-current-tab-check-reminder";
 const SAVE_CHECK_REMINDER_STORAGE_KEY = "saveCheckReminder";
-const SAVE_CHECK_REMINDER_DELAY_MINUTES = 3;
+const SAVE_CHECK_REMINDER_DELAY_MINUTES = 2;
 const SAVE_CHECK_REMINDER_NOTIFICATION_ID = "application-helper-check-reminder";
 const CHATGPT_TAB_CLOSE_ALARM_NAME = "close-chatgpt-tab-after-save";
 const CHATGPT_TAB_CLOSE_STORAGE_KEY = "pendingChatGptTabClose";
-const CHATGPT_TAB_CLOSE_DELAY_MINUTES = 2.9;
+const CHATGPT_TAB_CLOSE_DELAY_MINUTES = 1.9;
+const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -183,17 +184,25 @@ async function savePromptResumeSelectionState(
   return state;
 }
 
-async function resetApplicationInputsAfterSave(runId) {
+async function resetApplicationInputsAfterSave(runId = "") {
   const resumeState = await getPromptResumeSelectionState();
 
   await savePromptResumeSelectionState(resumeState.promptResumes, "");
   await saveJobDescriptionSelectionState("");
 
-  sendLog(
-    runId,
-    "info",
-    "Cleared prompt resume selection and job description."
-  );
+  const message = "Cleared prompt resume selection and job description.";
+
+  if (runId) {
+    sendLog(runId, "info", message);
+    return;
+  }
+
+  chrome.runtime
+    .sendMessage({
+      type: "APPLICATION_INPUTS_RESET",
+      message
+    })
+    .catch(() => {});
 }
 
 async function loadPromptSelectionRecord() {
@@ -667,6 +676,30 @@ async function scheduleSaveCheckReminder(
   );
 }
 
+async function isExtensionUiLockedForNotification() {
+  const stored = await chrome.storage.local.get(EXTENSION_UI_LOCK_STORAGE_KEY);
+  return Boolean(stored[EXTENSION_UI_LOCK_STORAGE_KEY]?.locked);
+}
+
+async function lockExtensionUiUntilNotification(runId) {
+  await chrome.storage.local.set({
+    [EXTENSION_UI_LOCK_STORAGE_KEY]: {
+      locked: true,
+      lockedAt: Date.now()
+    }
+  });
+
+  sendLog(
+    runId,
+    "info",
+    "Extension locked until check notification. Process logs only."
+  );
+}
+
+async function unlockExtensionUi() {
+  await chrome.storage.local.remove(EXTENSION_UI_LOCK_STORAGE_KEY);
+}
+
 async function openReminderUrls(jobUrl, chatGptUrl) {
   const normalizedJobUrl = String(jobUrl || "").trim();
   const normalizedChatGptUrl = String(chatGptUrl || CHATGPT_URL).trim() || CHATGPT_URL;
@@ -729,6 +762,9 @@ async function showSaveCheckReminderNotification() {
     priority: 2,
     requireInteraction: true
   });
+
+  await resetApplicationInputsAfterSave();
+  await unlockExtensionUi();
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -808,6 +844,17 @@ chrome.commands.onCommand.addListener((command) => {
 
   const runId = `shortcut-${Date.now()}`;
   (async () => {
+    if (await isExtensionUiLockedForNotification()) {
+      sendLog(runId, "error", "Please wait for the check notification before starting another save.");
+      await chrome.runtime.sendMessage({
+        type: "HOTKEY_SAVE_FINISHED",
+        runId,
+        ok: false,
+        error: "Please wait for the check notification before starting another save."
+      });
+      return;
+    }
+
     await chrome.runtime.sendMessage({
       type: "HOTKEY_SAVE_STARTED",
       runId
@@ -982,104 +1029,115 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function saveCurrentTabUrlToSheet(note = "", runId) {
   sendLog(runId, "info", "Starting save process...");
 
+  if (await isExtensionUiLockedForNotification()) {
+    throw new Error(
+      "Please wait for the check notification before starting another save."
+    );
+  }
+
   const validation = await validateApplicationInputsForSave();
   if (!validation.ok) {
     throw new Error(validation.error);
   }
 
-  sendLog(runId, "info", "Checking current active tab...");
+  await lockExtensionUiUntilNotification(runId);
 
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true
-  });
+  try {
+    sendLog(runId, "info", "Checking current active tab...");
 
-  if (!tab) {
-    throw new Error("No active tab found.");
-  }
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true
+    });
 
-  if (!tab.url) {
-    throw new Error("Current tab does not have a URL.");
-  }
-  if (tab.pinned) {
-    throw new Error("Pinned tabs are skipped. Unpin the tab to save and close it.");
-  }
+    if (!tab) {
+      throw new Error("No active tab found.");
+    }
 
-  const urlForSheet = normalizeUrlForStorage(tab.url);
+    if (!tab.url) {
+      throw new Error("Current tab does not have a URL.");
+    }
+    if (tab.pinned) {
+      throw new Error("Pinned tabs are skipped. Unpin the tab to save and close it.");
+    }
 
-  sendLog(runId, "success", `Found tab URL: ${tab.url}`);
+    const urlForSheet = normalizeUrlForStorage(tab.url);
 
-  const { resumeTemplateId } = await getSheetConfig();
-  const token = await getGoogleAccessToken();
+    sendLog(runId, "success", `Found tab URL: ${tab.url}`);
 
-  const docTitle = tab.title || `Application ${new Date().toLocaleDateString()}`;
-  sendLog(runId, "info", "Creating resume copy...");
-  const resumeUrl = await copyResumeAndGetUrl(token, docTitle, resumeTemplateId, runId);
-  sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
+    const { resumeTemplateId } = await getSheetConfig();
+    const token = await getGoogleAccessToken();
 
-  sendLog(runId, "info", "Preparing ChatGPT prompt...");
-  const chatGptMessage = await buildChatGptMessageFromStorage();
-  let chatGptUrl = CHATGPT_URL;
-  let chatGptTabId = null;
+    const docTitle = tab.title || `Application ${new Date().toLocaleDateString()}`;
+    sendLog(runId, "info", "Creating resume copy...");
+    const resumeUrl = await copyResumeAndGetUrl(token, docTitle, resumeTemplateId, runId);
+    sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
 
-  if (chatGptMessage) {
-    const chatGptResult = await sendToChatGptAndGetUrl(chatGptMessage, runId);
-    chatGptUrl = chatGptResult.url;
-    chatGptTabId = chatGptResult.tabId;
-  } else {
-    sendLog(
-      runId,
-      "info",
-      "No GPT prompt, job description, or prompt resume configured."
+    sendLog(runId, "info", "Preparing ChatGPT prompt...");
+    const chatGptMessage = await buildChatGptMessageFromStorage();
+    let chatGptUrl = CHATGPT_URL;
+    let chatGptTabId = null;
+
+    if (chatGptMessage) {
+      const chatGptResult = await sendToChatGptAndGetUrl(chatGptMessage, runId);
+      chatGptUrl = chatGptResult.url;
+      chatGptTabId = chatGptResult.tabId;
+    } else {
+      sendLog(
+        runId,
+        "info",
+        "No GPT prompt, job description, or prompt resume configured."
+      );
+      const chatGptResult = await resolveExistingChatGptTabUrl(runId);
+      chatGptUrl = chatGptResult.url;
+      chatGptTabId = chatGptResult.tabId;
+    }
+
+    const row = [
+      new Date().toISOString(),
+      tab.title || "",
+      urlForSheet,
+      resumeUrl,
+      chatGptUrl,
+      note || ""
+    ];
+
+    sendLog(runId, "info", "Preparing row for Google Sheet...");
+
+    await appendRowsToGoogleSheet([row], runId);
+    sendLog(runId, "success", "URL saved to Google Sheet.");
+
+    if (typeof tab.id !== "number") {
+      throw new Error("Current tab does not have a valid tab ID.");
+    }
+
+    sendLog(runId, "info", "Closing current tab...");
+    await chrome.tabs.remove(tab.id);
+    sendLog(runId, "success", "Current tab closed.");
+
+    if (typeof chatGptTabId === "number") {
+      await scheduleChatGptTabClose(chatGptTabId, runId);
+    }
+
+    await scheduleSaveCheckReminder(
+      {
+        jobTitle: tab.title || "",
+        jobUrl: urlForSheet,
+        chatGptUrl
+      },
+      runId
     );
-    const chatGptResult = await resolveExistingChatGptTabUrl(runId);
-    chatGptUrl = chatGptResult.url;
-    chatGptTabId = chatGptResult.tabId;
-  }
 
-  const row = [
-    new Date().toISOString(),
-    tab.title || "",
-    urlForSheet,
-    resumeUrl,
-    chatGptUrl,
-    note || ""
-  ];
+    sendLog(runId, "success", "Finished. Job tab closed.");
 
-  sendLog(runId, "info", "Preparing row for Google Sheet...");
-
-  await appendRowsToGoogleSheet([row], runId);
-  sendLog(runId, "success", "URL saved to Google Sheet.");
-
-  if (typeof tab.id !== "number") {
-    throw new Error("Current tab does not have a valid tab ID.");
-  }
-
-  sendLog(runId, "info", "Closing current tab...");
-  await chrome.tabs.remove(tab.id);
-  sendLog(runId, "success", "Current tab closed.");
-
-  if (typeof chatGptTabId === "number") {
-    await scheduleChatGptTabClose(chatGptTabId, runId);
-  }
-
-  await resetApplicationInputsAfterSave(runId);
-
-  await scheduleSaveCheckReminder(
-    {
-      jobTitle: tab.title || "",
-      jobUrl: urlForSheet,
+    return {
+      url: urlForSheet,
       chatGptUrl
-    },
-    runId
-  );
-
-  sendLog(runId, "success", "Finished. Job tab closed.");
-
-  return {
-    url: urlForSheet,
-    chatGptUrl
-  };
+    };
+  } catch (error) {
+    await unlockExtensionUi();
+    throw error;
+  }
 }
 
 async function saveAllOpenTabsUrlsToSheet(runId) {

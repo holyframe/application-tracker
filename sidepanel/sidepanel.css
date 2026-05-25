@@ -955,6 +955,22 @@ textarea:focus {
   padding: var(--card-padding);
 }
 
+.app.is-ui-locked > :not(.logs-card) {
+  pointer-events: none;
+  opacity: 0.55;
+  user-select: none;
+}
+
+.ui-lock-notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(84, 87, 255, 0.1);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .logs-header {
   display: flex;
   align-items: center;

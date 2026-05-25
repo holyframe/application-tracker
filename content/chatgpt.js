@@ -6,7 +6,7 @@ function randomDelayMs(minMs, maxMs) {
   return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
 }
 
-const CHATGPT_BEFORE_SEND_MS = { min: 2000, max: 3000 };
+const CHATGPT_BEFORE_SEND_MS = { min: 4000, max: 5000 };
 
 function findChatGptInput() {
   return (

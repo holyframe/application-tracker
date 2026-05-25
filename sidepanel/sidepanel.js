@@ -46,11 +46,15 @@ const jobDescriptionFormModalCloseButton = document.querySelector("#jobDescripti
 const jobDescriptionFormModalCancelButton = document.querySelector("#jobDescriptionFormModalCancelButton");
 const jobDescriptionFormModalSubmitButton = document.querySelector("#jobDescriptionFormModalSubmitButton");
 const jobDescriptionContentInput = document.querySelector("#jobDescriptionContentInput");
+const uiLockNotice = document.querySelector("#uiLockNotice");
+const appRoot = document.querySelector(".app");
 const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
+const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
 
 let activeRunId = null;
+let isExtensionUiLocked = false;
 
 function createRunId() {
   if (crypto.randomUUID) {
@@ -70,6 +74,51 @@ function setSaveButtonsDisabled(disabled) {
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
   if (promptFormModalSubmitButton) promptFormModalSubmitButton.disabled = disabled;
   if (jobDescriptionFormModalSubmitButton) jobDescriptionFormModalSubmitButton.disabled = disabled;
+}
+
+function closeOpenModalsForUiLock() {
+  setPromptResumeFormModalOpen(false);
+  setPromptFormModalOpen(false);
+  setJobDescriptionFormModalOpen(false);
+}
+
+function applyExtensionUiLockState(locked) {
+  isExtensionUiLocked = locked;
+
+  appRoot?.classList.toggle("is-ui-locked", locked);
+  uiLockNotice?.classList.toggle("is-hidden", !locked);
+
+  if (noteInput) noteInput.disabled = locked;
+  if (clearNoteButton) clearNoteButton.disabled = locked;
+  if (clearLogsButton) clearLogsButton.disabled = locked;
+  if (configToggleButton) configToggleButton.disabled = locked;
+  if (spreadsheetIdInput) spreadsheetIdInput.disabled = locked;
+  if (sheetNameInput) sheetNameInput.disabled = locked;
+  if (resumeTemplateInput) resumeTemplateInput.disabled = locked;
+
+  if (locked) {
+    closeOpenModalsForUiLock();
+  }
+
+  setSaveButtonsDisabled(locked);
+}
+
+function guardExtensionUiAction() {
+  if (!isExtensionUiLocked) {
+    return true;
+  }
+
+  addLog("info", "Waiting for check notification. Process logs only.");
+  return false;
+}
+
+async function loadExtensionUiLockState() {
+  try {
+    const stored = await chrome.storage.local.get(EXTENSION_UI_LOCK_STORAGE_KEY);
+    applyExtensionUiLockState(Boolean(stored[EXTENSION_UI_LOCK_STORAGE_KEY]?.locked));
+  } catch (error) {
+    console.error("Could not load extension UI lock state:", error);
+  }
 }
 
 function showConfigStatus(type, message) {
@@ -197,6 +246,10 @@ function setPromptResumeFormModalOpen(isOpen) {
 }
 
 function openAddPromptResumeModal() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
   addLog("info", "Add a Prompt Resume clicked.");
   promptResumeFormMode = "add";
   editingPromptResumeId = null;
@@ -994,6 +1047,10 @@ async function loadSheetConfig() {
 }
 
 async function saveSheetConfig() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
   clearConfigStatus();
   addLog("info", "Save configuration clicked.");
 
@@ -1166,6 +1223,10 @@ function validateSaveCurrentTabInputs() {
 }
 
 async function saveCurrentTabUrl() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
   clearStatus();
   clearDeletedRows();
 
@@ -1178,6 +1239,7 @@ async function saveCurrentTabUrl() {
 
   activeRunId = createRunId();
 
+  applyExtensionUiLockState(true);
   setSaveButtonsDisabled(true);
   addLog("info", "Button clicked. Starting process...");
 
@@ -1202,13 +1264,13 @@ async function saveCurrentTabUrl() {
 
     showStatus("success", response.url);
     addLog("success", "Process completed successfully.");
-    await refreshApplicationInputsAfterSave();
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
+    applyExtensionUiLockState(false);
   } finally {
-    setSaveButtonsDisabled(false);
+    setSaveButtonsDisabled(isExtensionUiLocked);
   }
 }
 
@@ -1230,6 +1292,10 @@ async function loadNoteDraftFromStorage() {
 }
 
 async function removeDuplicateSheetRows() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
   activeRunId = createRunId();
 
   clearStatus();
@@ -1281,11 +1347,15 @@ async function removeDuplicateSheetRows() {
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
   } finally {
-    setSaveButtonsDisabled(false);
+    setSaveButtonsDisabled(isExtensionUiLocked);
   }
 }
 
 async function saveAllOpenTabUrls() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
   activeRunId = createRunId();
 
   clearStatus();
@@ -1325,7 +1395,7 @@ async function saveAllOpenTabUrls() {
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
   } finally {
-    setSaveButtonsDisabled(false);
+    setSaveButtonsDisabled(isExtensionUiLocked);
   }
 }
 
@@ -1334,8 +1404,17 @@ chrome.runtime.onMessage.addListener((message) => {
     activeRunId = message.runId;
     clearStatus();
     clearDeletedRows();
+    applyExtensionUiLockState(true);
     setSaveButtonsDisabled(true);
     addLog("info", "Hotkey detected. Starting save process...");
+    return;
+  }
+
+  if (message.type === "APPLICATION_INPUTS_RESET") {
+    refreshApplicationInputsAfterSave().catch((error) => {
+      console.error("Could not refresh application inputs:", error);
+    });
+    addLog("info", message.message || "Application inputs cleared.");
     return;
   }
 
@@ -1347,15 +1426,13 @@ chrome.runtime.onMessage.addListener((message) => {
     if (message.ok) {
       showStatus("success", message.url || "", "Saved:");
       addLog("success", "Process completed successfully.");
-      refreshApplicationInputsAfterSave().catch((error) => {
-        console.error("Could not refresh application inputs:", error);
-      });
     } else {
       showStatus("error", message.error || "Something went wrong.");
       addLog("error", message.error || "Something went wrong.");
+      applyExtensionUiLockState(false);
     }
 
-    setSaveButtonsDisabled(false);
+    setSaveButtonsDisabled(isExtensionUiLocked);
     return;
   }
 
@@ -1371,6 +1448,10 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 async function checkCompanyDuplicates() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
   activeRunId = createRunId();
 
   clearStatus();
@@ -1415,7 +1496,7 @@ async function checkCompanyDuplicates() {
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
   } finally {
-    setSaveButtonsDisabled(false);
+    setSaveButtonsDisabled(isExtensionUiLocked);
   }
 }
 
@@ -1425,6 +1506,10 @@ removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
 checkCompanyDuplicatesButton?.addEventListener("click", checkCompanyDuplicates);
 
 configToggleButton?.addEventListener("click", () => {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
   const isOpen = configToggleButton.getAttribute("aria-expanded") === "true";
   setConfigPanelOpen(!isOpen);
 });
@@ -1480,6 +1565,10 @@ document.addEventListener("keydown", (event) => {
 });
 
 clearLogsButton?.addEventListener("click", () => {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
   clearLogs();
   addLog("info", "Process logs cleared.");
 });
@@ -1538,6 +1627,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       console.error("Could not refresh application inputs:", error);
     });
   }
+
+  if (changes[EXTENSION_UI_LOCK_STORAGE_KEY]) {
+    applyExtensionUiLockState(Boolean(changes[EXTENSION_UI_LOCK_STORAGE_KEY].newValue?.locked));
+  }
 });
 
 updateLogsState();
@@ -1548,3 +1641,4 @@ loadSheetConfig();
 loadPromptResumeSelection();
 loadPromptSelection();
 loadJobDescriptionSelection();
+loadExtensionUiLockState();
