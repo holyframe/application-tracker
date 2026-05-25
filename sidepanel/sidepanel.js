@@ -1,7 +1,6 @@
 const noteInput = document.querySelector("#noteInput");
 const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
-const sendToChatGptButton = document.querySelector("#sendToChatGptButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const checkCompanyDuplicatesButton = document.querySelector("#checkCompanyDuplicatesButton");
 const statusCard = document.querySelector("#statusCard");
@@ -62,7 +61,6 @@ function createRunId() {
 function setSaveButtonsDisabled(disabled) {
   if (saveButton) saveButton.disabled = disabled;
   if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
-  if (sendToChatGptButton) sendToChatGptButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
   if (checkCompanyDuplicatesButton) checkCompanyDuplicatesButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
@@ -1034,68 +1032,6 @@ function updateClearNoteButtonState() {
   clearNoteButton.classList.toggle("is-hidden", !hasText);
 }
 
-function buildChatGptMessage() {
-  const selectedResume = promptResumeSelectionState.promptResumes.find(
-    (entry) => entry.id === promptResumeSelectionState.selectedPromptResumeId
-  );
-
-  const parts = [];
-
-  if (promptState.content?.trim()) {
-    parts.push(promptState.content.trim());
-  }
-
-  if (jobDescriptionState.content?.trim()) {
-    parts.push(`Job description:\n${jobDescriptionState.content.trim()}`);
-  }
-
-  if (selectedResume?.content?.trim()) {
-    const label = selectedResume.label?.trim();
-    const header = label ? `Resume template (${label}):` : "Resume template:";
-    parts.push(`${header}\n${selectedResume.content.trim()}`);
-  }
-
-  return parts.join("\n\n");
-}
-
-async function sendToChatGpt() {
-  const text = buildChatGptMessage();
-
-  if (!text) {
-    const message =
-      "Nothing to send. Add a GPT prompt, job description, or prompt resume.";
-    showStatus("error", message);
-    addLog("error", message);
-    return;
-  }
-
-  activeRunId = createRunId();
-  clearStatus();
-  setSaveButtonsDisabled(true);
-  addLog("info", "Send to ChatGPT clicked. Preparing prompt...");
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "SEND_TO_CHATGPT",
-      runId: activeRunId,
-      text
-    });
-
-    if (!response?.ok) {
-      throw new Error(response?.error || "Could not send to ChatGPT.");
-    }
-
-    showStatus("success", "Prompt sent to ChatGPT.");
-    addLog("success", "Prompt sent to ChatGPT.");
-  } catch (error) {
-    console.error(error);
-    showStatus("error", error.message || "Could not send to ChatGPT.");
-    addLog("error", error.message || "Could not send to ChatGPT.");
-  } finally {
-    setSaveButtonsDisabled(false);
-  }
-}
-
 async function saveCurrentTabUrl() {
   activeRunId = createRunId();
 
@@ -1340,7 +1276,6 @@ async function checkCompanyDuplicates() {
 }
 
 saveButton?.addEventListener("click", saveCurrentTabUrl);
-sendToChatGptButton?.addEventListener("click", sendToChatGpt);
 saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
 checkCompanyDuplicatesButton?.addEventListener("click", checkCompanyDuplicates);

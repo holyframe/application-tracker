@@ -300,7 +300,6 @@ h1 {
 
 .prompt-selection-section,
 .prompt-resume-add-section,
-.application-chatgpt-section,
 .application-save-section,
 .application-duplicate-section {
   display: grid;
@@ -647,21 +646,6 @@ textarea:focus {
   border-color: rgba(84, 87, 255, 0.65);
   box-shadow: 0 0 0 4px rgba(84, 87, 255, 0.12);
   background: #ffffff;
-}
-
-.send-to-chatgpt-button {
-  width: 100%;
-  min-height: var(--button-height);
-}
-
-.send-to-chatgpt-button .button-icon svg {
-  width: 18px;
-  height: 18px;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .primary-button {

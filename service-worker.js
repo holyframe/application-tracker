@@ -11,6 +11,10 @@ const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
 const PROMPT_SELECTION_STORAGE_KEY = "promptSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
+const SAVE_CHECK_REMINDER_ALARM_NAME = "save-current-tab-check-reminder";
+const SAVE_CHECK_REMINDER_STORAGE_KEY = "saveCheckReminder";
+const SAVE_CHECK_REMINDER_DELAY_MINUTES = 3;
+const SAVE_CHECK_REMINDER_NOTIFICATION_ID = "application-helper-check-reminder";
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -443,7 +447,86 @@ async function sendFillAndSendToTab(tabId, text, runId, maxAttempts = 24) {
   throw lastError;
 }
 
-async function sendToChatGpt(text, runId) {
+function isChatGptUrl(url = "") {
+  return /^https:\/\/(chatgpt\.com|chat\.openai\.com)/.test(url);
+}
+
+function isChatGptConversationUrl(url = "") {
+  return /\/c\/[a-zA-Z0-9-]+/.test(url);
+}
+
+async function buildChatGptMessageFromStorage() {
+  const [promptState, jobDescriptionState, resumeState] = await Promise.all([
+    getPromptSelectionState(),
+    getJobDescriptionSelectionState(),
+    getPromptResumeSelectionState()
+  ]);
+
+  const selectedResume = resumeState.promptResumes.find(
+    (entry) => entry.id === resumeState.selectedPromptResumeId
+  );
+
+  const parts = [];
+
+  if (promptState.content?.trim()) {
+    parts.push(promptState.content.trim());
+  }
+
+  if (jobDescriptionState.content?.trim()) {
+    parts.push(`Job description:\n${jobDescriptionState.content.trim()}`);
+  }
+
+  if (selectedResume?.content?.trim()) {
+    const label = selectedResume.label?.trim();
+    const header = label ? `Resume template (${label}):` : "Resume template:";
+    parts.push(`${header}\n${selectedResume.content.trim()}`);
+  }
+
+  return parts.join("\n\n");
+}
+
+async function resolveExistingChatGptTabUrl(runId) {
+  const existingTabs = await chrome.tabs.query({ url: CHATGPT_TAB_URL_PATTERNS });
+  const tab = existingTabs[0];
+
+  if (tab?.url && isChatGptUrl(tab.url)) {
+    sendLog(runId, "info", `Using existing ChatGPT tab URL: ${tab.url}`);
+    return tab.url;
+  }
+
+  sendLog(runId, "info", `No ChatGPT tab found. Using default URL: ${CHATGPT_URL}`);
+  return CHATGPT_URL;
+}
+
+async function resolveChatGptUrlAfterSend(tabId, runId) {
+  const startedAt = Date.now();
+  const timeoutMs = 20000;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const tab = await chrome.tabs.get(tabId);
+    const url = tab.url || "";
+
+    if (isChatGptConversationUrl(url)) {
+      return url;
+    }
+
+    await sleep(500);
+  }
+
+  const tab = await chrome.tabs.get(tabId);
+  if (tab.url && isChatGptUrl(tab.url)) {
+    sendLog(
+      runId,
+      "info",
+      "Conversation URL not detected yet. Using current ChatGPT tab URL."
+    );
+    return tab.url;
+  }
+
+  return CHATGPT_URL;
+}
+
+async function sendToChatGptAndGetUrl(text, runId) {
   const promptText = String(text ?? "").trim();
   if (!promptText) {
     throw new Error("Nothing to send to ChatGPT.");
@@ -482,8 +565,94 @@ async function sendToChatGpt(text, runId) {
 
   sendLog(runId, "info", "Sending prompt to ChatGPT...");
   await sendFillAndSendToTab(tab.id, promptText, runId);
-  sendLog(runId, "success", "Prompt sent to ChatGPT.");
+
+  const chatGptUrl = await resolveChatGptUrlAfterSend(tab.id, runId);
+  sendLog(runId, "success", `Prompt sent to ChatGPT: ${chatGptUrl}`);
+
+  return chatGptUrl;
 }
+
+async function scheduleSaveCheckReminder({ jobTitle = "", chatGptUrl = "" } = {}, runId) {
+  await chrome.storage.local.set({
+    [SAVE_CHECK_REMINDER_STORAGE_KEY]: {
+      jobTitle: String(jobTitle || "Application").trim() || "Application",
+      chatGptUrl: String(chatGptUrl || CHATGPT_URL).trim() || CHATGPT_URL,
+      scheduledAt: Date.now()
+    }
+  });
+
+  await chrome.alarms.clear(SAVE_CHECK_REMINDER_ALARM_NAME);
+  await chrome.alarms.create(SAVE_CHECK_REMINDER_ALARM_NAME, {
+    delayInMinutes: SAVE_CHECK_REMINDER_DELAY_MINUTES
+  });
+
+  sendLog(
+    runId,
+    "info",
+    `Check reminder scheduled in ${SAVE_CHECK_REMINDER_DELAY_MINUTES} minutes.`
+  );
+}
+
+async function showSaveCheckReminderNotification() {
+  const stored = await chrome.storage.local.get(SAVE_CHECK_REMINDER_STORAGE_KEY);
+  const reminder = stored[SAVE_CHECK_REMINDER_STORAGE_KEY] || {};
+  const jobTitle = reminder.jobTitle || "your saved application";
+
+  await chrome.notifications.create(SAVE_CHECK_REMINDER_NOTIFICATION_ID, {
+    type: "basic",
+    iconUrl: "assets/icon128.png",
+    title: "Application Helper",
+    message: `Time to check ChatGPT for: ${jobTitle}`,
+    priority: 2,
+    requireInteraction: true
+  });
+}
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== SAVE_CHECK_REMINDER_ALARM_NAME) {
+    return;
+  }
+
+  try {
+    await showSaveCheckReminderNotification();
+  } catch (error) {
+    console.error("Could not show save check reminder:", error);
+  }
+});
+
+chrome.notifications.onClicked.addListener(async (notificationId) => {
+  if (notificationId !== SAVE_CHECK_REMINDER_NOTIFICATION_ID) {
+    return;
+  }
+
+  try {
+    const stored = await chrome.storage.local.get(SAVE_CHECK_REMINDER_STORAGE_KEY);
+    const reminder = stored[SAVE_CHECK_REMINDER_STORAGE_KEY] || {};
+    const chatGptUrl = reminder.chatGptUrl || CHATGPT_URL;
+
+    await chrome.tabs.create({ url: chatGptUrl });
+    await chrome.storage.local.remove(SAVE_CHECK_REMINDER_STORAGE_KEY);
+    await chrome.notifications.clear(notificationId);
+  } catch (error) {
+    console.error("Could not open ChatGPT from reminder notification:", error);
+  }
+});
+
+chrome.notifications.onClosed.addListener(async (notificationId, byUser) => {
+  if (notificationId !== SAVE_CHECK_REMINDER_NOTIFICATION_ID) {
+    return;
+  }
+
+  if (byUser) {
+    await chrome.storage.local.remove(SAVE_CHECK_REMINDER_STORAGE_KEY);
+    return;
+  }
+
+  const stored = await chrome.storage.local.get(SAVE_CHECK_REMINDER_STORAGE_KEY);
+  if (stored[SAVE_CHECK_REMINDER_STORAGE_KEY]) {
+    await showSaveCheckReminderNotification();
+  }
+});
 
 chrome.runtime.onInstalled.addListener(async () => {
   chrome.sidePanel.setPanelBehavior({
@@ -647,20 +816,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "SEND_TO_CHATGPT") {
-    sendToChatGpt(message.text, message.runId)
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => {
-        console.error(error);
-        sendLog(message.runId, "error", error.message || "Could not send to ChatGPT.");
-        sendResponse({
-          ok: false,
-          error: error.message || "Could not send to ChatGPT."
-        });
-      });
-    return true;
-  }
-
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     SAVE_ALL_OPEN_TABS_URLS_TO_SHEET: saveAllOpenTabsUrlsToSheet,
@@ -728,12 +883,27 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   const resumeUrl = await copyResumeAndGetUrl(token, docTitle, resumeTemplateId, runId);
   sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
 
+  sendLog(runId, "info", "Preparing ChatGPT prompt...");
+  const chatGptMessage = await buildChatGptMessageFromStorage();
+  let chatGptUrl = CHATGPT_URL;
+
+  if (chatGptMessage) {
+    chatGptUrl = await sendToChatGptAndGetUrl(chatGptMessage, runId);
+  } else {
+    sendLog(
+      runId,
+      "info",
+      "No GPT prompt, job description, or prompt resume configured."
+    );
+    chatGptUrl = await resolveExistingChatGptTabUrl(runId);
+  }
+
   const row = [
     new Date().toISOString(),
     tab.title || "",
     urlForSheet,
     resumeUrl,
-    CHATGPT_URL,
+    chatGptUrl,
     note || ""
   ];
 
@@ -750,10 +920,19 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   await chrome.tabs.remove(tab.id);
   sendLog(runId, "success", "Current tab closed.");
 
+  await scheduleSaveCheckReminder(
+    {
+      jobTitle: tab.title || "",
+      chatGptUrl
+    },
+    runId
+  );
+
   sendLog(runId, "success", "Finished. URL saved and tab closed.");
 
   return {
-    url: urlForSheet
+    url: urlForSheet,
+    chatGptUrl
   };
 }
 
