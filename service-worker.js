@@ -405,7 +405,7 @@ const CHATGPT_TAB_URL_PATTERNS = [
   "https://chatgpt.com/*",
   "https://chat.openai.com/*"
 ];
-const CHATGPT_NEW_TAB_SETTLE_MS = { min: 8000, max: 15000 };
+const CHATGPT_NEW_TAB_SETTLE_MS = { min: 3000, max: 5000 };
 const CHATGPT_EXISTING_TAB_SETTLE_MS = { min: 2000, max: 4000 };
 
 function randomDelayMs(minMs, maxMs) {
