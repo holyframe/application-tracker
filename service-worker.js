@@ -368,6 +368,123 @@ function normalizeUrlForStorage(url) {
   }
 }
 
+const CHATGPT_TAB_URL_PATTERNS = [
+  "https://chatgpt.com/*",
+  "https://chat.openai.com/*"
+];
+const CHATGPT_NEW_TAB_SETTLE_MS = { min: 8000, max: 15000 };
+const CHATGPT_EXISTING_TAB_SETTLE_MS = { min: 2000, max: 4000 };
+
+function randomDelayMs(minMs, maxMs) {
+  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForTabComplete(tabId, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+
+    const checkStatus = async () => {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+
+        if (tab.status === "complete") {
+          resolve(tab);
+          return;
+        }
+
+        if (Date.now() - startedAt > timeoutMs) {
+          reject(new Error("ChatGPT tab took too long to load."));
+          return;
+        }
+
+        setTimeout(checkStatus, 250);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    checkStatus();
+  });
+}
+
+async function sendFillAndSendToTab(tabId, text, runId, maxAttempts = 24) {
+  let lastError = new Error("Could not reach ChatGPT page.");
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, {
+        type: "FILL_AND_SEND",
+        text
+      });
+
+      if (response?.ok) {
+        return response;
+      }
+
+      lastError = new Error(response?.error || "Could not fill ChatGPT prompt.");
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < maxAttempts) {
+      sendLog(
+        runId,
+        "info",
+        `Waiting for ChatGPT page (${attempt}/${maxAttempts})...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+
+  throw lastError;
+}
+
+async function sendToChatGpt(text, runId) {
+  const promptText = String(text ?? "").trim();
+  if (!promptText) {
+    throw new Error("Nothing to send to ChatGPT.");
+  }
+
+  sendLog(runId, "info", "Looking for an open ChatGPT tab...");
+
+  const existingTabs = await chrome.tabs.query({ url: CHATGPT_TAB_URL_PATTERNS });
+  let tab = existingTabs[0];
+  let openedNewTab = false;
+
+  if (!tab?.id) {
+    sendLog(runId, "info", "Opening ChatGPT in a new tab...");
+    tab = await chrome.tabs.create({ url: CHATGPT_URL, active: true });
+    openedNewTab = true;
+    await waitForTabComplete(tab.id);
+  } else {
+    sendLog(runId, "info", "Using existing ChatGPT tab.");
+    await chrome.tabs.update(tab.id, { active: true });
+    if (tab.status !== "complete") {
+      await waitForTabComplete(tab.id);
+    }
+  }
+
+  const settleRange = openedNewTab
+    ? CHATGPT_NEW_TAB_SETTLE_MS
+    : CHATGPT_EXISTING_TAB_SETTLE_MS;
+  const settleMs = randomDelayMs(settleRange.min, settleRange.max);
+
+  sendLog(
+    runId,
+    "info",
+    `Waiting ${(settleMs / 1000).toFixed(1)}s before filling prompt...`
+  );
+  await sleep(settleMs);
+
+  sendLog(runId, "info", "Sending prompt to ChatGPT...");
+  await sendFillAndSendToTab(tab.id, promptText, runId);
+  sendLog(runId, "success", "Prompt sent to ChatGPT.");
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   chrome.sidePanel.setPanelBehavior({
     openPanelOnActionClick: true
@@ -525,6 +642,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           ok: false,
           error: error.message || "Could not save job description selection."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SEND_TO_CHATGPT") {
+    sendToChatGpt(message.text, message.runId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => {
+        console.error(error);
+        sendLog(message.runId, "error", error.message || "Could not send to ChatGPT.");
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not send to ChatGPT."
         });
       });
     return true;

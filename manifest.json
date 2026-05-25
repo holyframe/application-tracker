@@ -3,14 +3,23 @@
   "name": "Partial Width Side Panel",
   "description": "A Chrome extension that opens a partial-width UI and saves the current tab URL to Google Sheets.",
   "version": "1.0.0",
-  "permissions": ["sidePanel", "storage", "identity", "tabs"],
+  "permissions": ["sidePanel", "storage", "identity", "tabs", "scripting"],
   "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
     "https://sheets.googleapis.com/*",
     "https://docs.googleapis.com/*",
     "https://www.googleapis.com/*"
   ],
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["content/chatgpt.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "oauth2": {
-    "client_id": "108437512115-iausj1t605gufdu483khs6cij99db446.apps.googleusercontent.com",
+    "client_id": "1087409152703-hvi25ibge9k1rg16sqb9f1vekhpe2keg.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/spreadsheets",
       "https://www.googleapis.com/auth/documents",
