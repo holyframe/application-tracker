@@ -642,10 +642,14 @@ async function sendToChatGptAndGetUrl(text, runId) {
   };
 }
 
-async function scheduleSaveCheckReminder({ jobTitle = "", chatGptUrl = "" } = {}, runId) {
+async function scheduleSaveCheckReminder(
+  { jobTitle = "", jobUrl = "", chatGptUrl = "" } = {},
+  runId
+) {
   await chrome.storage.local.set({
     [SAVE_CHECK_REMINDER_STORAGE_KEY]: {
       jobTitle: String(jobTitle || "Application").trim() || "Application",
+      jobUrl: String(jobUrl || "").trim(),
       chatGptUrl: String(chatGptUrl || CHATGPT_URL).trim() || CHATGPT_URL,
       scheduledAt: Date.now()
     }
@@ -661,6 +665,17 @@ async function scheduleSaveCheckReminder({ jobTitle = "", chatGptUrl = "" } = {}
     "info",
     `Check reminder scheduled in ${SAVE_CHECK_REMINDER_DELAY_MINUTES} minutes.`
   );
+}
+
+async function openReminderUrls(jobUrl, chatGptUrl) {
+  const normalizedJobUrl = String(jobUrl || "").trim();
+  const normalizedChatGptUrl = String(chatGptUrl || CHATGPT_URL).trim() || CHATGPT_URL;
+
+  if (normalizedJobUrl) {
+    await chrome.tabs.create({ url: normalizedJobUrl, active: false });
+  }
+
+  await chrome.tabs.create({ url: normalizedChatGptUrl, active: true });
 }
 
 async function scheduleChatGptTabClose(tabId, runId) {
@@ -743,13 +758,12 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
   try {
     const stored = await chrome.storage.local.get(SAVE_CHECK_REMINDER_STORAGE_KEY);
     const reminder = stored[SAVE_CHECK_REMINDER_STORAGE_KEY] || {};
-    const chatGptUrl = reminder.chatGptUrl || CHATGPT_URL;
 
-    await chrome.tabs.create({ url: chatGptUrl });
+    await openReminderUrls(reminder.jobUrl, reminder.chatGptUrl);
     await chrome.storage.local.remove(SAVE_CHECK_REMINDER_STORAGE_KEY);
     await chrome.notifications.clear(notificationId);
   } catch (error) {
-    console.error("Could not open ChatGPT from reminder notification:", error);
+    console.error("Could not open reminder URLs from notification:", error);
   }
 });
 
@@ -1054,6 +1068,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   await scheduleSaveCheckReminder(
     {
       jobTitle: tab.title || "",
+      jobUrl: urlForSheet,
       chatGptUrl
     },
     runId
