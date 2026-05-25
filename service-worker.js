@@ -15,6 +15,9 @@ const SAVE_CHECK_REMINDER_ALARM_NAME = "save-current-tab-check-reminder";
 const SAVE_CHECK_REMINDER_STORAGE_KEY = "saveCheckReminder";
 const SAVE_CHECK_REMINDER_DELAY_MINUTES = 3;
 const SAVE_CHECK_REMINDER_NOTIFICATION_ID = "application-helper-check-reminder";
+const CHATGPT_TAB_CLOSE_ALARM_NAME = "close-chatgpt-tab-after-save";
+const CHATGPT_TAB_CLOSE_STORAGE_KEY = "pendingChatGptTabClose";
+const CHATGPT_TAB_CLOSE_DELAY_MINUTES = 2.9;
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -540,9 +543,7 @@ async function buildChatGptMessageFromStorage() {
   }
 
   if (selectedResume?.content?.trim()) {
-    const label = selectedResume.label?.trim();
-    const header = label ? `Resume template (${label}):` : "Resume template:";
-    parts.push(`${header}\n${selectedResume.content.trim()}`);
+    parts.push(`Resume:\n${selectedResume.content.trim()}`);
   }
 
   return parts.join("\n\n");
@@ -662,6 +663,44 @@ async function scheduleSaveCheckReminder({ jobTitle = "", chatGptUrl = "" } = {}
   );
 }
 
+async function scheduleChatGptTabClose(tabId, runId) {
+  await chrome.storage.local.set({
+    [CHATGPT_TAB_CLOSE_STORAGE_KEY]: {
+      tabId,
+      scheduledAt: Date.now()
+    }
+  });
+
+  await chrome.alarms.clear(CHATGPT_TAB_CLOSE_ALARM_NAME);
+  await chrome.alarms.create(CHATGPT_TAB_CLOSE_ALARM_NAME, {
+    delayInMinutes: CHATGPT_TAB_CLOSE_DELAY_MINUTES
+  });
+
+  sendLog(
+    runId,
+    "info",
+    `ChatGPT tab will close in ${CHATGPT_TAB_CLOSE_DELAY_MINUTES} minutes.`
+  );
+}
+
+async function closeScheduledChatGptTab() {
+  const stored = await chrome.storage.local.get(CHATGPT_TAB_CLOSE_STORAGE_KEY);
+  const pending = stored[CHATGPT_TAB_CLOSE_STORAGE_KEY];
+
+  if (!pending || typeof pending.tabId !== "number") {
+    await chrome.storage.local.remove(CHATGPT_TAB_CLOSE_STORAGE_KEY);
+    return;
+  }
+
+  try {
+    await chrome.tabs.remove(pending.tabId);
+  } catch (_error) {
+    // Tab may already be closed manually.
+  }
+
+  await chrome.storage.local.remove(CHATGPT_TAB_CLOSE_STORAGE_KEY);
+}
+
 async function showSaveCheckReminderNotification() {
   const stored = await chrome.storage.local.get(SAVE_CHECK_REMINDER_STORAGE_KEY);
   const reminder = stored[SAVE_CHECK_REMINDER_STORAGE_KEY] || {};
@@ -678,14 +717,21 @@ async function showSaveCheckReminderNotification() {
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== SAVE_CHECK_REMINDER_ALARM_NAME) {
+  if (alarm.name === SAVE_CHECK_REMINDER_ALARM_NAME) {
+    try {
+      await showSaveCheckReminderNotification();
+    } catch (error) {
+      console.error("Could not show save check reminder:", error);
+    }
     return;
   }
 
-  try {
-    await showSaveCheckReminderNotification();
-  } catch (error) {
-    console.error("Could not show save check reminder:", error);
+  if (alarm.name === CHATGPT_TAB_CLOSE_ALARM_NAME) {
+    try {
+      await closeScheduledChatGptTab();
+    } catch (error) {
+      console.error("Could not close scheduled ChatGPT tab:", error);
+    }
   }
 });
 
@@ -1000,13 +1046,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
   sendLog(runId, "success", "Current tab closed.");
 
   if (typeof chatGptTabId === "number") {
-    sendLog(runId, "info", "Closing ChatGPT tab...");
-    try {
-      await chrome.tabs.remove(chatGptTabId);
-      sendLog(runId, "success", "ChatGPT tab closed.");
-    } catch (error) {
-      sendLog(runId, "info", "ChatGPT tab was already closed.");
-    }
+    await scheduleChatGptTabClose(chatGptTabId, runId);
   }
 
   await resetApplicationInputsAfterSave(runId);
@@ -1019,7 +1059,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId) {
     runId
   );
 
-  sendLog(runId, "success", "Finished. Job and ChatGPT tabs closed.");
+  sendLog(runId, "success", "Finished. Job tab closed.");
 
   return {
     url: urlForSheet,

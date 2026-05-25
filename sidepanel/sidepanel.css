@@ -344,7 +344,7 @@ h1 {
 .prompt-selection-item,
 .job-description-selection-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
@@ -354,7 +354,52 @@ h1 {
   cursor: pointer;
   transition:
     border-color 160ms ease,
-    background 160ms ease;
+    background 160ms ease,
+    opacity 160ms ease;
+}
+
+.prompt-selection-item,
+.job-description-selection-item {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.prompt-resume-drag-handle {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+
+.prompt-resume-drag-handle svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.prompt-resume-drag-handle:hover {
+  color: var(--text);
+}
+
+.prompt-resume-drag-handle:active {
+  cursor: grabbing;
+}
+
+.prompt-resume-item.is-dragging {
+  opacity: 0.45;
+}
+
+.prompt-resume-item.is-drag-over {
+  border-color: rgba(84, 87, 255, 0.75);
+  background: rgba(84, 87, 255, 0.12);
 }
 
 .prompt-resume-item:hover,

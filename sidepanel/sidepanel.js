@@ -233,6 +233,54 @@ let promptResumeSelectionState = {
   selectedPromptResumeId: ""
 };
 
+let draggedPromptResumeId = "";
+
+function movePromptResumeBeforeTarget(draggedId, targetId) {
+  if (!draggedId || !targetId || draggedId === targetId) {
+    return false;
+  }
+
+  const items = [...promptResumeSelectionState.promptResumes];
+  const fromIndex = items.findIndex((entry) => entry.id === draggedId);
+  const toIndex = items.findIndex((entry) => entry.id === targetId);
+
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+    return false;
+  }
+
+  const [movedItem] = items.splice(fromIndex, 1);
+  items.splice(toIndex, 0, movedItem);
+  promptResumeSelectionState.promptResumes = items;
+  return true;
+}
+
+function clearPromptResumeDragState() {
+  draggedPromptResumeId = "";
+
+  promptResumeList
+    ?.querySelectorAll(".prompt-resume-item.is-dragging, .prompt-resume-item.is-drag-over")
+    .forEach((item) => {
+      item.classList.remove("is-dragging", "is-drag-over");
+    });
+}
+
+async function reorderPromptResume(draggedId, targetId) {
+  const didMove = movePromptResumeBeforeTarget(draggedId, targetId);
+  if (!didMove) {
+    return;
+  }
+
+  renderPromptResumeList();
+
+  try {
+    await persistPromptResumeSelection();
+  } catch (error) {
+    console.error(error);
+    addLog("error", error.message || "Could not save prompt resume order.");
+    await loadPromptResumeSelection();
+  }
+}
+
 function renderPromptResumeList() {
   if (!promptResumeList) return;
 
@@ -249,10 +297,56 @@ function renderPromptResumeList() {
   promptResumeSelectionState.promptResumes.forEach((promptResume) => {
     const item = document.createElement("li");
     item.className = "prompt-resume-item";
+    item.dataset.promptResumeId = promptResume.id;
     item.classList.toggle(
       "is-selected",
       promptResume.id === promptResumeSelectionState.selectedPromptResumeId
     );
+
+    const dragHandle = document.createElement("button");
+    dragHandle.type = "button";
+    dragHandle.className = "prompt-resume-drag-handle";
+    dragHandle.draggable = true;
+    dragHandle.setAttribute("aria-label", `Reorder ${promptResume.label}`);
+    dragHandle.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01" />
+      </svg>
+    `;
+    dragHandle.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    dragHandle.addEventListener("dragstart", (event) => {
+      draggedPromptResumeId = promptResume.id;
+      item.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", promptResume.id);
+    });
+    dragHandle.addEventListener("dragend", () => {
+      clearPromptResumeDragState();
+    });
+
+    item.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+
+      if (draggedPromptResumeId && draggedPromptResumeId !== promptResume.id) {
+        item.classList.add("is-drag-over");
+      }
+    });
+    item.addEventListener("dragleave", () => {
+      item.classList.remove("is-drag-over");
+    });
+    item.addEventListener("drop", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      item.classList.remove("is-drag-over");
+
+      const draggedId =
+        event.dataTransfer.getData("text/plain") || draggedPromptResumeId;
+      reorderPromptResume(draggedId, promptResume.id);
+      clearPromptResumeDragState();
+    });
 
     const radio = document.createElement("input");
     radio.type = "radio";
@@ -328,7 +422,7 @@ function renderPromptResumeList() {
       selectPromptResume(promptResume.id);
     });
 
-    item.append(radio, copy, actions);
+    item.append(dragHandle, radio, copy, actions);
     promptResumeList.appendChild(item);
   });
 }
