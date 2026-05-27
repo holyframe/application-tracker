@@ -769,10 +769,11 @@ async function focusApplicationTabGroup(groupId, windowId) {
   }
 }
 
-async function scheduleChatGptTabClose(tabId, runId) {
+async function scheduleChatGptTabClose(tabId, runId, { jobTabId = null } = {}) {
   await chrome.storage.local.set({
     [CHATGPT_TAB_CLOSE_STORAGE_KEY]: {
       tabId,
+      jobTabId: typeof jobTabId === "number" ? jobTabId : null,
       scheduledAt: Date.now()
     }
   });
@@ -785,7 +786,9 @@ async function scheduleChatGptTabClose(tabId, runId) {
   sendLog(
     runId,
     "info",
-    `ChatGPT tab will close in ${CHATGPT_TAB_CLOSE_DELAY_MINUTES} minutes.`
+    typeof jobTabId === "number"
+      ? `ChatGPT tab will close in ${CHATGPT_TAB_CLOSE_DELAY_MINUTES} minutes, then the job tab will close.`
+      : `ChatGPT tab will close in ${CHATGPT_TAB_CLOSE_DELAY_MINUTES} minutes.`
   );
 }
 
@@ -793,15 +796,25 @@ async function closeScheduledChatGptTab() {
   const stored = await chrome.storage.local.get(CHATGPT_TAB_CLOSE_STORAGE_KEY);
   const pending = stored[CHATGPT_TAB_CLOSE_STORAGE_KEY];
 
-  if (!pending || typeof pending.tabId !== "number") {
+  if (!pending) {
     await chrome.storage.local.remove(CHATGPT_TAB_CLOSE_STORAGE_KEY);
     return;
   }
 
-  try {
-    await chrome.tabs.remove(pending.tabId);
-  } catch (_error) {
-    // Tab may already be closed manually.
+  if (typeof pending.tabId === "number") {
+    try {
+      await chrome.tabs.remove(pending.tabId);
+    } catch (_error) {
+      // Tab may already be closed manually.
+    }
+  }
+
+  if (typeof pending.jobTabId === "number") {
+    try {
+      await chrome.tabs.remove(pending.jobTabId);
+    } catch (_error) {
+      // Tab may already be closed manually.
+    }
   }
 
   await chrome.storage.local.remove(CHATGPT_TAB_CLOSE_STORAGE_KEY);
@@ -1322,12 +1335,12 @@ async function saveCurrentTabUrlToSheet(note = "", runId, options = {}) {
         runId
       });
     } else {
-      sendLog(runId, "info", "Closing current tab...");
-      await chrome.tabs.remove(tab.id);
-      sendLog(runId, "success", "Current tab closed.");
-
       if (typeof chatGptTabId === "number") {
-        await scheduleChatGptTabClose(chatGptTabId, runId);
+        await scheduleChatGptTabClose(chatGptTabId, runId, { jobTabId: tab.id });
+      } else {
+        sendLog(runId, "info", "Closing current tab...");
+        await chrome.tabs.remove(tab.id);
+        sendLog(runId, "success", "Current tab closed.");
       }
     }
 
@@ -1348,7 +1361,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId, options = {}) {
       "success",
       groupTabsInsteadOfClosing
         ? "Finished. Application tabs grouped."
-        : "Finished. Job tab closed."
+        : "Finished. Job tab will close when the ChatGPT tab closes."
     );
 
     return {
