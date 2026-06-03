@@ -20,7 +20,6 @@ const spreadsheetIdInput = document.querySelector("#spreadsheetIdInput");
 const sheetNameInput = document.querySelector("#sheetNameInput");
 const resumeTemplateInput = document.querySelector("#resumeTemplateInput");
 const saveConfigButton = document.querySelector("#saveConfigButton");
-const configStatus = document.querySelector("#configStatus");
 const promptResumeList = document.querySelector("#promptResumeList");
 const addPromptResumeButton = document.querySelector("#addPromptResumeButton");
 const promptResumeFormModal = document.querySelector("#promptResumeFormModal");
@@ -121,26 +120,6 @@ async function loadExtensionUiLockState() {
   } catch (error) {
     console.error("Could not load extension UI lock state:", error);
   }
-}
-
-function showConfigStatus(type, message) {
-  if (!configStatus) return;
-
-  configStatus.classList.remove("is-hidden", "is-error", "is-success");
-  configStatus.textContent = message;
-
-  if (type === "error") {
-    configStatus.classList.add("is-error");
-    return;
-  }
-
-  configStatus.classList.add("is-success");
-}
-
-function clearConfigStatus() {
-  configStatus?.classList.add("is-hidden");
-  configStatus?.classList.remove("is-error", "is-success");
-  if (configStatus) configStatus.textContent = "";
 }
 
 function showPromptResumeFormModalStatus(type, message) {
@@ -1044,7 +1023,7 @@ async function loadSheetConfig() {
     }
   } catch (error) {
     console.error(error);
-    showConfigStatus("error", error.message || "Could not load configuration.");
+    addLog("error", error.message || "Could not load configuration.");
   }
 }
 
@@ -1053,7 +1032,6 @@ async function saveSheetConfig() {
     return;
   }
 
-  clearConfigStatus();
   addLog("info", "Save configuration clicked.");
 
   try {
@@ -1079,12 +1057,10 @@ async function saveSheetConfig() {
     }
 
     const successMessage = `Saved. Sheet tab "${response.sheetName}", Resume template configured.`;
-    showConfigStatus("success", successMessage);
     addLog("success", successMessage);
   } catch (error) {
     console.error(error);
     const message = error.message || "Could not save configuration.";
-    showConfigStatus("error", message);
     addLog("error", message);
   }
 }

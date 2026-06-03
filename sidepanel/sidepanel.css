@@ -204,6 +204,14 @@ h1 {
   grid-template-rows: 1fr;
 }
 
+.config-panel:not(.is-open) .config-panel-inner {
+  padding: 0;
+}
+
+.config-panel:not(.is-open) .config-help {
+  display: none;
+}
+
 .config-panel-inner {
   overflow: hidden;
   display: grid;
