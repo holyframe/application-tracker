@@ -41,41 +41,26 @@
         <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
 
         <div class="application-save-section">
-          <button id="applyNowButton" type="button" class="apply-now-button">
-            <span class="button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M5 12h14" />
-                <path d="m13 6 6 6-6 6" />
-              </svg>
-            </span>
-            <span>Apply Now</span>
-          </button>
+          <div class="application-action-buttons">
+            <button id="applyNowButton" type="button" class="apply-now-button">
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M5 12h14" />
+                  <path d="m13 6 6 6-6 6" />
+                </svg>
+              </span>
+              <span>Apply Now</span>
+            </button>
 
-          <button id="saveButton" type="button" class="primary-button">
-            <span class="button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M12 16V8" />
-                <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
-                <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
-              </svg>
-            </span>
-            <span>Save App</span>
-          </button>
-
-          <div class="note-input-wrap">
-            <input
-              id="noteInput"
-              type="text"
-              class="note-input"
-              placeholder="Add a note for the commnet on the application"
-            />
-            <button
-              id="clearNoteButton"
-              type="button"
-              class="note-clear-button is-hidden"
-              aria-label="Clear note"
-            >
-              ×
+            <button id="saveButton" type="button" class="primary-button">
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 16V8" />
+                  <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
+                  <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
+                </svg>
+              </span>
+              <span>Save App</span>
             </button>
           </div>
         </div>
@@ -108,16 +93,6 @@
           </button>
           </div>
         </div>
-
-        <button id="saveAllTabsButton" type="button" class="primary-button">
-          <span class="button-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M8 6h12M8 12h12M8 18h8" />
-              <path d="M5 6h.01M5 12h.01M5 18h.01" />
-            </svg>
-          </span>
-          <span>Save all tabs</span>
-        </button>
       </section>
 
       <section id="statusCard" class="status-card is-hidden" aria-live="polite">

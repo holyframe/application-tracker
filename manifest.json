@@ -36,11 +36,17 @@
     }
   },
   "commands": {
-    "save-current-tab": {
+    "apply-now": {
       "suggested_key": {
         "default": "Ctrl+Q"
       },
-      "description": "Save App to Google Sheet and close the tab"
+      "description": "Apply Now"
+    },
+    "save-app": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E"
+      },
+      "description": "Save App to Google Sheet"
     }
   },
   "icons": {

@@ -1,5 +1,3 @@
-const noteInput = document.querySelector("#noteInput");
-const saveAllTabsButton = document.querySelector("#saveAllTabsButton");
 const saveButton = document.querySelector("#saveButton");
 const applyNowButton = document.querySelector("#applyNowButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
@@ -13,7 +11,6 @@ const emptyDeletedRows = document.querySelector("#emptyDeletedRows");
 const logsList = document.querySelector("#logsList");
 const emptyLogs = document.querySelector("#emptyLogs");
 const clearLogsButton = document.querySelector("#clearLogsButton");
-const clearNoteButton = document.querySelector("#clearNoteButton");
 const configToggleButton = document.querySelector("#configToggleButton");
 const configPanel = document.querySelector("#configPanel");
 const spreadsheetIdInput = document.querySelector("#spreadsheetIdInput");
@@ -48,7 +45,6 @@ const jobDescriptionFormModalSubmitButton = document.querySelector("#jobDescript
 const jobDescriptionContentInput = document.querySelector("#jobDescriptionContentInput");
 const uiLockNotice = document.querySelector("#uiLockNotice");
 const appRoot = document.querySelector(".app");
-const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
@@ -67,7 +63,6 @@ function createRunId() {
 function setSaveButtonsDisabled(disabled) {
   if (applyNowButton) applyNowButton.disabled = disabled;
   if (saveButton) saveButton.disabled = disabled;
-  if (saveAllTabsButton) saveAllTabsButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
   if (checkCompanyDuplicatesButton) checkCompanyDuplicatesButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
@@ -89,8 +84,6 @@ function applyExtensionUiLockState(locked) {
   appRoot?.classList.toggle("is-ui-locked", locked);
   uiLockNotice?.classList.toggle("is-hidden", !locked);
 
-  if (noteInput) noteInput.disabled = locked;
-  if (clearNoteButton) clearNoteButton.disabled = locked;
   if (clearLogsButton) clearLogsButton.disabled = locked;
   if (configToggleButton) configToggleButton.disabled = locked;
   if (spreadsheetIdInput) spreadsheetIdInput.disabled = locked;
@@ -1156,13 +1149,6 @@ function renderDeletedRows(deletedRows = []) {
   updateDeletedRowsState();
 }
 
-function updateClearNoteButtonState() {
-  if (!clearNoteButton) return;
-
-  const hasText = Boolean(noteInput?.value.trim());
-  clearNoteButton.classList.toggle("is-hidden", !hasText);
-}
-
 async function refreshApplicationInputsAfterSave() {
   await Promise.all([loadPromptResumeSelection(), loadJobDescriptionSelection()]);
 }
@@ -1272,20 +1258,11 @@ async function runCurrentAppAction(mode = "save") {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_CURRENT_TAB_URL_TO_SHEET",
       runId: activeRunId,
-      note: noteInput?.value.trim() || "",
       mode
     });
 
     if (!response?.ok) {
       throw new Error(response?.error || "Could not save URL.");
-    }
-
-    if (noteInput) {
-      noteInput.value = "";
-      updateClearNoteButtonState();
-      chrome.storage.local.remove(NOTE_DRAFT_STORAGE_KEY).catch((error) => {
-        console.error("Could not clear note draft:", error);
-      });
     }
 
     showStatus("success", response.url);
@@ -1311,23 +1288,6 @@ async function saveCurrentTabUrl() {
 
 async function applyNow() {
   await runCurrentAppAction("apply");
-}
-
-async function loadNoteDraftFromStorage() {
-  try {
-    const stored = await chrome.storage.local.get(NOTE_DRAFT_STORAGE_KEY);
-    const draft =
-      typeof stored[NOTE_DRAFT_STORAGE_KEY] === "string"
-        ? stored[NOTE_DRAFT_STORAGE_KEY]
-        : "";
-
-    if (noteInput) {
-      noteInput.value = draft;
-      updateClearNoteButtonState();
-    }
-  } catch (error) {
-    console.error("Could not load note draft:", error);
-  }
 }
 
 async function removeDuplicateSheetRows() {
@@ -1380,54 +1340,6 @@ async function removeDuplicateSheetRows() {
       );
       renderDeletedRows(deletedRows);
     }
-    addLog("success", "Process completed successfully.");
-  } catch (error) {
-    console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
-  } finally {
-    setSaveButtonsDisabled(isExtensionUiLocked);
-  }
-}
-
-async function saveAllOpenTabUrls() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
-
-  activeRunId = createRunId();
-
-  clearStatus();
-  clearDeletedRows();
-
-  const noteValue = noteInput?.value.trim() || "";
-  if (noteValue) {
-    showStatus(
-      "error",
-      "Clear the note input before using Save all tabs."
-    );
-    addLog("error", "Save all tabs blocked because note input has text.");
-    return;
-  }
-
-  setSaveButtonsDisabled(true);
-  addLog("info", "Save all tabs clicked. Starting process...");
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "SAVE_ALL_OPEN_TABS_URLS_TO_SHEET",
-      runId: activeRunId
-    });
-
-    if (!response?.ok) {
-      throw new Error(response?.error || "Could not save URLs.");
-    }
-
-    const count = response.count ?? 0;
-    showStatus(
-      "success",
-      `${count} tab URL${count === 1 ? "" : "s"} saved to Google Sheet.`
-    );
     addLog("success", "Process completed successfully.");
   } catch (error) {
     console.error(error);
@@ -1541,7 +1453,6 @@ async function checkCompanyDuplicates() {
 
 applyNowButton?.addEventListener("click", applyNow);
 saveButton?.addEventListener("click", saveCurrentTabUrl);
-saveAllTabsButton?.addEventListener("click", saveAllOpenTabUrls);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
 checkCompanyDuplicatesButton?.addEventListener("click", checkCompanyDuplicates);
 
@@ -1613,50 +1524,9 @@ clearLogsButton?.addEventListener("click", () => {
   addLog("info", "Process logs cleared.");
 });
 
-clearNoteButton?.addEventListener("click", () => {
-  if (!noteInput) return;
-  noteInput.value = "";
-  noteInput.focus();
-  updateClearNoteButtonState();
-  chrome.storage.local.remove(NOTE_DRAFT_STORAGE_KEY).catch((error) => {
-    console.error("Could not clear note draft:", error);
-  });
-});
-
-noteInput?.addEventListener("input", () => {
-  updateClearNoteButtonState();
-  chrome.storage.local
-    .set({
-      [NOTE_DRAFT_STORAGE_KEY]: noteInput.value
-    })
-    .catch((error) => {
-      console.error("Could not persist note draft:", error);
-    });
-});
-
-noteInput?.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" || event.isComposing) {
-    return;
-  }
-
-  event.preventDefault();
-
-  if (saveButton?.disabled && applyNowButton?.disabled) {
-    return;
-  }
-
-  saveCurrentTabUrl();
-});
-
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") {
     return;
-  }
-
-  if (changes[NOTE_DRAFT_STORAGE_KEY] && noteInput) {
-    const nextValue = changes[NOTE_DRAFT_STORAGE_KEY].newValue;
-    noteInput.value = typeof nextValue === "string" ? nextValue : "";
-    updateClearNoteButtonState();
   }
 
   if (
@@ -1675,8 +1545,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 updateLogsState();
 updateDeletedRowsState();
-updateClearNoteButtonState();
-loadNoteDraftFromStorage();
 loadSheetConfig();
 loadPromptResumeSelection();
 loadPromptSelection();

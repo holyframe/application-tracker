@@ -5,7 +5,6 @@ const DEFAULT_SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
 const DEFAULT_SHEET_NAME = "Sheet1";
 const DEFAULT_RESUME_TEMPLATE_ID = "1oF1GQJ6bTEli1548HVyI91O803oQaeP8ec8Y81bj5zM";
 const CHATGPT_URL = "https://chatgpt.com";
-const NOTE_DRAFT_STORAGE_KEY = "saveCurrentTabNoteDraft";
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
@@ -948,8 +947,14 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 });
 
+const APP_ACTION_COMMANDS = {
+  "apply-now": { groupTabs: true },
+  "save-app": { groupTabs: false }
+};
+
 chrome.commands.onCommand.addListener((command) => {
-  if (command !== "save-current-tab") {
+  const action = APP_ACTION_COMMANDS[command];
+  if (!action) {
     return;
   }
 
@@ -1001,14 +1006,9 @@ chrome.commands.onCommand.addListener((command) => {
       runId
     });
 
-    const stored = await chrome.storage.local.get(NOTE_DRAFT_STORAGE_KEY);
-    const noteValue =
-      typeof stored[NOTE_DRAFT_STORAGE_KEY] === "string"
-        ? stored[NOTE_DRAFT_STORAGE_KEY].trim()
-        : "";
-
-    const result = await saveCurrentTabUrlToSheet(noteValue, runId);
-    await chrome.storage.local.remove(NOTE_DRAFT_STORAGE_KEY);
+    const result = await saveCurrentTabUrlToSheet(runId, {
+      groupTabs: action.groupTabs
+    });
 
     await chrome.runtime.sendMessage({
       type: "HOTKEY_SAVE_FINISHED",
@@ -1017,14 +1017,14 @@ chrome.commands.onCommand.addListener((command) => {
       url: result?.url || ""
     });
   })().catch((error) => {
-    console.error("Hotkey save failed:", error);
-    sendLog(runId, "error", error.message || "Hotkey save failed.");
+    console.error("Hotkey app action failed:", error);
+    sendLog(runId, "error", error.message || "Hotkey app action failed.");
 
     chrome.runtime.sendMessage({
       type: "HOTKEY_SAVE_FINISHED",
       runId,
       ok: false,
-      error: error.message || "Hotkey save failed."
+      error: error.message || "Hotkey app action failed."
     });
   });
 });
@@ -1135,7 +1135,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
-    SAVE_ALL_OPEN_TABS_URLS_TO_SHEET: saveAllOpenTabsUrlsToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
     CHECK_COMPANY_DUPLICATES: checkCompanyDuplicatesInSheet,
     CREATE_GOOGLE_DOC: createGoogleDoc
@@ -1148,7 +1147,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   const runPromise =
     message.type === "SAVE_CURRENT_TAB_URL_TO_SHEET"
-      ? run(message.note, message.runId, {
+      ? run(message.runId, {
           groupTabs: message.mode === "apply"
         })
       : run(message.runId);
@@ -1240,7 +1239,7 @@ async function groupApplicationTabs({
   return groupId;
 }
 
-async function saveCurrentTabUrlToSheet(note = "", runId, options = {}) {
+async function saveCurrentTabUrlToSheet(runId, options = {}) {
   const groupTabsInsteadOfClosing = options.groupTabs === true;
   sendLog(
     runId,
@@ -1311,7 +1310,7 @@ async function saveCurrentTabUrlToSheet(note = "", runId, options = {}) {
       urlForSheet,
       resumeUrl,
       chatGptUrl,
-      note || ""
+      groupTabsInsteadOfClosing ? "Yes" : ""
     ];
 
     sendLog(runId, "info", "Preparing row for Google Sheet...");
@@ -1373,70 +1372,6 @@ async function saveCurrentTabUrlToSheet(note = "", runId, options = {}) {
     await unlockExtensionUi();
     throw error;
   }
-}
-
-async function saveAllOpenTabsUrlsToSheet(runId) {
-  sendLog(runId, "info", "Starting save-all-tabs process...");
-
-  const tabs = await chrome.tabs.query({});
-  const unpinnedWithUrl = tabs.filter((t) => t.url && !t.pinned);
-
-  if (unpinnedWithUrl.length === 0) {
-    throw new Error(
-      "No tabs to save: need at least one non-pinned tab with a URL."
-    );
-  }
-
-  sendLog(
-    runId,
-    "info",
-    `Found ${unpinnedWithUrl.length} non-pinned tab(s) with a URL (pinned tabs skipped).`
-  );
-
-  const { resumeTemplateId } = await getSheetConfig();
-  const token = await getGoogleAccessToken();
-  const timestamp = new Date().toISOString();
-  const rows = [];
-
-  for (const t of unpinnedWithUrl) {
-    const docTitle = t.title || `Application ${new Date().toLocaleDateString()}`;
-    sendLog(runId, "info", `Creating resume copy for: ${t.title || t.url}`);
-    const resumeUrl = await copyResumeAndGetUrl(token, docTitle, resumeTemplateId, runId);
-    rows.push([
-      timestamp,
-      t.title || "",
-      normalizeUrlForStorage(t.url),
-      resumeUrl,
-      CHATGPT_URL,
-      ""
-    ]);
-  }
-
-  sendLog(runId, "info", "Preparing rows for Google Sheet...");
-
-  await appendRowsToGoogleSheet(rows, runId);
-
-  const tabIdsToClose = unpinnedWithUrl
-    .map((t) => t.id)
-    .filter((id) => typeof id === "number");
-
-  if (tabIdsToClose.length > 0) {
-    sendLog(
-      runId,
-      "info",
-      `Closing ${tabIdsToClose.length} saved unpinned tab(s)...`
-    );
-    await chrome.tabs.remove(tabIdsToClose);
-    sendLog(runId, "success", "Saved unpinned tabs closed.");
-  }
-
-  sendLog(
-    runId,
-    "success",
-    `Finished. ${unpinnedWithUrl.length} URL(s) saved to Google Sheet.`
-  );
-
-  return { count: unpinnedWithUrl.length };
 }
 
 function extractCompanyKey(rawUrl) {
