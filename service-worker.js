@@ -9,7 +9,10 @@ const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
 const PROMPT_SELECTION_STORAGE_KEY = "promptSelection";
+const HUMANIZE_PROMPT_SELECTION_STORAGE_KEY = "humanizePromptSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
+const DEFAULT_HUMANIZE_PROMPT =
+  "humanize your answer shortening it as one sentence story telling and using gen y us native style. don't be so streamlined usually can't be expected from human's impromptu";
 const SAVE_CHECK_REMINDER_ALARM_NAME = "save-current-tab-check-reminder";
 const SAVE_CHECK_REMINDER_STORAGE_KEY = "saveCheckReminder";
 const SAVE_CHECK_REMINDER_DELAY_MINUTES = 2;
@@ -263,6 +266,48 @@ async function savePromptSelectionState(contentInput) {
   return state;
 }
 
+async function loadHumanizePromptSelectionRecord() {
+  const stored = await chrome.storage.local.get(HUMANIZE_PROMPT_SELECTION_STORAGE_KEY);
+  const selection = stored[HUMANIZE_PROMPT_SELECTION_STORAGE_KEY];
+
+  if (!selection || typeof selection.content !== "string") {
+    return null;
+  }
+
+  return {
+    content: normalizePromptContent(selection.content),
+    updatedAt: normalizeUpdatedAt(selection.updatedAt)
+  };
+}
+
+async function getHumanizePromptSelectionState() {
+  const selection = await loadHumanizePromptSelectionRecord();
+
+  if (selection?.content?.trim()) {
+    return selection;
+  }
+
+  if (selection) {
+    return selection;
+  }
+
+  return saveHumanizePromptSelectionState(DEFAULT_HUMANIZE_PROMPT);
+}
+
+async function saveHumanizePromptSelectionState(contentInput) {
+  const content = normalizePromptContent(contentInput);
+  const state = {
+    content,
+    updatedAt: content ? new Date().toISOString() : ""
+  };
+
+  await chrome.storage.local.set({
+    [HUMANIZE_PROMPT_SELECTION_STORAGE_KEY]: state
+  });
+
+  return state;
+}
+
 async function loadJobDescriptionSelectionRecord() {
   const stored = await chrome.storage.local.get(JOB_DESCRIPTION_SELECTION_STORAGE_KEY);
   const selection = stored[JOB_DESCRIPTION_SELECTION_STORAGE_KEY];
@@ -401,6 +446,11 @@ function normalizeUrlForStorage(url) {
 }
 
 const CHATGPT_NEW_TAB_SETTLE_MS = { min: 3000, max: 5000 };
+const CHATGPT_EXISTING_TAB_SETTLE_MS = { min: 2000, max: 4000 };
+const CHATGPT_TAB_URL_PATTERNS = [
+  "https://chatgpt.com/*",
+  "https://chat.openai.com/*"
+];
 
 function randomDelayMs(minMs, maxMs) {
   return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
@@ -651,6 +701,76 @@ async function sendToChatGptAndGetUrl(text, runId) {
     url: chatGptUrl,
     tabId
   };
+}
+
+async function resolveChatGptTabForHumanize(runId) {
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true
+  });
+
+  if (activeTab?.id && isChatGptUrl(activeTab.url || "")) {
+    sendLog(runId, "info", "Using active ChatGPT tab.");
+    return activeTab;
+  }
+
+  const tabs = await chrome.tabs.query({ url: CHATGPT_TAB_URL_PATTERNS });
+  const sortedTabs = tabs
+    .filter((tab) => typeof tab.id === "number")
+    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+
+  if (sortedTabs[0]) {
+    sendLog(runId, "info", "Using most recent ChatGPT tab.");
+    return sortedTabs[0];
+  }
+
+  throw new Error("No open ChatGPT tab found. Open a ChatGPT conversation first.");
+}
+
+async function sendHumanizePromptToChatGpt(runId) {
+  const { content } = await getHumanizePromptSelectionState();
+  const promptText = String(content ?? "").trim();
+
+  if (!promptText) {
+    throw new Error("Humanize prompt is not configured.");
+  }
+
+  sendLog(runId, "info", "Looking for an open ChatGPT tab...");
+  const tab = await resolveChatGptTabForHumanize(runId);
+
+  await chrome.tabs.update(tab.id, { active: true });
+
+  if (tab.status !== "complete") {
+    await waitForTabComplete(tab.id);
+  }
+
+  const settleMs = randomDelayMs(
+    CHATGPT_EXISTING_TAB_SETTLE_MS.min,
+    CHATGPT_EXISTING_TAB_SETTLE_MS.max
+  );
+
+  sendLog(
+    runId,
+    "info",
+    `Waiting ${(settleMs / 1000).toFixed(1)}s before filling humanize prompt...`
+  );
+  await sleep(settleMs);
+
+  sendLog(runId, "info", "Sending humanize prompt to ChatGPT...");
+  await sendFillAndSendToTab(tab.id, promptText, runId);
+
+  const chatGptUrl = await resolveChatGptUrlAfterSend(tab.id, runId);
+  sendLog(runId, "success", `Humanize prompt sent to ChatGPT: ${chatGptUrl}`);
+
+  return {
+    url: chatGptUrl,
+    tabId: tab.id
+  };
+}
+
+async function humanizeChatGptConversation(runId) {
+  sendLog(runId, "info", "Starting Humanize...");
+  return sendHumanizePromptToChatGpt(runId);
 }
 
 async function scheduleSaveCheckReminder(
@@ -1109,6 +1229,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "GET_HUMANIZE_PROMPT_SELECTION") {
+    getHumanizePromptSelectionState()
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not load humanize prompt."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_HUMANIZE_PROMPT_SELECTION") {
+    saveHumanizePromptSelectionState(message.content)
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not save humanize prompt."
+        });
+      });
+    return true;
+  }
+
   if (message.type === "GET_JOB_DESCRIPTION_SELECTION") {
     getJobDescriptionSelectionState()
       .then((state) => sendResponse({ ok: true, ...state }))
@@ -1136,7 +1280,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
-    CHECK_COMPANY_DUPLICATES: checkCompanyDuplicatesInSheet,
+    HUMANIZE_CHATGPT: humanizeChatGptConversation,
     CREATE_GOOGLE_DOC: createGoogleDoc
   };
 
@@ -1371,167 +1515,6 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
   } catch (error) {
     await unlockExtensionUi();
     throw error;
-  }
-}
-
-function extractCompanyKey(rawUrl) {
-  if (!rawUrl) return null;
-  try {
-    const parsed = new URL(rawUrl.trim());
-    const host = parsed.hostname.toLowerCase();
-    const path = parsed.pathname.toLowerCase();
-
-    // Greenhouse: job-boards.greenhouse.io/<company>/jobs/...
-    if (host === "job-boards.greenhouse.io" || host === "boards.greenhouse.io") {
-      const match = path.match(/^\/([^/]+)\//);
-      if (match) return `greenhouse:${match[1]}`;
-    }
-
-    // Lever: jobs.lever.co/<company>/...
-    if (host === "jobs.lever.co") {
-      const match = path.match(/^\/([^/]+)/);
-      if (match) return `lever:${match[1]}`;
-    }
-
-    // Workday: <company>.wd1.myworkdayjobs.com / <company>.wd5.myworkdayjobs.com etc.
-    const workdayMatch = host.match(/^([^.]+)\.wd\d+\.myworkdayjobs\.com$/);
-    if (workdayMatch) return `workday:${workdayMatch[1]}`;
-
-    // Ashby: jobs.ashbyhq.com/<company>/...
-    if (host === "jobs.ashbyhq.com") {
-      const match = path.match(/^\/([^/]+)/);
-      if (match) return `ashby:${match[1]}`;
-    }
-
-    // SmartRecruiters: jobs.smartrecruiters.com/<company>/...
-    if (host === "jobs.smartrecruiters.com") {
-      const match = path.match(/^\/([^/]+)/);
-      if (match) return `smartrecruiters:${match[1]}`;
-
-    }
-
-    // Brassring / Kenexa: <company>.brassring.com or sjobs.brassring.com?partnerid=...&siteid=...
-    if (host.endsWith(".brassring.com")) {
-      const partnerId = parsed.searchParams.get("partnerid");
-      const siteId = parsed.searchParams.get("siteid");
-      if (partnerId && siteId) return `brassring:${partnerId}:${siteId}`;
-      const companyMatch = host.match(/^([^.]+)\.brassring\.com$/);
-      if (companyMatch) return `brassring:${companyMatch[1]}`;
-    }
-
-    // Fallback: use registrable domain (e.g. grafanalabs.com, datadog.com)
-    const parts = host.split(".");
-    const registrable = parts.slice(-2).join(".");
-    return `domain:${registrable}`;
-  } catch (_error) {
-    return null;
-  }
-}
-
-async function checkCompanyDuplicatesInSheet(runId) {
-  sendLog(runId, "info", "Starting company duplicate check...");
-
-  const token = await getGoogleAccessToken();
-  sendLog(runId, "success", "Google authorization token received.");
-
-  const sheetConfig = await getSheetConfig();
-  const sheetId = await getSheetIdByTitle(
-    token,
-    sheetConfig.spreadsheetId,
-    sheetConfig.sheetName
-  );
-  const values = await readSheetValuesAD(token, runId, sheetConfig);
-
-  if (values.length === 0) {
-    sendLog(runId, "info", "Sheet has no rows. Nothing to do.");
-    return { duplicateCompanyCount: 0, highlightedRowCount: 0, rowCount: 0 };
-  }
-
-  // Build map: companyKey -> list of zero-based row indices
-  const companyRowMap = new Map();
-  for (let i = 0; i < values.length; i++) {
-    const url = (values[i][2] || "").trim();
-    const key = extractCompanyKey(url);
-    if (!key) continue;
-    if (!companyRowMap.has(key)) companyRowMap.set(key, []);
-    companyRowMap.get(key).push(i);
-  }
-
-  // Collect row indices where company appears more than once
-  const rowsToHighlight = [];
-  for (const [key, indices] of companyRowMap.entries()) {
-    if (indices.length > 1) {
-      sendLog(runId, "info", `Company "${key}" found in ${indices.length} rows: ${indices.map((i) => i + 1).join(", ")}`);
-      for (const idx of indices) rowsToHighlight.push(idx);
-    }
-  }
-
-  const duplicateCompanyCount = [...companyRowMap.values()].filter((v) => v.length > 1).length;
-
-  if (rowsToHighlight.length === 0) {
-    sendLog(runId, "success", "No company duplicates found.");
-    return { duplicateCompanyCount: 0, highlightedRowCount: 0, rowCount: values.length };
-  }
-
-  sendLog(runId, "info", `Highlighting ${rowsToHighlight.length} row(s) yellow in the sheet...`);
-
-  await batchHighlightSheetRows(
-    token,
-    sheetConfig.spreadsheetId,
-    sheetId,
-    rowsToHighlight,
-    runId
-  );
-
-  sendLog(runId, "success", `Done. ${duplicateCompanyCount} company duplicate group(s), ${rowsToHighlight.length} row(s) highlighted.`);
-
-  return {
-    duplicateCompanyCount,
-    highlightedRowCount: rowsToHighlight.length,
-    rowCount: values.length
-  };
-}
-
-async function batchHighlightSheetRows(token, spreadsheetId, sheetId, rowIndicesZeroBased, runId) {
-  const YELLOW = { red: 1, green: 0.93, blue: 0.24 };
-  const chunkSize = 100;
-
-  for (let i = 0; i < rowIndicesZeroBased.length; i += chunkSize) {
-    const chunk = rowIndicesZeroBased.slice(i, i + chunkSize);
-    const requests = chunk.map((rowIndex) => ({
-      repeatCell: {
-          range: {
-          sheetId,
-          startRowIndex: rowIndex,
-          endRowIndex: rowIndex + 1,
-          startColumnIndex: 0,
-          endColumnIndex: 3
-        },
-        cell: {
-          userEnteredFormat: {
-            backgroundColor: YELLOW
-          }
-        },
-        fields: "userEnteredFormat.backgroundColor"
-      }
-    }));
-
-    const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
-    const response = await fetch(batchUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ requests })
-    });
-
-    sendLog(runId, "info", `Highlight batch response status: ${response.status}`);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Google Sheets batchUpdate error: ${errorText}`);
-    }
   }
 }
 

@@ -1,7 +1,7 @@
 const saveButton = document.querySelector("#saveButton");
 const applyNowButton = document.querySelector("#applyNowButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
-const checkCompanyDuplicatesButton = document.querySelector("#checkCompanyDuplicatesButton");
+const humanizeButton = document.querySelector("#humanizeButton");
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
@@ -30,6 +30,13 @@ const promptResumeFormModalStatus = document.querySelector("#promptResumeFormMod
 const promptResumeLabelInput = document.querySelector("#promptResumeLabelInput");
 const promptResumeContentInput = document.querySelector("#promptResumeContentInput");
 const promptList = document.querySelector("#promptList");
+const humanizePromptList = document.querySelector("#humanizePromptList");
+const humanizeFormModal = document.querySelector("#humanizeFormModal");
+const humanizeFormModalBackdrop = document.querySelector("#humanizeFormModalBackdrop");
+const humanizeFormModalCloseButton = document.querySelector("#humanizeFormModalCloseButton");
+const humanizeFormModalCancelButton = document.querySelector("#humanizeFormModalCancelButton");
+const humanizeFormModalSubmitButton = document.querySelector("#humanizeFormModalSubmitButton");
+const humanizeContentInput = document.querySelector("#humanizeContentInput");
 const promptFormModal = document.querySelector("#promptFormModal");
 const promptFormModalBackdrop = document.querySelector("#promptFormModalBackdrop");
 const promptFormModalCloseButton = document.querySelector("#promptFormModalCloseButton");
@@ -63,18 +70,20 @@ function createRunId() {
 function setSaveButtonsDisabled(disabled) {
   if (applyNowButton) applyNowButton.disabled = disabled;
   if (saveButton) saveButton.disabled = disabled;
+  if (humanizeButton) humanizeButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
-  if (checkCompanyDuplicatesButton) checkCompanyDuplicatesButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
   if (addPromptResumeButton) addPromptResumeButton.disabled = disabled;
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
   if (promptFormModalSubmitButton) promptFormModalSubmitButton.disabled = disabled;
+  if (humanizeFormModalSubmitButton) humanizeFormModalSubmitButton.disabled = disabled;
   if (jobDescriptionFormModalSubmitButton) jobDescriptionFormModalSubmitButton.disabled = disabled;
 }
 
 function closeOpenModalsForUiLock() {
   setPromptResumeFormModalOpen(false);
   setPromptFormModalOpen(false);
+  setHumanizeFormModalOpen(false);
   setJobDescriptionFormModalOpen(false);
 }
 
@@ -779,6 +788,190 @@ async function loadPromptSelection() {
   }
 }
 
+let humanizePromptState = {
+  content: "",
+  updatedAt: ""
+};
+
+function setHumanizeFormModalOpen(isOpen) {
+  if (!humanizeFormModal) return;
+
+  humanizeFormModal.classList.toggle("is-hidden", !isOpen);
+  humanizeFormModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    if (humanizeContentInput) {
+      humanizeContentInput.value = humanizePromptState.content || "";
+    }
+    humanizeContentInput?.focus();
+    return;
+  }
+
+  if (humanizeContentInput) humanizeContentInput.value = "";
+  humanizePromptList
+    ?.querySelector(".prompt-selection-edit, .prompt-selection-list-empty-action")
+    ?.focus();
+}
+
+function openEditHumanizePromptModal() {
+  setHumanizeFormModalOpen(true);
+}
+
+function renderHumanizePromptCard() {
+  if (!humanizePromptList) return;
+
+  humanizePromptList.innerHTML = "";
+
+  if (!humanizePromptState.content) {
+    const empty = document.createElement("p");
+    empty.className = "prompt-selection-list-empty prompt-selection-list-empty-action";
+    empty.textContent = "No humanize prompt yet.";
+    empty.addEventListener("click", openEditHumanizePromptModal);
+    humanizePromptList.appendChild(empty);
+    return;
+  }
+
+  const item = document.createElement("li");
+  item.className = "prompt-selection-item is-selected";
+
+  const radio = document.createElement("input");
+  radio.type = "radio";
+  radio.name = "humanize-prompt";
+  radio.value = "humanize-prompt";
+  radio.checked = true;
+  radio.setAttribute("aria-label", "Use Humanize Prompt");
+
+  const copy = document.createElement("div");
+  copy.className = "prompt-selection-copy";
+
+  const label = document.createElement("span");
+  label.className = "prompt-selection-label";
+  label.textContent = "Humanize Prompt";
+
+  copy.append(label);
+
+  const updatedAtText = formatPromptResumeUpdatedAt(humanizePromptState.updatedAt);
+  if (updatedAtText) {
+    const updated = document.createElement("span");
+    updated.className = "prompt-selection-updated";
+    updated.textContent = updatedAtText;
+    copy.append(updated);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "prompt-selection-actions";
+
+  const editButton = document.createElement("button");
+  editButton.type = "button";
+  editButton.className = "prompt-selection-edit";
+  editButton.setAttribute("aria-label", "View or edit Humanize Prompt");
+  editButton.innerHTML = `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  `;
+  editButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openEditHumanizePromptModal();
+  });
+
+  actions.append(editButton);
+
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "prompt-selection-remove";
+  clearButton.textContent = "×";
+  clearButton.setAttribute("aria-label", "Clear Humanize Prompt");
+  clearButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    clearHumanizePrompt();
+  });
+  actions.append(clearButton);
+
+  item.append(radio, copy, actions);
+  humanizePromptList.appendChild(item);
+}
+
+async function clearHumanizePrompt() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "SAVE_HUMANIZE_PROMPT_SELECTION",
+      content: ""
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not clear humanize prompt.");
+    }
+
+    humanizePromptState = {
+      content: "",
+      updatedAt: ""
+    };
+    renderHumanizePromptCard();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadHumanizePromptSelection() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "GET_HUMANIZE_PROMPT_SELECTION"
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not load humanize prompt.");
+    }
+
+    humanizePromptState = {
+      content: typeof response.content === "string" ? response.content : "",
+      updatedAt: response.updatedAt || ""
+    };
+    renderHumanizePromptCard();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function submitHumanizeForm() {
+  const content = humanizeContentInput?.value.trim() || "";
+
+  if (!content) {
+    humanizeContentInput?.focus();
+    return;
+  }
+
+  if (humanizeFormModalSubmitButton) {
+    humanizeFormModalSubmitButton.disabled = true;
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "SAVE_HUMANIZE_PROMPT_SELECTION",
+      content
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not save humanize prompt.");
+    }
+
+    humanizePromptState = {
+      content: typeof response.content === "string" ? response.content : content,
+      updatedAt: response.updatedAt || ""
+    };
+
+    setHumanizeFormModalOpen(false);
+    renderHumanizePromptCard();
+  } catch (error) {
+    console.error(error);
+  } finally {
+    if (humanizeFormModalSubmitButton) {
+      humanizeFormModalSubmitButton.disabled = false;
+    }
+  }
+}
+
 async function submitPromptForm() {
   const content = promptContentInput?.value.trim() || "";
 
@@ -1301,7 +1494,7 @@ async function removeDuplicateSheetRows() {
   clearDeletedRows();
 
   setSaveButtonsDisabled(true);
-  addLog("info", "Remove Duplicate clicked. Scanning sheet...");
+  addLog("info", "Deduption clicked. Scanning sheet...");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -1398,7 +1591,7 @@ chrome.runtime.onMessage.addListener((message) => {
   addLog(message.level, message.message, message.timestamp);
 });
 
-async function checkCompanyDuplicates() {
+async function humanizeChat() {
   if (!guardExtensionUiAction()) {
     return;
   }
@@ -1409,39 +1602,20 @@ async function checkCompanyDuplicates() {
   clearDeletedRows();
 
   setSaveButtonsDisabled(true);
-  addLog("info", "Check Company Duplicates clicked. Scanning sheet...");
+  addLog("info", "Humanize clicked. Sending prompt to ChatGPT...");
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: "CHECK_COMPANY_DUPLICATES",
+      type: "HUMANIZE_CHATGPT",
       runId: activeRunId
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error || "Could not check company duplicates.");
+      throw new Error(response?.error || "Could not send humanize prompt.");
     }
 
-    const duplicateCompanyCount = response.duplicateCompanyCount ?? 0;
-    const highlightedRowCount = response.highlightedRowCount ?? 0;
-    const rowCount = response.rowCount ?? 0;
-
-    if (rowCount === 0) {
-      showStatus("success", "The sheet has no rows yet.", "Done:");
-    } else if (duplicateCompanyCount === 0) {
-      showStatus(
-        "success",
-        `No company duplicates found among ${rowCount} row(s).`,
-        "Done:"
-      );
-    } else {
-      showStatus(
-        "success",
-        `Found ${duplicateCompanyCount} company${duplicateCompanyCount === 1 ? "" : "s"} with multiple applications. ${highlightedRowCount} row${highlightedRowCount === 1 ? "" : "s"} highlighted yellow in the sheet.`,
-        "Done:"
-      );
-    }
-
-    addLog("success", "Process completed successfully.");
+    showStatus("success", response.url || "https://chatgpt.com", "Sent:");
+    addLog("success", "Humanize prompt sent to ChatGPT.");
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Something went wrong.");
@@ -1454,7 +1628,7 @@ async function checkCompanyDuplicates() {
 applyNowButton?.addEventListener("click", applyNow);
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
-checkCompanyDuplicatesButton?.addEventListener("click", checkCompanyDuplicates);
+humanizeButton?.addEventListener("click", humanizeChat);
 
 configToggleButton?.addEventListener("click", () => {
   if (!guardExtensionUiAction()) {
@@ -1484,6 +1658,11 @@ promptFormModalCloseButton?.addEventListener("click", () => setPromptFormModalOp
 promptFormModalCancelButton?.addEventListener("click", () => setPromptFormModalOpen(false));
 promptFormModalSubmitButton?.addEventListener("click", submitPromptForm);
 
+humanizeFormModalBackdrop?.addEventListener("click", () => setHumanizeFormModalOpen(false));
+humanizeFormModalCloseButton?.addEventListener("click", () => setHumanizeFormModalOpen(false));
+humanizeFormModalCancelButton?.addEventListener("click", () => setHumanizeFormModalOpen(false));
+humanizeFormModalSubmitButton?.addEventListener("click", submitHumanizeForm);
+
 jobDescriptionFormModalBackdrop?.addEventListener("click", () =>
   setJobDescriptionFormModalOpen(false)
 );
@@ -1507,6 +1686,11 @@ document.addEventListener("keydown", (event) => {
 
   if (promptFormModal && !promptFormModal.classList.contains("is-hidden")) {
     setPromptFormModalOpen(false);
+    return;
+  }
+
+  if (humanizeFormModal && !humanizeFormModal.classList.contains("is-hidden")) {
+    setHumanizeFormModalOpen(false);
     return;
   }
 
@@ -1548,5 +1732,6 @@ updateDeletedRowsState();
 loadSheetConfig();
 loadPromptResumeSelection();
 loadPromptSelection();
+loadHumanizePromptSelection();
 loadJobDescriptionSelection();
 loadExtensionUiLockState();
