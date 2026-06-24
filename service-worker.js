@@ -17,9 +17,9 @@ const SAVE_CHECK_REMINDER_ALARM_NAME = "save-current-tab-check-reminder";
 const SAVE_CHECK_REMINDER_STORAGE_KEY = "saveCheckReminder";
 const SAVE_CHECK_REMINDER_DELAY_MINUTES = 2;
 const SAVE_CHECK_REMINDER_NOTIFICATION_ID = "application-helper-check-reminder";
-const CHATGPT_TAB_CLOSE_ALARM_NAME = "close-chatgpt-tab-after-save";
-const CHATGPT_TAB_CLOSE_STORAGE_KEY = "pendingChatGptTabClose";
-const CHATGPT_TAB_CLOSE_DELAY_MINUTES = 1.9;
+const JOB_GPT_TAB_GROUP_ALARM_NAME = "group-job-gpt-tabs-after-save";
+const JOB_GPT_TAB_GROUP_STORAGE_KEY = "pendingJobGptTabGroup";
+const JOB_GPT_TAB_GROUP_DELAY_MINUTES = 1.9;
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
 const TRACKING_PARAM_KEYS = new Set([
   "source",
@@ -488,8 +488,35 @@ function waitForTabComplete(tabId, timeoutMs = 30000) {
   });
 }
 
+function isReceivingEndMissingError(error) {
+  const message = String(error?.message ?? error ?? "");
+  return (
+    message.includes("Receiving end does not exist") ||
+    message.includes("Could not establish connection")
+  );
+}
+
+async function ensureChatGptContentScript(tabId, runId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content/chatgpt.js"]
+    });
+    sendLog(runId, "info", "Injected ChatGPT content script.");
+    return true;
+  } catch (error) {
+    sendLog(
+      runId,
+      "error",
+      `Could not inject ChatGPT content script: ${error.message || error}`
+    );
+    return false;
+  }
+}
+
 async function sendFillAndSendToTab(tabId, text, runId, maxAttempts = 24) {
   let lastError = new Error("Could not reach ChatGPT page.");
+  let didInject = false;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -505,6 +532,17 @@ async function sendFillAndSendToTab(tabId, text, runId, maxAttempts = 24) {
       lastError = new Error(response?.error || "Could not fill ChatGPT prompt.");
     } catch (error) {
       lastError = error;
+
+      if (!didInject && isReceivingEndMissingError(error)) {
+        didInject = true;
+        sendLog(
+          runId,
+          "info",
+          "ChatGPT page not connected. Injecting content script..."
+        );
+        await ensureChatGptContentScript(tabId, runId);
+        continue;
+      }
     }
 
     if (attempt < maxAttempts) {
@@ -888,55 +926,115 @@ async function focusApplicationTabGroup(groupId, windowId) {
   }
 }
 
-async function scheduleChatGptTabClose(tabId, runId, { jobTabId = null } = {}) {
+async function groupJobAndGptTabs({
+  jobTabId,
+  chatGptTabId,
+  groupTitle = "Application",
+  runId = null
+}) {
+  if (typeof jobTabId !== "number" || typeof chatGptTabId !== "number") {
+    throw new Error("Job and ChatGPT tabs must have valid tab IDs.");
+  }
+
+  let jobTab;
+  let gptTab;
+
+  try {
+    jobTab = await chrome.tabs.get(jobTabId);
+    gptTab = await chrome.tabs.get(chatGptTabId);
+  } catch (_error) {
+    sendLog(
+      runId,
+      "info",
+      "One or both tabs were closed before grouping could run."
+    );
+    return null;
+  }
+
+  if (gptTab.windowId !== jobTab.windowId) {
+    try {
+      await chrome.tabs.move(chatGptTabId, { windowId: jobTab.windowId, index: -1 });
+    } catch (error) {
+      sendLog(
+        runId,
+        "error",
+        `Could not move ChatGPT tab for grouping: ${error.message || error}`
+      );
+      return null;
+    }
+  }
+
+  sendLog(runId, "info", "Grouping job and ChatGPT tabs...");
+  const groupId = await chrome.tabs.group({ tabIds: [jobTabId, chatGptTabId] });
+
+  await chrome.tabGroups.update(groupId, {
+    title: String(groupTitle || "Application").trim().slice(0, 100) || "Application",
+    color: "green"
+  });
+
+  sendLog(runId, "success", "Job and ChatGPT tabs grouped.");
+  return groupId;
+}
+
+async function scheduleJobAndGptTabGroup(
+  chatGptTabId,
+  runId,
+  { jobTabId = null, groupTitle = "Application" } = {}
+) {
+  if (typeof jobTabId !== "number" || typeof chatGptTabId !== "number") {
+    sendLog(runId, "info", "Skipping tab grouping because a tab ID is missing.");
+    return;
+  }
+
   await chrome.storage.local.set({
-    [CHATGPT_TAB_CLOSE_STORAGE_KEY]: {
-      tabId,
-      jobTabId: typeof jobTabId === "number" ? jobTabId : null,
+    [JOB_GPT_TAB_GROUP_STORAGE_KEY]: {
+      jobTabId,
+      chatGptTabId,
+      groupTitle: String(groupTitle || "Application").trim() || "Application",
       scheduledAt: Date.now()
     }
   });
 
-  await chrome.alarms.clear(CHATGPT_TAB_CLOSE_ALARM_NAME);
-  await chrome.alarms.create(CHATGPT_TAB_CLOSE_ALARM_NAME, {
-    delayInMinutes: CHATGPT_TAB_CLOSE_DELAY_MINUTES
+  await chrome.alarms.clear(JOB_GPT_TAB_GROUP_ALARM_NAME);
+  await chrome.alarms.create(JOB_GPT_TAB_GROUP_ALARM_NAME, {
+    delayInMinutes: JOB_GPT_TAB_GROUP_DELAY_MINUTES
   });
 
   sendLog(
     runId,
     "info",
-    typeof jobTabId === "number"
-      ? `ChatGPT tab will close in ${CHATGPT_TAB_CLOSE_DELAY_MINUTES} minutes, then the job tab will close.`
-      : `ChatGPT tab will close in ${CHATGPT_TAB_CLOSE_DELAY_MINUTES} minutes.`
+    `Job and ChatGPT tabs will be grouped in ${JOB_GPT_TAB_GROUP_DELAY_MINUTES} minutes.`
   );
 }
 
-async function closeScheduledChatGptTab() {
-  const stored = await chrome.storage.local.get(CHATGPT_TAB_CLOSE_STORAGE_KEY);
-  const pending = stored[CHATGPT_TAB_CLOSE_STORAGE_KEY];
+async function groupScheduledJobAndGptTabs() {
+  const stored = await chrome.storage.local.get([
+    JOB_GPT_TAB_GROUP_STORAGE_KEY,
+    SAVE_CHECK_REMINDER_STORAGE_KEY
+  ]);
+  const pending = stored[JOB_GPT_TAB_GROUP_STORAGE_KEY];
 
   if (!pending) {
-    await chrome.storage.local.remove(CHATGPT_TAB_CLOSE_STORAGE_KEY);
+    await chrome.storage.local.remove(JOB_GPT_TAB_GROUP_STORAGE_KEY);
     return;
   }
 
-  if (typeof pending.tabId === "number") {
-    try {
-      await chrome.tabs.remove(pending.tabId);
-    } catch (_error) {
-      // Tab may already be closed manually.
-    }
+  const groupId = await groupJobAndGptTabs({
+    jobTabId: pending.jobTabId,
+    chatGptTabId: pending.chatGptTabId,
+    groupTitle: pending.groupTitle
+  });
+
+  if (groupId != null && stored[SAVE_CHECK_REMINDER_STORAGE_KEY]) {
+    await chrome.storage.local.set({
+      [SAVE_CHECK_REMINDER_STORAGE_KEY]: {
+        ...stored[SAVE_CHECK_REMINDER_STORAGE_KEY],
+        groupId
+      }
+    });
   }
 
-  if (typeof pending.jobTabId === "number") {
-    try {
-      await chrome.tabs.remove(pending.jobTabId);
-    } catch (_error) {
-      // Tab may already be closed manually.
-    }
-  }
-
-  await chrome.storage.local.remove(CHATGPT_TAB_CLOSE_STORAGE_KEY);
+  await chrome.storage.local.remove(JOB_GPT_TAB_GROUP_STORAGE_KEY);
 }
 
 async function showSaveCheckReminderNotification() {
@@ -951,7 +1049,7 @@ async function showSaveCheckReminderNotification() {
     title: "Application Helper",
     message: `Time to check ChatGPT for: ${jobTitle}`,
     priority: 2,
-    requireInteraction: true,
+    requireInteraction: false,
     buttons: [{ title: isApplyMode ? "Close" : "Check" }]
   });
 
@@ -992,11 +1090,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     return;
   }
 
-  if (alarm.name === CHATGPT_TAB_CLOSE_ALARM_NAME) {
+  if (alarm.name === JOB_GPT_TAB_GROUP_ALARM_NAME) {
     try {
-      await closeScheduledChatGptTab();
+      await groupScheduledJobAndGptTabs();
     } catch (error) {
-      console.error("Could not close scheduled ChatGPT tab:", error);
+      console.error("Could not group scheduled job and ChatGPT tabs:", error);
     }
   }
 });
@@ -1012,7 +1110,10 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
 
   try {
     const reminder = await getSaveCheckReminderState();
-    const action = reminder.mode === "apply" ? "dismiss" : "openUrls";
+    const action =
+      reminder.mode === "apply" || typeof reminder.groupId === "number"
+        ? "dismiss"
+        : "openUrls";
     await dismissSaveCheckReminderNotification(notificationId, { action });
   } catch (error) {
     console.error("Could not handle save check reminder notification button:", error);
@@ -1026,27 +1127,22 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
 
   try {
     const reminder = await getSaveCheckReminderState();
-    const action = reminder.mode === "apply" ? "openGroup" : "focusWindow";
+    const action =
+      reminder.mode === "apply" || typeof reminder.groupId === "number"
+        ? "openGroup"
+        : "focusWindow";
     await dismissSaveCheckReminderNotification(notificationId, { action });
   } catch (error) {
     console.error("Could not handle save check reminder notification click:", error);
   }
 });
 
-chrome.notifications.onClosed.addListener(async (notificationId, byUser) => {
+chrome.notifications.onClosed.addListener(async (notificationId) => {
   if (notificationId !== SAVE_CHECK_REMINDER_NOTIFICATION_ID) {
     return;
   }
 
-  if (byUser) {
-    await chrome.storage.local.remove(SAVE_CHECK_REMINDER_STORAGE_KEY);
-    return;
-  }
-
-  const stored = await chrome.storage.local.get(SAVE_CHECK_REMINDER_STORAGE_KEY);
-  if (stored[SAVE_CHECK_REMINDER_STORAGE_KEY]) {
-    await showSaveCheckReminderNotification();
-  }
+  await chrome.storage.local.remove(SAVE_CHECK_REMINDER_STORAGE_KEY);
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -1479,11 +1575,12 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       });
     } else {
       if (typeof chatGptTabId === "number") {
-        await scheduleChatGptTabClose(chatGptTabId, runId, { jobTabId: tab.id });
+        await scheduleJobAndGptTabGroup(chatGptTabId, runId, {
+          jobTabId: tab.id,
+          groupTitle: tab.title || "Application"
+        });
       } else {
-        sendLog(runId, "info", "Closing current tab...");
-        await chrome.tabs.remove(tab.id);
-        sendLog(runId, "success", "Current tab closed.");
+        sendLog(runId, "info", "ChatGPT tab unavailable. Leaving job tab open.");
       }
     }
 
@@ -1504,7 +1601,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       "success",
       groupTabsInsteadOfClosing
         ? "Finished. Application tabs grouped."
-        : "Finished. Job tab will close when the ChatGPT tab closes."
+        : `Finished. Job and ChatGPT tabs will be grouped in ${JOB_GPT_TAB_GROUP_DELAY_MINUTES} minutes.`
     );
 
     return {

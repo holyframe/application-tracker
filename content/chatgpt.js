@@ -83,19 +83,23 @@ async function fillAndSend(text) {
   sendButton.click();
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type !== "FILL_AND_SEND") {
-    return;
-  }
+if (!globalThis.__applicationHelperChatGptListenerRegistered) {
+  globalThis.__applicationHelperChatGptListenerRegistered = true;
 
-  fillAndSend(message.text)
-    .then(() => sendResponse({ ok: true }))
-    .catch((error) => {
-      sendResponse({
-        ok: false,
-        error: error.message || "Could not fill ChatGPT prompt."
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type !== "FILL_AND_SEND") {
+      return;
+    }
+
+    fillAndSend(message.text)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not fill ChatGPT prompt."
+        });
       });
-    });
 
-  return true;
-});
+    return true;
+  });
+}
