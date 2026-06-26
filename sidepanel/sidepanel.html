@@ -67,16 +67,6 @@
 
         <div class="application-duplicate-section">
           <div class="sheet-duplicate-actions">
-          <button id="humanizeButton" type="button" class="warning-button">
-            <span class="button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M12 20h9" />
-                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-              </svg>
-            </span>
-            <span>Humanize</span>
-          </button>
-
           <button id="removeDuplicatesButton" type="button" class="remove-duplicates-button">
             <span class="button-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
@@ -88,7 +78,17 @@
                 <path d="M14 14h4" />
               </svg>
             </span>
-            <span>Deduption</span>
+            <span>Make a resume</span>
+          </button>
+
+          <button id="humanizeButton" type="button" class="warning-button">
+            <span class="button-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
+            </span>
+            <span>Humanize</span>
           </button>
           </div>
         </div>
@@ -371,6 +371,58 @@
 
           <button id="promptFormModalSubmitButton" type="button" class="primary-button modal-action-button">
             <span>Save Changes</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="makeResumeModal"
+      class="modal make-resume-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="makeResumeModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="makeResumeModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close make a resume dialog"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="makeResumeModalTitle">Make a resume</h2>
+          <button
+            id="makeResumeModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="modal-form">
+          <div class="config-field">
+            <label class="config-label" for="makeResumeContentInput">Resume text</label>
+            <textarea
+              id="makeResumeContentInput"
+              class="make-resume-content-input"
+              placeholder="Paste or type the resume text..."
+              rows="20"
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="makeResumeModalCancelButton" type="button" class="secondary-button modal-action-button">
+            <span>Cancel</span>
+          </button>
+
+          <button id="makeResumeModalBuildButton" type="button" class="remove-duplicates-button modal-action-button">
+            <span>Build resume</span>
           </button>
         </div>
       </div>

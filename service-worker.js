@@ -1390,7 +1390,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ? run(message.runId, {
           groupTabs: message.mode === "apply"
         })
-      : run(message.runId);
+      : message.type === "CREATE_GOOGLE_DOC"
+        ? run(message.runId, {
+            resumeText: message.resumeText
+          })
+        : run(message.runId);
 
   runPromise
     .then((result) => sendResponse({ ok: true, ...result }))
@@ -1947,6 +1951,143 @@ async function copyGoogleDocTemplate(token, title, templateId) {
   return response;
 }
 
+async function batchUpdateGoogleDoc(token, documentId, requests) {
+  const response = await fetch(
+    `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ requests })
+    }
+  );
+
+  return response;
+}
+
+async function getGoogleDocInsertIndex(token, documentId) {
+  const response = await fetch(
+    `https://docs.googleapis.com/v1/documents/${documentId}?fields=body(content(endIndex))`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      formatGoogleApiError(errorText, "Could not read the copied Google Doc.")
+    );
+  }
+
+  const document = await response.json();
+  const content = document.body?.content || [];
+  const endIndex = content[content.length - 1]?.endIndex;
+
+  if (typeof endIndex !== "number" || endIndex <= 1) {
+    return 1;
+  }
+
+  return endIndex - 1;
+}
+
+async function insertResumeTextIntoGoogleDoc(token, documentId, resumeText, runId) {
+  const trimmedText = String(resumeText ?? "").trim();
+  if (!trimmedText) {
+    return token;
+  }
+
+  sendLog(runId, "info", "Inserting resume text into Google Doc...");
+
+  let activeToken = token;
+  let replaceResponse = await batchUpdateGoogleDoc(activeToken, documentId, [
+    {
+      replaceAllText: {
+        containsText: {
+          text: "{{RESUME}}",
+          matchCase: true
+        },
+        replaceText: trimmedText
+      }
+    }
+  ]);
+
+  if (replaceResponse.status === 401 || replaceResponse.status === 403) {
+    sendLog(runId, "info", "Resume text insert auth error. Refreshing token and retrying...");
+    await clearCachedGoogleAccessToken(activeToken);
+    activeToken = await getGoogleAccessToken({ interactive: true });
+    replaceResponse = await batchUpdateGoogleDoc(activeToken, documentId, [
+      {
+        replaceAllText: {
+          containsText: {
+            text: "{{RESUME}}",
+            matchCase: true
+          },
+          replaceText: trimmedText
+        }
+      }
+    ]);
+  }
+
+  if (!replaceResponse.ok) {
+    const errorText = await replaceResponse.text();
+    throw new Error(
+      formatGoogleApiError(errorText, "Could not insert resume text into Google Doc.")
+    );
+  }
+
+  const replaceData = await replaceResponse.json();
+  const occurrencesChanged =
+    replaceData.replies?.[0]?.replaceAllText?.occurrencesChanged ?? 0;
+
+  if (occurrencesChanged > 0) {
+    sendLog(runId, "success", "Resume text inserted using {{RESUME}} placeholder.");
+    return activeToken;
+  }
+
+  const insertIndex = await getGoogleDocInsertIndex(activeToken, documentId);
+  let appendResponse = await batchUpdateGoogleDoc(activeToken, documentId, [
+    {
+      insertText: {
+        location: { index: insertIndex },
+        text: `\n\n${trimmedText}`
+      }
+    }
+  ]);
+
+  if (appendResponse.status === 401 || appendResponse.status === 403) {
+    await clearCachedGoogleAccessToken(activeToken);
+    activeToken = await getGoogleAccessToken({ interactive: true });
+    appendResponse = await batchUpdateGoogleDoc(activeToken, documentId, [
+      {
+        insertText: {
+          location: { index: insertIndex },
+          text: `\n\n${trimmedText}`
+        }
+      }
+    ]);
+  }
+
+  if (!appendResponse.ok) {
+    const errorText = await appendResponse.text();
+    throw new Error(
+      formatGoogleApiError(errorText, "Could not append resume text to Google Doc.")
+    );
+  }
+
+  sendLog(
+    runId,
+    "info",
+    "Resume text appended to Google Doc. Add {{RESUME}} to your template to replace content instead."
+  );
+
+  return activeToken;
+}
+
 async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
   let response = await copyGoogleDocTemplate(token, title, resumeTemplateId);
 
@@ -1972,7 +2113,8 @@ async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
   return `https://docs.google.com/document/d/${file.id}/edit`;
 }
 
-async function createGoogleDoc(runId) {
+async function createGoogleDoc(runId, options = {}) {
+  const resumeText = String(options.resumeText ?? "").trim();
   sendLog(runId, "info", "Starting Google Doc creation...");
 
   const { resumeTemplateId } = await getSheetConfig();
@@ -2020,6 +2162,10 @@ async function createGoogleDoc(runId) {
 
   if (!documentId) {
     throw new Error("Google Drive API did not return a document ID.");
+  }
+
+  if (resumeText) {
+    token = await insertResumeTextIntoGoogleDoc(token, documentId, resumeText, runId);
   }
 
   const url = `https://docs.google.com/document/d/${documentId}/edit`;

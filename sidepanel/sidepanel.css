@@ -801,11 +801,11 @@ textarea:focus {
   font-size: var(--text-sm);
   font-weight: 850;
   letter-spacing: -0.02em;
-  color: #ffffff;
-  background: linear-gradient(135deg, #e75068 0%, #bd2f45 100%);
+  color: #3d1f00;
+  background: linear-gradient(135deg, #ffb347 0%, #f97316 100%);
   box-shadow:
-    0 16px 30px rgba(199, 54, 76, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 16px 30px rgba(249, 115, 22, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
   transition:
     transform 160ms ease,
     box-shadow 160ms ease,
@@ -815,8 +815,8 @@ textarea:focus {
 .remove-duplicates-button:hover {
   transform: translateY(-1px);
   box-shadow:
-    0 18px 34px rgba(199, 54, 76, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 18px 34px rgba(249, 115, 22, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .remove-duplicates-button:active {
@@ -1251,7 +1251,8 @@ textarea:focus {
 
 .prompt-resume-content-input,
 .prompt-content-input,
-.job-description-content-input {
+.job-description-content-input,
+.make-resume-content-input {
   min-height: 160px;
   resize: vertical;
 }
@@ -1259,7 +1260,8 @@ textarea:focus {
 .prompt-resume-form-modal .modal-panel,
 .prompt-form-modal .modal-panel,
 .humanize-form-modal .modal-panel,
-.job-description-form-modal .modal-panel {
+.job-description-form-modal .modal-panel,
+.make-resume-modal .modal-panel {
   width: min(100%, 800px);
   max-height: min(92vh, 875px);
   overflow-y: auto;
@@ -1268,14 +1270,16 @@ textarea:focus {
 .prompt-resume-form-modal .prompt-resume-content-input,
 .prompt-form-modal .prompt-content-input,
 .humanize-form-modal .humanize-content-input,
-.job-description-form-modal .job-description-content-input {
+.job-description-form-modal .job-description-content-input,
+.make-resume-modal .make-resume-content-input {
   min-height: 400px;
 }
 
 .prompt-resume-form-modal .config-label,
 .prompt-form-modal .config-label,
 .humanize-form-modal .config-label,
-.job-description-form-modal .config-label {
+.job-description-form-modal .config-label,
+.make-resume-modal .config-label {
   font-size: var(--text-sm);
 }
 

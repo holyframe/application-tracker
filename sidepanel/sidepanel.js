@@ -2,6 +2,12 @@ const saveButton = document.querySelector("#saveButton");
 const applyNowButton = document.querySelector("#applyNowButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const humanizeButton = document.querySelector("#humanizeButton");
+const makeResumeModal = document.querySelector("#makeResumeModal");
+const makeResumeModalBackdrop = document.querySelector("#makeResumeModalBackdrop");
+const makeResumeModalCloseButton = document.querySelector("#makeResumeModalCloseButton");
+const makeResumeModalCancelButton = document.querySelector("#makeResumeModalCancelButton");
+const makeResumeModalBuildButton = document.querySelector("#makeResumeModalBuildButton");
+const makeResumeContentInput = document.querySelector("#makeResumeContentInput");
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
@@ -55,6 +61,7 @@ const appRoot = document.querySelector(".app");
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
+const RESUME_PDF_FILENAME = "Robert_Coan_Resume.pdf";
 
 let activeRunId = null;
 let isExtensionUiLocked = false;
@@ -72,6 +79,7 @@ function setSaveButtonsDisabled(disabled) {
   if (saveButton) saveButton.disabled = disabled;
   if (humanizeButton) humanizeButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
+  if (makeResumeModalBuildButton) makeResumeModalBuildButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
   if (addPromptResumeButton) addPromptResumeButton.disabled = disabled;
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
@@ -81,6 +89,7 @@ function setSaveButtonsDisabled(disabled) {
 }
 
 function closeOpenModalsForUiLock() {
+  setMakeResumeModalOpen(false);
   setPromptResumeFormModalOpen(false);
   setPromptFormModalOpen(false);
   setHumanizeFormModalOpen(false);
@@ -1483,6 +1492,215 @@ async function applyNow() {
   await runCurrentAppAction("apply");
 }
 
+function setMakeResumeModalOpen(isOpen) {
+  if (!makeResumeModal) return;
+
+  makeResumeModal.classList.toggle("is-hidden", !isOpen);
+  makeResumeModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    const selectedPromptResume = promptResumeSelectionState.promptResumes.find(
+      (entry) => entry.id === promptResumeSelectionState.selectedPromptResumeId
+    );
+
+    if (makeResumeContentInput) {
+      makeResumeContentInput.value = selectedPromptResume?.content || "";
+    }
+
+    makeResumeContentInput?.focus();
+    return;
+  }
+
+  if (makeResumeContentInput) makeResumeContentInput.value = "";
+  removeDuplicatesButton?.focus();
+}
+
+function openMakeResumeModal() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  setMakeResumeModalOpen(true);
+}
+
+function escapePdfText(value) {
+  return String(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+function wrapResumeLines(text, maxWidthChars = 88) {
+  const lines = [];
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    if (!rawLine.trim()) {
+      lines.push("");
+      continue;
+    }
+
+    const words = rawLine.split(/\s+/);
+    let current = "";
+
+    for (const word of words) {
+      const candidate = current ? `${current} ${word}` : word;
+
+      if (candidate.length > maxWidthChars && current) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    }
+
+    if (current) {
+      lines.push(current);
+    }
+  }
+
+  return lines.length ? lines : [""];
+}
+
+function paginateResumeLines(lines, linesPerPage) {
+  const pages = [];
+
+  for (let index = 0; index < lines.length; index += linesPerPage) {
+    pages.push(lines.slice(index, index + linesPerPage));
+  }
+
+  return pages.length ? pages : [[""]];
+}
+
+function buildResumePdfBytes(text) {
+  const margin = 54;
+  const fontSize = 11;
+  const lineHeight = 14;
+  const pageWidth = 612;
+  const pageHeight = 792;
+  const linesPerPage = Math.floor((pageHeight - margin * 2) / lineHeight);
+  const pageLineGroups = paginateResumeLines(wrapResumeLines(text), linesPerPage);
+  const fontObjectNumber = 3;
+  const pagesObjectNumber = 2;
+  const catalogObjectNumber = 1;
+  const pageObjectNumbers = [];
+  const contentObjectNumbers = [];
+  let nextObjectNumber = 4;
+
+  for (let index = 0; index < pageLineGroups.length; index += 1) {
+    pageObjectNumbers.push(nextObjectNumber);
+    contentObjectNumbers.push(nextObjectNumber + 1);
+    nextObjectNumber += 2;
+  }
+
+  const objectBodies = new Map();
+  objectBodies.set(
+    fontObjectNumber,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+  );
+
+  pageLineGroups.forEach((pageLines, index) => {
+    const contentObjectNumber = contentObjectNumbers[index];
+    const pageObjectNumber = pageObjectNumbers[index];
+    const textCommands = pageLines
+      .map((line, lineIndex) => {
+        const y = pageHeight - margin - lineIndex * lineHeight;
+        return `1 0 0 1 ${margin} ${y} Tm (${escapePdfText(line)}) Tj`;
+      })
+      .join("\n");
+    const stream = `BT\n/F1 ${fontSize} Tf\n${textCommands}\nET`;
+    const streamBytes = new TextEncoder().encode(stream);
+
+    objectBodies.set(
+      contentObjectNumber,
+      `<< /Length ${streamBytes.length} >>\nstream\n${stream}\nendstream`
+    );
+    objectBodies.set(
+      pageObjectNumber,
+      `<< /Type /Page /Parent ${pagesObjectNumber} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Contents ${contentObjectNumber} 0 R /Resources << /Font << /F1 ${fontObjectNumber} 0 R >> >> >>`
+    );
+  });
+
+  objectBodies.set(
+    pagesObjectNumber,
+    `<< /Type /Pages /Kids [${pageObjectNumbers.map((number) => `${number} 0 R`).join(" ")}] /Count ${pageObjectNumbers.length} >>`
+  );
+  objectBodies.set(
+    catalogObjectNumber,
+    `<< /Type /Catalog /Pages ${pagesObjectNumber} 0 R >>`
+  );
+
+  const parts = ["%PDF-1.4\n"];
+  const offsets = new Array(nextObjectNumber).fill(0);
+
+  for (let objectNumber = 1; objectNumber < nextObjectNumber; objectNumber += 1) {
+    const body = objectBodies.get(objectNumber);
+    if (!body) {
+      throw new Error("Could not build resume PDF.");
+    }
+
+    offsets[objectNumber] = parts.join("").length;
+    parts.push(`${objectNumber} 0 obj\n${body}\nendobj\n`);
+  }
+
+  const xrefOffset = parts.join("").length;
+  parts.push(`xref\n0 ${nextObjectNumber}\n`);
+  parts.push("0000000000 65535 f \n");
+
+  for (let objectNumber = 1; objectNumber < nextObjectNumber; objectNumber += 1) {
+    parts.push(`${String(offsets[objectNumber]).padStart(10, "0")} 00000 n \n`);
+  }
+
+  parts.push(
+    `trailer\n<< /Size ${nextObjectNumber} /Root ${catalogObjectNumber} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+  );
+
+  return new TextEncoder().encode(parts.join(""));
+}
+
+function downloadResumePdf(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function buildResume() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  const resumeText = makeResumeContentInput?.value.trim() || "";
+  if (!resumeText) {
+    const message = "Resume text is required before exporting PDF.";
+    showStatus("error", message);
+    addLog("error", message);
+    makeResumeContentInput?.focus();
+    return;
+  }
+
+  setSaveButtonsDisabled(true);
+  addLog("info", "Build resume clicked. Exporting PDF...");
+
+  try {
+    const pdfBytes = buildResumePdfBytes(resumeText);
+    const blob = new Blob([pdfBytes], { type: "application/pdf" });
+    downloadResumePdf(blob, RESUME_PDF_FILENAME);
+
+    setMakeResumeModalOpen(false);
+    clearStatus();
+    showStatus("success", RESUME_PDF_FILENAME, "Exported:");
+    addLog("success", `Resume exported as ${RESUME_PDF_FILENAME}.`);
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Could not export resume PDF.");
+    addLog("error", error.message || "Could not export resume PDF.");
+  } finally {
+    setSaveButtonsDisabled(isExtensionUiLocked);
+  }
+}
+
 async function removeDuplicateSheetRows() {
   if (!guardExtensionUiAction()) {
     return;
@@ -1494,7 +1712,7 @@ async function removeDuplicateSheetRows() {
   clearDeletedRows();
 
   setSaveButtonsDisabled(true);
-  addLog("info", "Deduption clicked. Scanning sheet...");
+  addLog("info", "Make a resume clicked. Scanning sheet...");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -1627,8 +1845,13 @@ async function humanizeChat() {
 
 applyNowButton?.addEventListener("click", applyNow);
 saveButton?.addEventListener("click", saveCurrentTabUrl);
-removeDuplicatesButton?.addEventListener("click", removeDuplicateSheetRows);
+removeDuplicatesButton?.addEventListener("click", openMakeResumeModal);
 humanizeButton?.addEventListener("click", humanizeChat);
+
+makeResumeModalBackdrop?.addEventListener("click", () => setMakeResumeModalOpen(false));
+makeResumeModalCloseButton?.addEventListener("click", () => setMakeResumeModalOpen(false));
+makeResumeModalCancelButton?.addEventListener("click", () => setMakeResumeModalOpen(false));
+makeResumeModalBuildButton?.addEventListener("click", buildResume);
 
 configToggleButton?.addEventListener("click", () => {
   if (!guardExtensionUiAction()) {
@@ -1681,6 +1904,11 @@ document.addEventListener("keydown", (event) => {
 
   if (promptResumeFormModal && !promptResumeFormModal.classList.contains("is-hidden")) {
     setPromptResumeFormModalOpen(false);
+    return;
+  }
+
+  if (makeResumeModal && !makeResumeModal.classList.contains("is-hidden")) {
+    setMakeResumeModalOpen(false);
     return;
   }
 
