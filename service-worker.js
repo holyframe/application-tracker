@@ -1769,6 +1769,9 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
 
     sendLog(runId, "success", `Found tab URL: ${tab.url}`);
 
+    const profileState = await getProfileSelectionState();
+    const selectedProfile = getSelectedProfileFromState(profileState);
+    const profileName = String(selectedProfile?.name || "").trim() || DEFAULT_PROFILE_NAME;
     const resumeTemplateId = await getSelectedProfileResumeTemplateId();
     const token = await getGoogleAccessToken();
 
@@ -1801,6 +1804,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       new Date().toISOString(),
       tab.title || "",
       urlForSheet,
+      profileName,
       resumeUrl,
       chatGptUrl,
       groupTabsInsteadOfClosing ? "Yes" : ""
@@ -1970,7 +1974,7 @@ async function ensureSheetExists(token, spreadsheetId, sheetTitle, runId) {
 
 async function readSheetValuesAD(token, runId, sheetConfig) {
   const { spreadsheetId, sheetName } = sheetConfig;
-  const range = encodeURIComponent(`${sheetName}!A:F`);
+  const range = encodeURIComponent(`${sheetName}!A:G`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`;
 
   sendLog(runId, "info", `Reading rows from ${sheetName}...`);
@@ -2055,10 +2059,12 @@ async function removeDuplicateUrlsFromSheet(runId) {
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
     const urlKey = normalizeUrlKeyForDedupe(row[2]);
-    if (seen.has(urlKey)) {
+    const profileKey = String(row[3] ?? "").trim().toLowerCase();
+    const dedupeKey = `${urlKey}||${profileKey}`;
+    if (seen.has(dedupeKey)) {
       duplicateRowIndices.push(i);
     } else {
-      seen.add(urlKey);
+      seen.add(dedupeKey);
     }
   }
 
@@ -2069,9 +2075,10 @@ async function removeDuplicateUrlsFromSheet(runId) {
       timestamp: row[0] || "",
       title: row[1] || "",
       url: row[2] || "",
-      resumeUrl: row[3] || "",
-      chatGptUrl: row[4] || "",
-      note: row[5] || ""
+      profileName: row[3] || "",
+      resumeUrl: row[4] || "",
+      chatGptUrl: row[5] || "",
+      note: row[6] || ""
     };
   });
 

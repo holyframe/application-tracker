@@ -1903,6 +1903,18 @@ function clearLogs() {
   updateLogsState();
 }
 
+function beginButtonProcess(startingMessage) {
+  clearLogs();
+  setSaveButtonsDisabled(true);
+  if (startingMessage) {
+    addLog("info", startingMessage);
+  }
+}
+
+function finishButtonProcess() {
+  setSaveButtonsDisabled(isExtensionUiLocked);
+}
+
 function updateDeletedRowsState() {
   if (!deletedRowsCard || !deletedRowsList || !emptyDeletedRows) return;
 
@@ -2032,9 +2044,7 @@ async function runCurrentAppAction(mode = "save") {
   activeRunId = createRunId();
 
   applyExtensionUiLockState(true);
-  setSaveButtonsDisabled(true);
-  addLog(
-    "info",
+  beginButtonProcess(
     mode === "apply"
       ? "Apply Now clicked. Starting process..."
       : "Save App clicked. Starting process..."
@@ -2064,7 +2074,7 @@ async function runCurrentAppAction(mode = "save") {
     addLog("error", error.message || "Something went wrong.");
     applyExtensionUiLockState(false);
   } finally {
-    setSaveButtonsDisabled(isExtensionUiLocked);
+    finishButtonProcess();
   }
 }
 
@@ -2127,9 +2137,7 @@ async function buildResume() {
 
   clearStatus();
   clearDeletedRows();
-
-  setSaveButtonsDisabled(true);
-  addLog("info", "Build resume clicked. Creating Google Doc in Drive...");
+  beginButtonProcess("Build resume clicked. Creating Google Doc in Drive...");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -2149,7 +2157,7 @@ async function buildResume() {
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
   } finally {
-    setSaveButtonsDisabled(isExtensionUiLocked);
+    finishButtonProcess();
   }
 }
 
@@ -2162,9 +2170,7 @@ async function removeDuplicateSheetRows() {
 
   clearStatus();
   clearDeletedRows();
-
-  setSaveButtonsDisabled(true);
-  addLog("info", "Make a resume clicked. Scanning sheet...");
+  beginButtonProcess("Make a resume clicked. Scanning sheet...");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -2209,7 +2215,7 @@ async function removeDuplicateSheetRows() {
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
   } finally {
-    setSaveButtonsDisabled(isExtensionUiLocked);
+    finishButtonProcess();
   }
 }
 
@@ -2219,8 +2225,7 @@ chrome.runtime.onMessage.addListener((message) => {
     clearStatus();
     clearDeletedRows();
     applyExtensionUiLockState(true);
-    setSaveButtonsDisabled(true);
-    addLog("info", "Hotkey detected. Starting save process...");
+    beginButtonProcess("Hotkey detected. Starting save process...");
     return;
   }
 
@@ -2246,7 +2251,7 @@ chrome.runtime.onMessage.addListener((message) => {
       applyExtensionUiLockState(false);
     }
 
-    setSaveButtonsDisabled(isExtensionUiLocked);
+    finishButtonProcess();
     return;
   }
 
@@ -2270,9 +2275,7 @@ async function humanizeChat() {
 
   clearStatus();
   clearDeletedRows();
-
-  setSaveButtonsDisabled(true);
-  addLog("info", "Humanize clicked. Sending prompt to ChatGPT...");
+  beginButtonProcess("Humanize clicked. Sending prompt to ChatGPT...");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -2291,7 +2294,7 @@ async function humanizeChat() {
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
   } finally {
-    setSaveButtonsDisabled(isExtensionUiLocked);
+    finishButtonProcess();
   }
 }
 
