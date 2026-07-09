@@ -9,6 +9,71 @@
 
   <body>
     <main class="app">
+      <section class="card job-description-card">
+        <div class="card-title-row">
+          <span class="prompt-resume-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <path d="M14 2v6h6" />
+              <path d="M16 13H8" />
+              <path d="M16 17H8" />
+              <path d="M10 9H8" />
+            </svg>
+          </span>
+
+          <h2>Job Description</h2>
+        </div>
+
+        <div class="job-description-selection-section">
+          <ul
+            id="jobDescriptionList"
+            class="job-description-selection-list"
+            aria-label="Job description"
+          ></ul>
+        </div>
+      </section>
+
+      <section class="card profile-picker-card">
+        <div class="card-title-row">
+          <span class="prompt-resume-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </span>
+
+          <h2>Profiles</h2>
+        </div>
+
+        <ul id="profileList" class="profile-list" aria-label="Profiles"></ul>
+
+        <div
+          id="profilePromptResumeSection"
+          class="profile-prompt-resume-section is-hidden"
+          hidden
+        >
+          <p class="prompt-resume-selection-help">
+            Prompt resumes for this profile. Choose one when optimizing resume.
+          </p>
+
+          <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
+
+          <div class="prompt-resume-add-section">
+            <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
+              <span>Add a Prompt Resume</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="profile-picker-actions">
+          <button id="addProfileButton" type="button" class="secondary-button profile-add-button">
+            <span>Add profile</span>
+          </button>
+        </div>
+      </section>
+
       <section class="card prompt-resume-selection-card">
         <div class="card-title-row">
           <span class="prompt-resume-icon" aria-hidden="true">
@@ -23,22 +88,6 @@
 
           <h2>Application Management</h2>
         </div>
-
-        <div class="job-description-selection-section">
-          <p class="prompt-resume-selection-help">Add a job description</p>
-
-          <ul
-            id="jobDescriptionList"
-            class="job-description-selection-list"
-            aria-label="Job description"
-          ></ul>
-        </div>
-
-        <p class="prompt-resume-selection-help">
-          Choose which prompt resume to use when optimizing resume.
-        </p>
-
-        <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
 
         <div class="application-save-section">
           <div class="application-action-buttons">
@@ -203,12 +252,6 @@
               <ul id="humanizePromptList" class="prompt-selection-list" aria-label="Humanize prompt"></ul>
             </div>
 
-            <div class="prompt-resume-add-section">
-              <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
-                <span>Add a Prompt Resume</span>
-              </button>
-            </div>
-
             <button id="saveConfigButton" type="button" class="secondary-button config-save-button">
               <span>Save configuration</span>
             </button>
@@ -256,6 +299,65 @@
         </div>
       </section>
     </main>
+
+    <div
+      id="profileFormModal"
+      class="modal profile-form-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profileFormModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="profileFormModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close profile dialog"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="profileFormModalTitle">Add profile</h2>
+          <button
+            id="profileFormModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <p id="profileFormModalHelp" class="modal-help">
+          Give this profile a name. Settings wiring comes later.
+        </p>
+
+        <div class="modal-form">
+          <div class="config-field">
+            <label class="config-label" for="profileNameInput">Profile name</label>
+            <input
+              id="profileNameInput"
+              type="text"
+              class="config-input"
+              placeholder="e.g. Robert Coan"
+              autocomplete="off"
+            />
+          </div>
+        </div>
+
+        <p id="profileFormModalStatus" class="config-status is-hidden" aria-live="polite"></p>
+
+        <div class="modal-actions">
+          <button id="profileFormModalCancelButton" type="button" class="secondary-button modal-action-button">
+            <span>Cancel</span>
+          </button>
+
+          <button id="profileFormModalSubmitButton" type="button" class="primary-button modal-action-button">
+            <span>Add profile</span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div
       id="promptResumeFormModal"

@@ -56,12 +56,25 @@ const jobDescriptionFormModalCloseButton = document.querySelector("#jobDescripti
 const jobDescriptionFormModalCancelButton = document.querySelector("#jobDescriptionFormModalCancelButton");
 const jobDescriptionFormModalSubmitButton = document.querySelector("#jobDescriptionFormModalSubmitButton");
 const jobDescriptionContentInput = document.querySelector("#jobDescriptionContentInput");
+const profileList = document.querySelector("#profileList");
+const profilePromptResumeSection = document.querySelector("#profilePromptResumeSection");
+const addProfileButton = document.querySelector("#addProfileButton");
+const profileFormModal = document.querySelector("#profileFormModal");
+const profileFormModalTitle = document.querySelector("#profileFormModalTitle");
+const profileFormModalHelp = document.querySelector("#profileFormModalHelp");
+const profileFormModalBackdrop = document.querySelector("#profileFormModalBackdrop");
+const profileFormModalCloseButton = document.querySelector("#profileFormModalCloseButton");
+const profileFormModalCancelButton = document.querySelector("#profileFormModalCancelButton");
+const profileFormModalSubmitButton = document.querySelector("#profileFormModalSubmitButton");
+const profileFormModalStatus = document.querySelector("#profileFormModalStatus");
+const profileNameInput = document.querySelector("#profileNameInput");
 const uiLockNotice = document.querySelector("#uiLockNotice");
 const appRoot = document.querySelector(".app");
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
-const RESUME_PDF_FILENAME = "Robert_Coan_Resume.pdf";
+const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
+const DEFAULT_PROFILE_NAME = "Default";
 
 let activeRunId = null;
 let isExtensionUiLocked = false;
@@ -74,6 +87,517 @@ function createRunId() {
   return `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function createProfileId() {
+  if (crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return `profile-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+let profileSelectionState = {
+  profiles: [],
+  selectedProfileId: ""
+};
+
+let profileFormMode = "add";
+let editingProfileId = null;
+
+function normalizePromptResumeEntry(entry) {
+  const label = String(entry?.label ?? entry?.name ?? "").trim();
+  const content = String(entry?.content ?? entry?.docInput ?? "").trim();
+
+  if (!label || !content) {
+    return null;
+  }
+
+  return {
+    id: String(entry?.id || createProfileId()),
+    label,
+    content,
+    updatedAt: String(entry?.updatedAt || "")
+  };
+}
+
+function normalizePromptResumeSelection(selection) {
+  const promptResumes = (
+    Array.isArray(selection?.promptResumes) ? selection.promptResumes : []
+  )
+    .map(normalizePromptResumeEntry)
+    .filter(Boolean);
+
+  const selectedPromptResumeId =
+    selection?.selectedPromptResumeId === ""
+      ? ""
+      : promptResumes.some(
+            (entry) => entry.id === selection?.selectedPromptResumeId
+          )
+        ? selection.selectedPromptResumeId
+        : promptResumes[0]?.id || "";
+
+  return { promptResumes, selectedPromptResumeId };
+}
+
+function createDefaultProfile(promptResumeSelection = null) {
+  const resumes = normalizePromptResumeSelection(promptResumeSelection);
+
+  return {
+    id: createProfileId(),
+    name: DEFAULT_PROFILE_NAME,
+    promptResumes: resumes.promptResumes,
+    selectedPromptResumeId: resumes.selectedPromptResumeId
+  };
+}
+
+function normalizeProfile(entry) {
+  const name = String(entry?.name ?? "").trim();
+  if (!name) {
+    return null;
+  }
+
+  const resumes = normalizePromptResumeSelection(entry);
+
+  return {
+    id: String(entry?.id || createProfileId()),
+    name,
+    promptResumes: resumes.promptResumes,
+    selectedPromptResumeId: resumes.selectedPromptResumeId
+  };
+}
+
+function normalizeProfileSelectionState(selection) {
+  const profiles = (Array.isArray(selection?.profiles) ? selection.profiles : [])
+    .map(normalizeProfile)
+    .filter(Boolean);
+
+  if (profiles.length === 0) {
+    const defaultProfile = createDefaultProfile();
+    return {
+      profiles: [defaultProfile],
+      selectedProfileId: defaultProfile.id
+    };
+  }
+
+  const selectedProfileId =
+    selection?.selectedProfileId === ""
+      ? ""
+      : profiles.some((entry) => entry.id === selection?.selectedProfileId)
+        ? selection.selectedProfileId
+        : profiles[0].id;
+
+  return { profiles, selectedProfileId };
+}
+
+function getSelectedProfile() {
+  return (
+    profileSelectionState.profiles.find(
+      (entry) => entry.id === profileSelectionState.selectedProfileId
+    ) ||
+    profileSelectionState.profiles[0] ||
+    null
+  );
+}
+
+function syncPromptResumeStateFromSelectedProfile() {
+  const selectedProfile = getSelectedProfile();
+  const resumes = normalizePromptResumeSelection(selectedProfile);
+
+  promptResumeSelectionState = {
+    promptResumes: resumes.promptResumes,
+    selectedPromptResumeId: resumes.selectedPromptResumeId
+  };
+  renderPromptResumeList();
+}
+
+function applyPromptResumeStateToSelectedProfile(
+  promptResumes,
+  selectedPromptResumeId
+) {
+  const selectedProfile = getSelectedProfile();
+  if (!selectedProfile) {
+    return;
+  }
+
+  const resumes = normalizePromptResumeSelection({
+    promptResumes,
+    selectedPromptResumeId
+  });
+
+  profileSelectionState = {
+    ...profileSelectionState,
+    profiles: profileSelectionState.profiles.map((entry) =>
+      entry.id === selectedProfile.id
+        ? {
+            ...entry,
+            promptResumes: resumes.promptResumes,
+            selectedPromptResumeId: resumes.selectedPromptResumeId
+          }
+        : entry
+    )
+  };
+}
+
+function showProfileFormModalStatus(type, message) {
+  if (!profileFormModalStatus) return;
+
+  profileFormModalStatus.classList.remove("is-hidden", "is-error", "is-success");
+  profileFormModalStatus.textContent = message;
+  profileFormModalStatus.classList.add(type === "error" ? "is-error" : "is-success");
+}
+
+function clearProfileFormModalStatus() {
+  profileFormModalStatus?.classList.add("is-hidden");
+  profileFormModalStatus?.classList.remove("is-error", "is-success");
+  if (profileFormModalStatus) profileFormModalStatus.textContent = "";
+}
+
+function resetProfileFormModal() {
+  if (profileNameInput) profileNameInput.value = "";
+  clearProfileFormModalStatus();
+}
+
+function updateProfileFormModalCopy() {
+  const isEdit = profileFormMode === "edit";
+
+  if (profileFormModalTitle) {
+    profileFormModalTitle.textContent = isEdit ? "Rename profile" : "Add profile";
+  }
+
+  if (profileFormModalHelp) {
+    profileFormModalHelp.textContent = isEdit
+      ? "Update this profile name."
+      : "Give this profile a name. Settings wiring comes later.";
+  }
+
+  if (profileFormModalSubmitButton) {
+    profileFormModalSubmitButton.textContent = isEdit ? "Save Changes" : "Add profile";
+  }
+
+  if (profileFormModalBackdrop) {
+    profileFormModalBackdrop.setAttribute(
+      "aria-label",
+      isEdit ? "Close rename profile dialog" : "Close add profile dialog"
+    );
+  }
+}
+
+function setProfileFormModalOpen(isOpen) {
+  if (!profileFormModal) return;
+
+  profileFormModal.classList.toggle("is-hidden", !isOpen);
+  profileFormModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    updateProfileFormModalCopy();
+    clearProfileFormModalStatus();
+    profileNameInput?.focus();
+    return;
+  }
+
+  profileFormMode = "add";
+  editingProfileId = null;
+  resetProfileFormModal();
+  updateProfileFormModalCopy();
+  addProfileButton?.focus();
+}
+
+function openAddProfileModal() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  profileFormMode = "add";
+  editingProfileId = null;
+  resetProfileFormModal();
+  setProfileFormModalOpen(true);
+}
+
+function openEditProfileModal(profileId) {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  const profile = profileSelectionState.profiles.find((entry) => entry.id === profileId);
+  if (!profile) {
+    addLog("error", "Selected profile could not be found.");
+    return;
+  }
+
+  profileFormMode = "edit";
+  editingProfileId = profile.id;
+
+  if (profileNameInput) profileNameInput.value = profile.name;
+  setProfileFormModalOpen(true);
+}
+
+function parkProfilePromptResumeSection() {
+  if (!profilePromptResumeSection || !profileList?.parentElement) {
+    return;
+  }
+
+  profilePromptResumeSection.classList.add("is-hidden");
+  profilePromptResumeSection.hidden = true;
+  profileList.parentElement.insertBefore(
+    profilePromptResumeSection,
+    profileList.nextSibling
+  );
+}
+
+function mountProfilePromptResumeSection(body) {
+  if (!profilePromptResumeSection || !body) {
+    return;
+  }
+
+  profilePromptResumeSection.classList.remove("is-hidden");
+  profilePromptResumeSection.hidden = false;
+  body.append(profilePromptResumeSection);
+}
+
+function renderProfileList() {
+  if (!profileList) return;
+
+  parkProfilePromptResumeSection();
+  profileList.innerHTML = "";
+
+  if (profileSelectionState.profiles.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "profile-list-empty";
+    empty.textContent = "No profiles yet. Add one below.";
+    profileList.appendChild(empty);
+    return;
+  }
+
+  profileSelectionState.profiles.forEach((profile) => {
+    const isExpanded = profile.id === profileSelectionState.selectedProfileId;
+    const bodyId = `profile-body-${profile.id}`;
+
+    const item = document.createElement("li");
+    item.className = "profile-item";
+    item.dataset.profileId = profile.id;
+    item.classList.toggle("is-expanded", isExpanded);
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "profile-item-toggle";
+    toggle.setAttribute("aria-expanded", String(isExpanded));
+    toggle.setAttribute("aria-controls", bodyId);
+    toggle.setAttribute(
+      "aria-label",
+      isExpanded ? `${profile.name} (expanded)` : `Expand ${profile.name}`
+    );
+
+    const copy = document.createElement("div");
+    copy.className = "profile-copy";
+
+    const label = document.createElement("span");
+    label.className = "profile-label";
+    label.textContent = profile.name;
+    copy.append(label);
+
+    const chevron = document.createElement("span");
+    chevron.className = "profile-chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.innerHTML = `
+      <svg viewBox="0 0 24 24">
+        <path d="m6 9 6 6 6-6" />
+      </svg>
+    `;
+
+    toggle.append(copy, chevron);
+    toggle.addEventListener("click", () => {
+      selectProfile(profile.id);
+    });
+
+    const body = document.createElement("div");
+    body.id = bodyId;
+    body.className = "profile-item-body";
+    body.hidden = !isExpanded;
+
+    const actions = document.createElement("div");
+    actions.className = "profile-actions";
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "profile-edit";
+    editButton.setAttribute("aria-label", `Rename ${profile.name}`);
+    editButton.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    `;
+    editButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openEditProfileModal(profile.id);
+    });
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "profile-remove";
+    removeButton.textContent = "×";
+    removeButton.setAttribute("aria-label", `Remove ${profile.name}`);
+    removeButton.disabled = profileSelectionState.profiles.length <= 1;
+    removeButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      removeProfile(profile.id);
+    });
+
+    actions.append(editButton, removeButton);
+    body.append(actions);
+
+    if (isExpanded) {
+      mountProfilePromptResumeSection(body);
+    }
+
+    item.append(toggle, body);
+    profileList.appendChild(item);
+  });
+}
+
+async function persistProfileSelection(successMessage) {
+  const response = await chrome.runtime.sendMessage({
+    type: "SAVE_PROFILE_SELECTION",
+    profiles: profileSelectionState.profiles,
+    selectedProfileId: profileSelectionState.selectedProfileId
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Could not save profile selection.");
+  }
+
+  profileSelectionState = normalizeProfileSelectionState(response);
+  syncPromptResumeStateFromSelectedProfile();
+  renderProfileList();
+
+  if (successMessage) {
+    addLog("success", successMessage);
+  }
+}
+
+async function loadProfileSelection() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "GET_PROFILE_SELECTION"
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not load profiles.");
+    }
+
+    profileSelectionState = normalizeProfileSelectionState(response);
+    syncPromptResumeStateFromSelectedProfile();
+    renderProfileList();
+  } catch (error) {
+    console.error(error);
+    profileSelectionState = normalizeProfileSelectionState(null);
+    syncPromptResumeStateFromSelectedProfile();
+    renderProfileList();
+    addLog("error", error.message || "Could not load profiles.");
+  }
+}
+
+async function selectProfile(profileId) {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  if (profileId === profileSelectionState.selectedProfileId) {
+    return;
+  }
+
+  const profile = profileSelectionState.profiles.find((entry) => entry.id === profileId);
+  profileSelectionState.selectedProfileId = profileId;
+
+  try {
+    await persistProfileSelection(`Selected profile: ${profile?.name || profileId}`);
+  } catch (error) {
+    console.error(error);
+    addLog("error", error.message || "Could not update profile selection.");
+    await loadProfileSelection();
+  }
+}
+
+async function removeProfile(profileId) {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  if (profileSelectionState.profiles.length <= 1) {
+    addLog("error", "At least one profile is required.");
+    return;
+  }
+
+  const removed = profileSelectionState.profiles.find((entry) => entry.id === profileId);
+  profileSelectionState.profiles = profileSelectionState.profiles.filter(
+    (entry) => entry.id !== profileId
+  );
+
+  if (profileSelectionState.selectedProfileId === profileId) {
+    profileSelectionState.selectedProfileId =
+      profileSelectionState.profiles[0]?.id || "";
+  }
+
+  try {
+    await persistProfileSelection(
+      removed ? `"${removed.name}" removed.` : "Profile removed."
+    );
+  } catch (error) {
+    console.error(error);
+    addLog("error", error.message || "Could not remove profile.");
+    await loadProfileSelection();
+  }
+}
+
+async function submitProfileForm() {
+  clearProfileFormModalStatus();
+
+  const name = profileNameInput?.value.trim() || "";
+  if (!name) {
+    const message = "Enter a profile name.";
+    showProfileFormModalStatus("error", message);
+    profileNameInput?.focus();
+    return;
+  }
+
+  const isEdit = profileFormMode === "edit" && editingProfileId;
+
+  if (profileFormModalSubmitButton) {
+    profileFormModalSubmitButton.disabled = true;
+  }
+
+  try {
+    if (isEdit) {
+      profileSelectionState.profiles = profileSelectionState.profiles.map((entry) =>
+        entry.id === editingProfileId ? { ...entry, name } : entry
+      );
+    } else {
+      const profile = {
+        id: createProfileId(),
+        name,
+        promptResumes: [],
+        selectedPromptResumeId: ""
+      };
+      profileSelectionState.profiles = [...profileSelectionState.profiles, profile];
+      profileSelectionState.selectedProfileId = profile.id;
+    }
+
+    await persistProfileSelection(
+      isEdit ? `"${name}" updated.` : `"${name}" added.`
+    );
+    setProfileFormModalOpen(false);
+  } catch (error) {
+    console.error(error);
+    const message =
+      error.message || (isEdit ? "Could not rename profile." : "Could not add profile.");
+    showProfileFormModalStatus("error", message);
+    addLog("error", message);
+  } finally {
+    if (profileFormModalSubmitButton) {
+      profileFormModalSubmitButton.disabled = false;
+    }
+  }
+}
+
 function setSaveButtonsDisabled(disabled) {
   if (applyNowButton) applyNowButton.disabled = disabled;
   if (saveButton) saveButton.disabled = disabled;
@@ -82,6 +606,8 @@ function setSaveButtonsDisabled(disabled) {
   if (makeResumeModalBuildButton) makeResumeModalBuildButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
   if (addPromptResumeButton) addPromptResumeButton.disabled = disabled;
+  if (addProfileButton) addProfileButton.disabled = disabled;
+  if (profileFormModalSubmitButton) profileFormModalSubmitButton.disabled = disabled;
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
   if (promptFormModalSubmitButton) promptFormModalSubmitButton.disabled = disabled;
   if (humanizeFormModalSubmitButton) humanizeFormModalSubmitButton.disabled = disabled;
@@ -89,6 +615,7 @@ function setSaveButtonsDisabled(disabled) {
 }
 
 function closeOpenModalsForUiLock() {
+  setProfileFormModalOpen(false);
   setMakeResumeModalOpen(false);
   setPromptResumeFormModalOpen(false);
   setPromptFormModalOpen(false);
@@ -474,6 +1001,11 @@ function renderPromptResumeList() {
 
 async function loadPromptResumeSelection() {
   try {
+    if (!profileSelectionState.profiles.length) {
+      await loadProfileSelection();
+      return;
+    }
+
     const response = await chrome.runtime.sendMessage({
       type: "GET_PROMPT_RESUME_SELECTION"
     });
@@ -488,6 +1020,10 @@ async function loadPromptResumeSelection() {
         : [],
       selectedPromptResumeId: response.selectedPromptResumeId || ""
     };
+    applyPromptResumeStateToSelectedProfile(
+      promptResumeSelectionState.promptResumes,
+      promptResumeSelectionState.selectedPromptResumeId
+    );
     renderPromptResumeList();
   } catch (error) {
     console.error(error);
@@ -513,6 +1049,10 @@ async function persistPromptResumeSelection(successMessage) {
       : [],
     selectedPromptResumeId: response.selectedPromptResumeId || ""
   };
+  applyPromptResumeStateToSelectedProfile(
+    promptResumeSelectionState.promptResumes,
+    promptResumeSelectionState.selectedPromptResumeId
+  );
   renderPromptResumeList();
 
   if (successMessage) {
@@ -632,6 +1172,10 @@ async function submitPromptResumeForm() {
         : [],
       selectedPromptResumeId: response.selectedPromptResumeId || ""
     };
+    applyPromptResumeStateToSelectedProfile(
+      promptResumeSelectionState.promptResumes,
+      promptResumeSelectionState.selectedPromptResumeId
+    );
 
     setPromptResumeFormModalOpen(false);
     renderPromptResumeList();
@@ -1352,7 +1896,7 @@ function renderDeletedRows(deletedRows = []) {
 }
 
 async function refreshApplicationInputsAfterSave() {
-  await Promise.all([loadPromptResumeSelection(), loadJobDescriptionSelection()]);
+  await Promise.all([loadProfileSelection(), loadJobDescriptionSelection()]);
 }
 
 function validateSaveCurrentTabInputs() {
@@ -1523,149 +2067,6 @@ function openMakeResumeModal() {
   setMakeResumeModalOpen(true);
 }
 
-function escapePdfText(value) {
-  return String(value)
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)");
-}
-
-function wrapResumeLines(text, maxWidthChars = 88) {
-  const lines = [];
-
-  for (const rawLine of text.split(/\r?\n/)) {
-    if (!rawLine.trim()) {
-      lines.push("");
-      continue;
-    }
-
-    const words = rawLine.split(/\s+/);
-    let current = "";
-
-    for (const word of words) {
-      const candidate = current ? `${current} ${word}` : word;
-
-      if (candidate.length > maxWidthChars && current) {
-        lines.push(current);
-        current = word;
-      } else {
-        current = candidate;
-      }
-    }
-
-    if (current) {
-      lines.push(current);
-    }
-  }
-
-  return lines.length ? lines : [""];
-}
-
-function paginateResumeLines(lines, linesPerPage) {
-  const pages = [];
-
-  for (let index = 0; index < lines.length; index += linesPerPage) {
-    pages.push(lines.slice(index, index + linesPerPage));
-  }
-
-  return pages.length ? pages : [[""]];
-}
-
-function buildResumePdfBytes(text) {
-  const margin = 54;
-  const fontSize = 11;
-  const lineHeight = 14;
-  const pageWidth = 612;
-  const pageHeight = 792;
-  const linesPerPage = Math.floor((pageHeight - margin * 2) / lineHeight);
-  const pageLineGroups = paginateResumeLines(wrapResumeLines(text), linesPerPage);
-  const fontObjectNumber = 3;
-  const pagesObjectNumber = 2;
-  const catalogObjectNumber = 1;
-  const pageObjectNumbers = [];
-  const contentObjectNumbers = [];
-  let nextObjectNumber = 4;
-
-  for (let index = 0; index < pageLineGroups.length; index += 1) {
-    pageObjectNumbers.push(nextObjectNumber);
-    contentObjectNumbers.push(nextObjectNumber + 1);
-    nextObjectNumber += 2;
-  }
-
-  const objectBodies = new Map();
-  objectBodies.set(
-    fontObjectNumber,
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
-  );
-
-  pageLineGroups.forEach((pageLines, index) => {
-    const contentObjectNumber = contentObjectNumbers[index];
-    const pageObjectNumber = pageObjectNumbers[index];
-    const textCommands = pageLines
-      .map((line, lineIndex) => {
-        const y = pageHeight - margin - lineIndex * lineHeight;
-        return `1 0 0 1 ${margin} ${y} Tm (${escapePdfText(line)}) Tj`;
-      })
-      .join("\n");
-    const stream = `BT\n/F1 ${fontSize} Tf\n${textCommands}\nET`;
-    const streamBytes = new TextEncoder().encode(stream);
-
-    objectBodies.set(
-      contentObjectNumber,
-      `<< /Length ${streamBytes.length} >>\nstream\n${stream}\nendstream`
-    );
-    objectBodies.set(
-      pageObjectNumber,
-      `<< /Type /Page /Parent ${pagesObjectNumber} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Contents ${contentObjectNumber} 0 R /Resources << /Font << /F1 ${fontObjectNumber} 0 R >> >> >>`
-    );
-  });
-
-  objectBodies.set(
-    pagesObjectNumber,
-    `<< /Type /Pages /Kids [${pageObjectNumbers.map((number) => `${number} 0 R`).join(" ")}] /Count ${pageObjectNumbers.length} >>`
-  );
-  objectBodies.set(
-    catalogObjectNumber,
-    `<< /Type /Catalog /Pages ${pagesObjectNumber} 0 R >>`
-  );
-
-  const parts = ["%PDF-1.4\n"];
-  const offsets = new Array(nextObjectNumber).fill(0);
-
-  for (let objectNumber = 1; objectNumber < nextObjectNumber; objectNumber += 1) {
-    const body = objectBodies.get(objectNumber);
-    if (!body) {
-      throw new Error("Could not build resume PDF.");
-    }
-
-    offsets[objectNumber] = parts.join("").length;
-    parts.push(`${objectNumber} 0 obj\n${body}\nendobj\n`);
-  }
-
-  const xrefOffset = parts.join("").length;
-  parts.push(`xref\n0 ${nextObjectNumber}\n`);
-  parts.push("0000000000 65535 f \n");
-
-  for (let objectNumber = 1; objectNumber < nextObjectNumber; objectNumber += 1) {
-    parts.push(`${String(offsets[objectNumber]).padStart(10, "0")} 00000 n \n`);
-  }
-
-  parts.push(
-    `trailer\n<< /Size ${nextObjectNumber} /Root ${catalogObjectNumber} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
-  );
-
-  return new TextEncoder().encode(parts.join(""));
-}
-
-function downloadResumePdf(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 async function buildResume() {
   if (!guardExtensionUiAction()) {
     return;
@@ -1673,29 +2074,40 @@ async function buildResume() {
 
   const resumeText = makeResumeContentInput?.value.trim() || "";
   if (!resumeText) {
-    const message = "Resume text is required before exporting PDF.";
+    const message = "Resume text is required before creating a Google Doc.";
     showStatus("error", message);
     addLog("error", message);
     makeResumeContentInput?.focus();
     return;
   }
 
+  setMakeResumeModalOpen(false);
+
+  activeRunId = createRunId();
+
+  clearStatus();
+  clearDeletedRows();
+
   setSaveButtonsDisabled(true);
-  addLog("info", "Build resume clicked. Exporting PDF...");
+  addLog("info", "Build resume clicked. Creating Google Doc in Drive...");
 
   try {
-    const pdfBytes = buildResumePdfBytes(resumeText);
-    const blob = new Blob([pdfBytes], { type: "application/pdf" });
-    downloadResumePdf(blob, RESUME_PDF_FILENAME);
+    const response = await chrome.runtime.sendMessage({
+      type: "CREATE_GOOGLE_DOC",
+      runId: activeRunId,
+      resumeText
+    });
 
-    setMakeResumeModalOpen(false);
-    clearStatus();
-    showStatus("success", RESUME_PDF_FILENAME, "Exported:");
-    addLog("success", `Resume exported as ${RESUME_PDF_FILENAME}.`);
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not create Google Doc.");
+    }
+
+    showStatus("success", response.url || "", "Resume:");
+    addLog("success", "Google Doc created in Drive.");
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Could not export resume PDF.");
-    addLog("error", error.message || "Could not export resume PDF.");
+    showStatus("error", error.message || "Something went wrong.");
+    addLog("error", error.message || "Something went wrong.");
   } finally {
     setSaveButtonsDisabled(isExtensionUiLocked);
   }
@@ -1848,6 +2260,12 @@ saveButton?.addEventListener("click", saveCurrentTabUrl);
 removeDuplicatesButton?.addEventListener("click", openMakeResumeModal);
 humanizeButton?.addEventListener("click", humanizeChat);
 
+addProfileButton?.addEventListener("click", openAddProfileModal);
+profileFormModalBackdrop?.addEventListener("click", () => setProfileFormModalOpen(false));
+profileFormModalCloseButton?.addEventListener("click", () => setProfileFormModalOpen(false));
+profileFormModalCancelButton?.addEventListener("click", () => setProfileFormModalOpen(false));
+profileFormModalSubmitButton?.addEventListener("click", submitProfileForm);
+
 makeResumeModalBackdrop?.addEventListener("click", () => setMakeResumeModalOpen(false));
 makeResumeModalCloseButton?.addEventListener("click", () => setMakeResumeModalOpen(false));
 makeResumeModalCancelButton?.addEventListener("click", () => setMakeResumeModalOpen(false));
@@ -1902,6 +2320,11 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
+  if (profileFormModal && !profileFormModal.classList.contains("is-hidden")) {
+    setProfileFormModalOpen(false);
+    return;
+  }
+
   if (promptResumeFormModal && !promptResumeFormModal.classList.contains("is-hidden")) {
     setPromptResumeFormModalOpen(false);
     return;
@@ -1942,12 +2365,19 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 
   if (
+    changes[PROFILE_SELECTION_STORAGE_KEY] ||
     changes[PROMPT_RESUME_SELECTION_STORAGE_KEY] ||
     changes[JOB_DESCRIPTION_SELECTION_STORAGE_KEY]
   ) {
-    refreshApplicationInputsAfterSave().catch((error) => {
-      console.error("Could not refresh application inputs:", error);
-    });
+    if (changes[PROFILE_SELECTION_STORAGE_KEY]) {
+      loadProfileSelection().catch((error) => {
+        console.error("Could not refresh profiles:", error);
+      });
+    } else {
+      refreshApplicationInputsAfterSave().catch((error) => {
+        console.error("Could not refresh application inputs:", error);
+      });
+    }
   }
 
   if (changes[EXTENSION_UI_LOCK_STORAGE_KEY]) {
@@ -1957,8 +2387,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 updateLogsState();
 updateDeletedRowsState();
+loadProfileSelection();
 loadSheetConfig();
-loadPromptResumeSelection();
 loadPromptSelection();
 loadHumanizePromptSelection();
 loadJobDescriptionSelection();

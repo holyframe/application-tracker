@@ -8,6 +8,8 @@ const CHATGPT_URL = "https://chatgpt.com";
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
+const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
+const DEFAULT_PROFILE_NAME = "Default";
 const PROMPT_SELECTION_STORAGE_KEY = "promptSelection";
 const HUMANIZE_PROMPT_SELECTION_STORAGE_KEY = "humanizePromptSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
@@ -69,6 +71,14 @@ function createPromptResumeId() {
   return `prompt-resume-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function createProfileId() {
+  if (crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return `profile-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function normalizeUpdatedAt(value) {
   const date = new Date(value ?? "");
   if (Number.isNaN(date.getTime())) {
@@ -107,7 +117,76 @@ function normalizePromptResume(entry) {
   return normalizeLabeledTextEntry(entry, createPromptResumeId);
 }
 
-async function loadPromptResumeSelectionRecord() {
+function normalizePromptResumeSelection(selection) {
+  const promptResumes = (
+    Array.isArray(selection?.promptResumes) ? selection.promptResumes : []
+  )
+    .map(normalizePromptResume)
+    .filter(Boolean);
+
+  const selectedPromptResumeId =
+    selection?.selectedPromptResumeId === ""
+      ? ""
+      : promptResumes.some(
+            (entry) => entry.id === selection?.selectedPromptResumeId
+          )
+        ? selection.selectedPromptResumeId
+        : promptResumes[0]?.id || "";
+
+  return { promptResumes, selectedPromptResumeId };
+}
+
+function createDefaultProfile(promptResumeSelection = null) {
+  const resumes = normalizePromptResumeSelection(promptResumeSelection);
+
+  return {
+    id: createProfileId(),
+    name: DEFAULT_PROFILE_NAME,
+    promptResumes: resumes.promptResumes,
+    selectedPromptResumeId: resumes.selectedPromptResumeId
+  };
+}
+
+function normalizeProfile(entry) {
+  const name = String(entry?.name ?? "").trim();
+  if (!name) {
+    return null;
+  }
+
+  const resumes = normalizePromptResumeSelection(entry);
+
+  return {
+    id: String(entry?.id || createProfileId()),
+    name,
+    promptResumes: resumes.promptResumes,
+    selectedPromptResumeId: resumes.selectedPromptResumeId
+  };
+}
+
+function normalizeProfileSelectionState(selection) {
+  const profiles = (Array.isArray(selection?.profiles) ? selection.profiles : [])
+    .map(normalizeProfile)
+    .filter(Boolean);
+
+  if (profiles.length === 0) {
+    const defaultProfile = createDefaultProfile();
+    return {
+      profiles: [defaultProfile],
+      selectedProfileId: defaultProfile.id
+    };
+  }
+
+  const selectedProfileId =
+    selection?.selectedProfileId === ""
+      ? ""
+      : profiles.some((entry) => entry.id === selection?.selectedProfileId)
+        ? selection.selectedProfileId
+        : profiles[0].id;
+
+  return { profiles, selectedProfileId };
+}
+
+async function loadLegacyPromptResumeSelectionRecord() {
   const stored = await chrome.storage.local.get([
     PROMPT_RESUME_SELECTION_STORAGE_KEY,
     LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY
@@ -119,45 +198,99 @@ async function loadPromptResumeSelectionRecord() {
 
   if (stored[LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY]) {
     const legacy = stored[LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY];
-    const migrated = {
+    return {
       promptResumes: legacy.promptResumes ?? legacy.templates ?? [],
       selectedPromptResumeId:
         legacy.selectedPromptResumeId ?? legacy.selectedId ?? ""
     };
-
-    await chrome.storage.local.set({
-      [PROMPT_RESUME_SELECTION_STORAGE_KEY]: migrated
-    });
-
-    return migrated;
   }
 
   return null;
 }
 
-async function getPromptResumeSelectionState() {
-  const selection = await loadPromptResumeSelectionRecord();
+async function getProfileSelectionState() {
+  const stored = await chrome.storage.local.get([
+    PROFILE_SELECTION_STORAGE_KEY,
+    PROMPT_RESUME_SELECTION_STORAGE_KEY,
+    LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY
+  ]);
 
-  if (selection) {
-    const promptResumes = (
-      Array.isArray(selection.promptResumes) ? selection.promptResumes : []
-    )
-      .map(normalizePromptResume)
-      .filter(Boolean);
+  let state = normalizeProfileSelectionState(
+    stored[PROFILE_SELECTION_STORAGE_KEY]
+  );
 
-    const selectedPromptResumeId =
-      selection.selectedPromptResumeId === ""
-        ? ""
-        : promptResumes.some(
-              (entry) => entry.id === selection.selectedPromptResumeId
-            )
-          ? selection.selectedPromptResumeId
-          : promptResumes[0]?.id || "";
+  const legacyResumes = await loadLegacyPromptResumeSelectionRecord();
+  const normalizedLegacy = legacyResumes
+    ? normalizePromptResumeSelection(legacyResumes)
+    : null;
+  const hasLegacyResumes = Boolean(normalizedLegacy?.promptResumes?.length);
 
-    return { promptResumes, selectedPromptResumeId };
+  if (hasLegacyResumes) {
+    const defaultProfile =
+      state.profiles.find((entry) => entry.name === DEFAULT_PROFILE_NAME) ||
+      state.profiles[0];
+
+    if (defaultProfile && defaultProfile.promptResumes.length === 0) {
+      state = {
+        ...state,
+        profiles: state.profiles.map((entry) =>
+          entry.id === defaultProfile.id
+            ? {
+                ...entry,
+                promptResumes: normalizedLegacy.promptResumes,
+                selectedPromptResumeId: normalizedLegacy.selectedPromptResumeId
+              }
+            : entry
+        )
+      };
+    }
+
+    await chrome.storage.local.set({
+      [PROFILE_SELECTION_STORAGE_KEY]: state
+    });
+    await chrome.storage.local.remove([
+      PROMPT_RESUME_SELECTION_STORAGE_KEY,
+      LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY
+    ]);
+  } else if (!stored[PROFILE_SELECTION_STORAGE_KEY]) {
+    await chrome.storage.local.set({
+      [PROFILE_SELECTION_STORAGE_KEY]: state
+    });
   }
 
-  return { promptResumes: [], selectedPromptResumeId: "" };
+  return state;
+}
+
+async function saveProfileSelectionState(selection) {
+  const state = normalizeProfileSelectionState(selection);
+
+  await chrome.storage.local.set({
+    [PROFILE_SELECTION_STORAGE_KEY]: state
+  });
+
+  return state;
+}
+
+function getSelectedProfileFromState(state) {
+  return (
+    state.profiles.find((entry) => entry.id === state.selectedProfileId) ||
+    state.profiles[0] ||
+    null
+  );
+}
+
+async function getPromptResumeSelectionState() {
+  const profileState = await getProfileSelectionState();
+  const selectedProfile = getSelectedProfileFromState(profileState);
+
+  if (!selectedProfile) {
+    return { promptResumes: [], selectedPromptResumeId: "" };
+  }
+
+  return {
+    promptResumes: selectedProfile.promptResumes,
+    selectedPromptResumeId: selectedProfile.selectedPromptResumeId
+  };
 }
 
 async function savePromptResumeSelectionState(
@@ -177,13 +310,32 @@ async function savePromptResumeSelectionState(
         ? selectedPromptResumeIdInput
         : promptResumes[0]?.id || "";
 
-  const state = { promptResumes, selectedPromptResumeId };
+  const profileState = await getProfileSelectionState();
+  const selectedProfile = getSelectedProfileFromState(profileState);
 
-  await chrome.storage.local.set({
-    [PROMPT_RESUME_SELECTION_STORAGE_KEY]: state
+  if (!selectedProfile) {
+    throw new Error("No profile is selected.");
+  }
+
+  const state = await saveProfileSelectionState({
+    ...profileState,
+    profiles: profileState.profiles.map((entry) =>
+      entry.id === selectedProfile.id
+        ? {
+            ...entry,
+            promptResumes,
+            selectedPromptResumeId
+          }
+        : entry
+    )
   });
 
-  return state;
+  const updatedProfile = getSelectedProfileFromState(state);
+
+  return {
+    promptResumes: updatedProfile?.promptResumes || [],
+    selectedPromptResumeId: updatedProfile?.selectedPromptResumeId || ""
+  };
 }
 
 async function resetApplicationInputsAfterSave(runId = "") {
@@ -1274,6 +1426,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "GET_PROFILE_SELECTION") {
+    getProfileSelectionState()
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not load profile selection."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_PROFILE_SELECTION") {
+    saveProfileSelectionState({
+      profiles: message.profiles,
+      selectedProfileId: message.selectedProfileId
+    })
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not save profile selection."
+        });
+      });
+    return true;
+  }
+
   if (message.type === "GET_PROMPT_RESUME_SELECTION") {
     getPromptResumeSelectionState()
       .then((state) => sendResponse({ ok: true, ...state }))
@@ -1967,7 +2146,7 @@ async function batchUpdateGoogleDoc(token, documentId, requests) {
   return response;
 }
 
-async function getGoogleDocInsertIndex(token, documentId) {
+async function getGoogleDocBodyEndIndex(token, documentId) {
   const response = await fetch(
     `https://docs.googleapis.com/v1/documents/${documentId}?fields=body(content(endIndex))`,
     {
@@ -1992,7 +2171,64 @@ async function getGoogleDocInsertIndex(token, documentId) {
     return 1;
   }
 
-  return endIndex - 1;
+  return endIndex;
+}
+
+async function batchUpdateGoogleDocWithAuthRetry(token, documentId, requests, runId, errorMessage) {
+  let activeToken = token;
+  let response = await batchUpdateGoogleDoc(activeToken, documentId, requests);
+
+  if (response.status === 401 || response.status === 403) {
+    sendLog(runId, "info", "Google Doc update auth error. Refreshing token and retrying...");
+    await clearCachedGoogleAccessToken(activeToken);
+    activeToken = await getGoogleAccessToken({ interactive: true });
+    response = await batchUpdateGoogleDoc(activeToken, documentId, requests);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(formatGoogleApiError(errorText, errorMessage));
+  }
+
+  return {
+    activeToken,
+    data: await response.json()
+  };
+}
+
+async function replaceGoogleDocBodyWithText(token, documentId, resumeText, runId) {
+  const trimmedText = String(resumeText ?? "").trim();
+  const bodyEndIndex = await getGoogleDocBodyEndIndex(token, documentId);
+  const requests = [];
+
+  if (bodyEndIndex > 2) {
+    requests.push({
+      deleteContentRange: {
+        range: {
+          startIndex: 1,
+          endIndex: bodyEndIndex - 1
+        }
+      }
+    });
+  }
+
+  requests.push({
+    insertText: {
+      location: { index: 1 },
+      text: trimmedText
+    }
+  });
+
+  const { activeToken } = await batchUpdateGoogleDocWithAuthRetry(
+    token,
+    documentId,
+    requests,
+    runId,
+    "Could not write resume text into Google Doc."
+  );
+
+  sendLog(runId, "success", "Resume text written into Google Doc.");
+  return activeToken;
 }
 
 async function insertResumeTextIntoGoogleDoc(token, documentId, resumeText, runId) {
@@ -2001,26 +2237,12 @@ async function insertResumeTextIntoGoogleDoc(token, documentId, resumeText, runI
     return token;
   }
 
-  sendLog(runId, "info", "Inserting resume text into Google Doc...");
+  sendLog(runId, "info", "Writing resume text into Google Doc...");
 
-  let activeToken = token;
-  let replaceResponse = await batchUpdateGoogleDoc(activeToken, documentId, [
-    {
-      replaceAllText: {
-        containsText: {
-          text: "{{RESUME}}",
-          matchCase: true
-        },
-        replaceText: trimmedText
-      }
-    }
-  ]);
-
-  if (replaceResponse.status === 401 || replaceResponse.status === 403) {
-    sendLog(runId, "info", "Resume text insert auth error. Refreshing token and retrying...");
-    await clearCachedGoogleAccessToken(activeToken);
-    activeToken = await getGoogleAccessToken({ interactive: true });
-    replaceResponse = await batchUpdateGoogleDoc(activeToken, documentId, [
+  const { activeToken, data } = await batchUpdateGoogleDocWithAuthRetry(
+    token,
+    documentId,
+    [
       {
         replaceAllText: {
           containsText: {
@@ -2030,62 +2252,20 @@ async function insertResumeTextIntoGoogleDoc(token, documentId, resumeText, runI
           replaceText: trimmedText
         }
       }
-    ]);
-  }
+    ],
+    runId,
+    "Could not insert resume text into Google Doc."
+  );
 
-  if (!replaceResponse.ok) {
-    const errorText = await replaceResponse.text();
-    throw new Error(
-      formatGoogleApiError(errorText, "Could not insert resume text into Google Doc.")
-    );
-  }
-
-  const replaceData = await replaceResponse.json();
   const occurrencesChanged =
-    replaceData.replies?.[0]?.replaceAllText?.occurrencesChanged ?? 0;
+    data.replies?.[0]?.replaceAllText?.occurrencesChanged ?? 0;
 
   if (occurrencesChanged > 0) {
     sendLog(runId, "success", "Resume text inserted using {{RESUME}} placeholder.");
     return activeToken;
   }
 
-  const insertIndex = await getGoogleDocInsertIndex(activeToken, documentId);
-  let appendResponse = await batchUpdateGoogleDoc(activeToken, documentId, [
-    {
-      insertText: {
-        location: { index: insertIndex },
-        text: `\n\n${trimmedText}`
-      }
-    }
-  ]);
-
-  if (appendResponse.status === 401 || appendResponse.status === 403) {
-    await clearCachedGoogleAccessToken(activeToken);
-    activeToken = await getGoogleAccessToken({ interactive: true });
-    appendResponse = await batchUpdateGoogleDoc(activeToken, documentId, [
-      {
-        insertText: {
-          location: { index: insertIndex },
-          text: `\n\n${trimmedText}`
-        }
-      }
-    ]);
-  }
-
-  if (!appendResponse.ok) {
-    const errorText = await appendResponse.text();
-    throw new Error(
-      formatGoogleApiError(errorText, "Could not append resume text to Google Doc.")
-    );
-  }
-
-  sendLog(
-    runId,
-    "info",
-    "Resume text appended to Google Doc. Add {{RESUME}} to your template to replace content instead."
-  );
-
-  return activeToken;
+  return replaceGoogleDocBodyWithText(activeToken, documentId, trimmedText, runId);
 }
 
 async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
@@ -2115,6 +2295,10 @@ async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
 
 async function createGoogleDoc(runId, options = {}) {
   const resumeText = String(options.resumeText ?? "").trim();
+  if (!resumeText) {
+    throw new Error("Resume text is required before creating a Google Doc.");
+  }
+
   sendLog(runId, "info", "Starting Google Doc creation...");
 
   const { resumeTemplateId } = await getSheetConfig();
@@ -2123,7 +2307,7 @@ async function createGoogleDoc(runId, options = {}) {
   let token = await getGoogleAccessToken();
   sendLog(runId, "success", "Google authorization token received.");
 
-  const title = `Application Doc ${new Date().toLocaleString()}`;
+  const title = "Robert_Coan_Resume";
 
   sendLog(runId, "info", `Copying template document: ${title}`);
 
@@ -2164,9 +2348,7 @@ async function createGoogleDoc(runId, options = {}) {
     throw new Error("Google Drive API did not return a document ID.");
   }
 
-  if (resumeText) {
-    token = await insertResumeTextIntoGoogleDoc(token, documentId, resumeText, runId);
-  }
+  token = await insertResumeTextIntoGoogleDoc(token, documentId, resumeText, runId);
 
   const url = `https://docs.google.com/document/d/${documentId}/edit`;
 
