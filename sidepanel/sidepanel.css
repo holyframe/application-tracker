@@ -342,15 +342,25 @@ h1 {
   background: rgba(84, 87, 255, 0.08);
 }
 
+.profile-item-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 4px;
+}
+
 .profile-item-toggle {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   margin: 0;
   border: 0;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 6px 8px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -363,6 +373,37 @@ h1 {
 
 .profile-item.is-expanded .profile-item-toggle {
   background: rgba(84, 87, 255, 0.06);
+}
+
+.profile-item-header .profile-actions {
+  flex: 0 0 auto;
+  padding-right: 4px;
+}
+
+.profile-add-prompt-resume {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  cursor: pointer;
+  color: #5f6b8d;
+  background: rgba(84, 87, 255, 0.1);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.profile-add-prompt-resume:hover {
+  color: var(--primary-dark);
+  background: rgba(84, 87, 255, 0.2);
+}
+
+.profile-add-prompt-resume:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .profile-copy {
@@ -421,12 +462,6 @@ h1 {
   display: none;
 }
 
-.profile-prompt-resume-section .prompt-resume-add-section {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
-}
-
 .profile-item-body-help {
   margin: 0;
   color: #5f6b8d;
@@ -437,6 +472,7 @@ h1 {
 .profile-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
 }
 
@@ -480,15 +516,20 @@ h1 {
   cursor: not-allowed;
 }
 
-.profile-picker-actions {
-  display: grid;
-  gap: var(--section-gap);
+.profile-picker-title-row {
+  width: 100%;
+}
+
+.profile-picker-title-row h2 {
+  flex: 1 1 auto;
 }
 
 .profile-add-button {
-  width: 100%;
+  margin-left: auto;
+  width: auto;
   min-width: 0;
   min-height: var(--button-height);
+  padding-inline: 12px;
 }
 
 .profile-list-empty {

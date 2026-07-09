@@ -34,7 +34,7 @@
       </section>
 
       <section class="card profile-picker-card">
-        <div class="card-title-row">
+        <div class="card-title-row profile-picker-title-row">
           <span class="prompt-resume-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
               <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -45,6 +45,10 @@
           </span>
 
           <h2>Profiles</h2>
+
+          <button id="addProfileButton" type="button" class="secondary-button profile-add-button">
+            <span>Add profile</span>
+          </button>
         </div>
 
         <ul id="profileList" class="profile-list" aria-label="Profiles"></ul>
@@ -54,23 +58,7 @@
           class="profile-prompt-resume-section is-hidden"
           hidden
         >
-          <p class="prompt-resume-selection-help">
-            Prompt resumes for this profile. Choose one when optimizing resume.
-          </p>
-
           <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
-
-          <div class="prompt-resume-add-section">
-            <button id="addPromptResumeButton" type="button" class="secondary-button prompt-resume-add-button">
-              <span>Add a Prompt Resume</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="profile-picker-actions">
-          <button id="addProfileButton" type="button" class="secondary-button profile-add-button">
-            <span>Add profile</span>
-          </button>
         </div>
       </section>
 
@@ -208,7 +196,7 @@
         <div id="configPanel" class="config-panel is-open" role="region" aria-label="App Setting">
           <div class="config-panel-inner">
             <p class="config-help">
-              Set the Google Sheet and Resume template used by this extension.
+              Set the Google Sheet used by this extension.
             </p>
 
             <div class="config-field-row">
@@ -234,15 +222,6 @@
                 />
               </div>
             </div>
-
-            <label class="config-label" for="resumeTemplateInput">Resume Template</label>
-            <input
-              id="resumeTemplateInput"
-              type="text"
-              class="config-input"
-              placeholder="https://docs.google.com/document/d/..."
-              autocomplete="off"
-            />
 
             <div class="prompt-selection-section">
               <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
@@ -329,7 +308,7 @@
         </div>
 
         <p id="profileFormModalHelp" class="modal-help">
-          Give this profile a name. Settings wiring comes later.
+          Set the profile name and resume template.
         </p>
 
         <div class="modal-form">
@@ -340,6 +319,17 @@
               type="text"
               class="config-input"
               placeholder="e.g. Robert Coan"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="config-field">
+            <label class="config-label" for="resumeTemplateInput">Resume Template</label>
+            <input
+              id="resumeTemplateInput"
+              type="text"
+              class="config-input"
+              placeholder="https://docs.google.com/document/d/..."
               autocomplete="off"
             />
           </div>

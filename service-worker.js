@@ -136,12 +136,16 @@ function normalizePromptResumeSelection(selection) {
   return { promptResumes, selectedPromptResumeId };
 }
 
-function createDefaultProfile(promptResumeSelection = null) {
+function createDefaultProfile(
+  promptResumeSelection = null,
+  resumeTemplateId = ""
+) {
   const resumes = normalizePromptResumeSelection(promptResumeSelection);
 
   return {
     id: createProfileId(),
     name: DEFAULT_PROFILE_NAME,
+    resumeTemplateId: parseGoogleDocId(resumeTemplateId) || DEFAULT_RESUME_TEMPLATE_ID,
     promptResumes: resumes.promptResumes,
     selectedPromptResumeId: resumes.selectedPromptResumeId
   };
@@ -158,6 +162,7 @@ function normalizeProfile(entry) {
   return {
     id: String(entry?.id || createProfileId()),
     name,
+    resumeTemplateId: parseGoogleDocId(entry?.resumeTemplateId) || "",
     promptResumes: resumes.promptResumes,
     selectedPromptResumeId: resumes.selectedPromptResumeId
   };
@@ -208,54 +213,77 @@ async function loadLegacyPromptResumeSelectionRecord() {
   return null;
 }
 
+async function getLegacyResumeTemplateId() {
+  const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
+  const config = stored[SHEET_CONFIG_STORAGE_KEY] || {};
+  return parseGoogleDocId(config.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID);
+}
+
 async function getProfileSelectionState() {
   const stored = await chrome.storage.local.get([
     PROFILE_SELECTION_STORAGE_KEY,
     PROMPT_RESUME_SELECTION_STORAGE_KEY,
-    LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY
+    LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY,
+    SHEET_CONFIG_STORAGE_KEY
   ]);
 
   let state = normalizeProfileSelectionState(
     stored[PROFILE_SELECTION_STORAGE_KEY]
   );
+  let didChange = !stored[PROFILE_SELECTION_STORAGE_KEY];
 
   const legacyResumes = await loadLegacyPromptResumeSelectionRecord();
   const normalizedLegacy = legacyResumes
     ? normalizePromptResumeSelection(legacyResumes)
     : null;
   const hasLegacyResumes = Boolean(normalizedLegacy?.promptResumes?.length);
+  const legacyResumeTemplateId = await getLegacyResumeTemplateId();
 
-  if (hasLegacyResumes) {
-    const defaultProfile =
-      state.profiles.find((entry) => entry.name === DEFAULT_PROFILE_NAME) ||
-      state.profiles[0];
+  const defaultProfile =
+    state.profiles.find((entry) => entry.name === DEFAULT_PROFILE_NAME) ||
+    state.profiles[0];
 
-    if (defaultProfile && defaultProfile.promptResumes.length === 0) {
+  if (defaultProfile) {
+    let nextDefault = defaultProfile;
+
+    if (hasLegacyResumes && defaultProfile.promptResumes.length === 0) {
+      nextDefault = {
+        ...nextDefault,
+        promptResumes: normalizedLegacy.promptResumes,
+        selectedPromptResumeId: normalizedLegacy.selectedPromptResumeId
+      };
+      didChange = true;
+    }
+
+    if (!nextDefault.resumeTemplateId && legacyResumeTemplateId) {
+      nextDefault = {
+        ...nextDefault,
+        resumeTemplateId: legacyResumeTemplateId
+      };
+      didChange = true;
+    }
+
+    if (nextDefault !== defaultProfile) {
       state = {
         ...state,
         profiles: state.profiles.map((entry) =>
-          entry.id === defaultProfile.id
-            ? {
-                ...entry,
-                promptResumes: normalizedLegacy.promptResumes,
-                selectedPromptResumeId: normalizedLegacy.selectedPromptResumeId
-              }
-            : entry
+          entry.id === defaultProfile.id ? nextDefault : entry
         )
       };
     }
+  }
 
+  if (didChange) {
     await chrome.storage.local.set({
       [PROFILE_SELECTION_STORAGE_KEY]: state
     });
+  }
+
+  if (hasLegacyResumes) {
     await chrome.storage.local.remove([
       PROMPT_RESUME_SELECTION_STORAGE_KEY,
       LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY
     ]);
-  } else if (!stored[PROFILE_SELECTION_STORAGE_KEY]) {
-    await chrome.storage.local.set({
-      [PROFILE_SELECTION_STORAGE_KEY]: state
-    });
   }
 
   return state;
@@ -502,6 +530,20 @@ async function saveJobDescriptionSelectionState(contentInput) {
   return state;
 }
 
+async function getSelectedProfileResumeTemplateId() {
+  const profileState = await getProfileSelectionState();
+  const selectedProfile = getSelectedProfileFromState(profileState);
+  const resumeTemplateId = parseGoogleDocId(selectedProfile?.resumeTemplateId);
+
+  if (!resumeTemplateId) {
+    throw new Error(
+      "Resume Google Doc template is not configured for the selected profile."
+    );
+  }
+
+  return resumeTemplateId;
+}
+
 async function getSheetConfig() {
   const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
   const config = stored[SHEET_CONFIG_STORAGE_KEY] || {};
@@ -510,9 +552,6 @@ async function getSheetConfig() {
     config.spreadsheetId || DEFAULT_SPREADSHEET_ID
   );
   const sheetName = String(config.sheetName || DEFAULT_SHEET_NAME).trim();
-  const resumeTemplateId = parseGoogleDocId(
-    config.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID
-  );
 
   if (!spreadsheetId) {
     throw new Error("Google Sheet ID is not configured.");
@@ -522,21 +561,12 @@ async function getSheetConfig() {
     throw new Error("Sheet tab name is not configured.");
   }
 
-  if (!resumeTemplateId) {
-    throw new Error("Resume Google Doc template is not configured.");
-  }
-
-  return { spreadsheetId, sheetName, resumeTemplateId };
+  return { spreadsheetId, sheetName };
 }
 
-async function saveSheetConfig(
-  spreadsheetIdInput,
-  sheetNameInput,
-  resumeTemplateInput
-) {
+async function saveSheetConfig(spreadsheetIdInput, sheetNameInput) {
   const spreadsheetId = parseSpreadsheetId(spreadsheetIdInput);
   const sheetName = String(sheetNameInput ?? "").trim();
-  const resumeTemplateId = parseGoogleDocId(resumeTemplateInput);
 
   if (!spreadsheetId) {
     throw new Error("Enter a valid Google Sheet URL or spreadsheet ID.");
@@ -546,22 +576,54 @@ async function saveSheetConfig(
     throw new Error("Enter a sheet tab name.");
   }
 
-  if (!resumeTemplateId) {
-    throw new Error("Enter a valid Resume Google Doc URL or document ID.");
-  }
-
   const token = await getGoogleAccessToken();
   await ensureSheetExists(token, spreadsheetId, sheetName);
+
+  const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
+  const existing = stored[SHEET_CONFIG_STORAGE_KEY] || {};
 
   await chrome.storage.local.set({
     [SHEET_CONFIG_STORAGE_KEY]: {
       spreadsheetId,
       sheetName,
-      resumeTemplateId
+      resumeTemplateId: existing.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID
     }
   });
 
-  return { spreadsheetId, sheetName, resumeTemplateId };
+  return { spreadsheetId, sheetName };
+}
+
+async function saveSelectedProfileResumeTemplate(resumeTemplateInput) {
+  const resumeTemplateId = parseGoogleDocId(resumeTemplateInput);
+
+  if (!resumeTemplateId) {
+    throw new Error("Enter a valid Resume Google Doc URL or document ID.");
+  }
+
+  const profileState = await getProfileSelectionState();
+  const selectedProfile = getSelectedProfileFromState(profileState);
+
+  if (!selectedProfile) {
+    throw new Error("No profile is selected.");
+  }
+
+  const state = await saveProfileSelectionState({
+    ...profileState,
+    profiles: profileState.profiles.map((entry) =>
+      entry.id === selectedProfile.id
+        ? {
+            ...entry,
+            resumeTemplateId
+          }
+        : entry
+    )
+  });
+
+  const updatedProfile = getSelectedProfileFromState(state);
+
+  return {
+    resumeTemplateId: updatedProfile?.resumeTemplateId || resumeTemplateId
+  };
 }
 
 function normalizeUrlForStorage(url) {
@@ -1411,16 +1473,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "SAVE_SHEET_CONFIG") {
-    saveSheetConfig(
-      message.spreadsheetId,
-      message.sheetName,
-      message.resumeTemplateId
-    )
+    saveSheetConfig(message.spreadsheetId, message.sheetName)
       .then((config) => sendResponse({ ok: true, ...config }))
       .catch((error) => {
         sendResponse({
           ok: false,
           error: error.message || "Could not save sheet configuration."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_PROFILE_RESUME_TEMPLATE") {
+    saveSelectedProfileResumeTemplate(message.resumeTemplateId)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not save resume template."
         });
       });
     return true;
@@ -1699,7 +1769,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
 
     sendLog(runId, "success", `Found tab URL: ${tab.url}`);
 
-    const { resumeTemplateId } = await getSheetConfig();
+    const resumeTemplateId = await getSelectedProfileResumeTemplateId();
     const token = await getGoogleAccessToken();
 
     const docTitle = tab.title || `Application ${new Date().toLocaleDateString()}`;
@@ -2301,7 +2371,7 @@ async function createGoogleDoc(runId, options = {}) {
 
   sendLog(runId, "info", "Starting Google Doc creation...");
 
-  const { resumeTemplateId } = await getSheetConfig();
+  const resumeTemplateId = await getSelectedProfileResumeTemplateId();
   sendLog(runId, "info", `Using resume template: ${resumeTemplateId}`);
 
   let token = await getGoogleAccessToken();

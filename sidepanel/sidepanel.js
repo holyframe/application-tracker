@@ -24,7 +24,6 @@ const sheetNameInput = document.querySelector("#sheetNameInput");
 const resumeTemplateInput = document.querySelector("#resumeTemplateInput");
 const saveConfigButton = document.querySelector("#saveConfigButton");
 const promptResumeList = document.querySelector("#promptResumeList");
-const addPromptResumeButton = document.querySelector("#addPromptResumeButton");
 const promptResumeFormModal = document.querySelector("#promptResumeFormModal");
 const promptResumeFormModalTitle = document.querySelector("#promptResumeFormModalTitle");
 const promptResumeFormModalHelp = document.querySelector("#promptResumeFormModalHelp");
@@ -138,12 +137,13 @@ function normalizePromptResumeSelection(selection) {
   return { promptResumes, selectedPromptResumeId };
 }
 
-function createDefaultProfile(promptResumeSelection = null) {
+function createDefaultProfile(promptResumeSelection = null, resumeTemplateId = "") {
   const resumes = normalizePromptResumeSelection(promptResumeSelection);
 
   return {
     id: createProfileId(),
     name: DEFAULT_PROFILE_NAME,
+    resumeTemplateId: String(resumeTemplateId || "").trim(),
     promptResumes: resumes.promptResumes,
     selectedPromptResumeId: resumes.selectedPromptResumeId
   };
@@ -160,6 +160,7 @@ function normalizeProfile(entry) {
   return {
     id: String(entry?.id || createProfileId()),
     name,
+    resumeTemplateId: String(entry?.resumeTemplateId || "").trim(),
     promptResumes: resumes.promptResumes,
     selectedPromptResumeId: resumes.selectedPromptResumeId
   };
@@ -253,6 +254,7 @@ function clearProfileFormModalStatus() {
 
 function resetProfileFormModal() {
   if (profileNameInput) profileNameInput.value = "";
+  if (resumeTemplateInput) resumeTemplateInput.value = "";
   clearProfileFormModalStatus();
 }
 
@@ -260,13 +262,13 @@ function updateProfileFormModalCopy() {
   const isEdit = profileFormMode === "edit";
 
   if (profileFormModalTitle) {
-    profileFormModalTitle.textContent = isEdit ? "Rename profile" : "Add profile";
+    profileFormModalTitle.textContent = isEdit ? "Edit profile" : "Add profile";
   }
 
   if (profileFormModalHelp) {
     profileFormModalHelp.textContent = isEdit
-      ? "Update this profile name."
-      : "Give this profile a name. Settings wiring comes later.";
+      ? "Update this profile name and resume template."
+      : "Set the profile name and resume template.";
   }
 
   if (profileFormModalSubmitButton) {
@@ -276,7 +278,7 @@ function updateProfileFormModalCopy() {
   if (profileFormModalBackdrop) {
     profileFormModalBackdrop.setAttribute(
       "aria-label",
-      isEdit ? "Close rename profile dialog" : "Close add profile dialog"
+      isEdit ? "Close edit profile dialog" : "Close add profile dialog"
     );
   }
 }
@@ -327,6 +329,9 @@ function openEditProfileModal(profileId) {
   editingProfileId = profile.id;
 
   if (profileNameInput) profileNameInput.value = profile.name;
+  if (resumeTemplateInput) {
+    resumeTemplateInput.value = profile.resumeTemplateId || "";
+  }
   setProfileFormModalOpen(true);
 }
 
@@ -376,6 +381,9 @@ function renderProfileList() {
     item.dataset.profileId = profile.id;
     item.classList.toggle("is-expanded", isExpanded);
 
+    const header = document.createElement("div");
+    header.className = "profile-item-header";
+
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "profile-item-toggle";
@@ -408,18 +416,35 @@ function renderProfileList() {
       selectProfile(profile.id);
     });
 
-    const body = document.createElement("div");
-    body.id = bodyId;
-    body.className = "profile-item-body";
-    body.hidden = !isExpanded;
-
     const actions = document.createElement("div");
     actions.className = "profile-actions";
+
+    const addPromptResumeButton = document.createElement("button");
+    addPromptResumeButton.type = "button";
+    addPromptResumeButton.className = "profile-add-prompt-resume";
+    addPromptResumeButton.textContent = "+";
+    addPromptResumeButton.setAttribute(
+      "aria-label",
+      `Add a prompt resume to ${profile.name}`
+    );
+    addPromptResumeButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+
+      if (!guardExtensionUiAction()) {
+        return;
+      }
+
+      if (profile.id !== profileSelectionState.selectedProfileId) {
+        await selectProfile(profile.id);
+      }
+
+      openAddPromptResumeModal();
+    });
 
     const editButton = document.createElement("button");
     editButton.type = "button";
     editButton.className = "profile-edit";
-    editButton.setAttribute("aria-label", `Rename ${profile.name}`);
+    editButton.setAttribute("aria-label", `Edit ${profile.name}`);
     editButton.innerHTML = `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 20h9" />
@@ -442,14 +467,19 @@ function renderProfileList() {
       removeProfile(profile.id);
     });
 
-    actions.append(editButton, removeButton);
-    body.append(actions);
+    actions.append(addPromptResumeButton, editButton, removeButton);
+    header.append(toggle, actions);
+
+    const body = document.createElement("div");
+    body.id = bodyId;
+    body.className = "profile-item-body";
+    body.hidden = !isExpanded;
 
     if (isExpanded) {
       mountProfilePromptResumeSection(body);
     }
 
-    item.append(toggle, body);
+    item.append(header, body);
     profileList.appendChild(item);
   });
 }
@@ -552,10 +582,19 @@ async function submitProfileForm() {
   clearProfileFormModalStatus();
 
   const name = profileNameInput?.value.trim() || "";
+  const resumeTemplateId = resumeTemplateInput?.value.trim() || "";
+
   if (!name) {
     const message = "Enter a profile name.";
     showProfileFormModalStatus("error", message);
     profileNameInput?.focus();
+    return;
+  }
+
+  if (!resumeTemplateId) {
+    const message = "Enter a Resume Google Doc URL or document ID.";
+    showProfileFormModalStatus("error", message);
+    resumeTemplateInput?.focus();
     return;
   }
 
@@ -568,12 +607,15 @@ async function submitProfileForm() {
   try {
     if (isEdit) {
       profileSelectionState.profiles = profileSelectionState.profiles.map((entry) =>
-        entry.id === editingProfileId ? { ...entry, name } : entry
+        entry.id === editingProfileId
+          ? { ...entry, name, resumeTemplateId }
+          : entry
       );
     } else {
       const profile = {
         id: createProfileId(),
         name,
+        resumeTemplateId,
         promptResumes: [],
         selectedPromptResumeId: ""
       };
@@ -588,7 +630,7 @@ async function submitProfileForm() {
   } catch (error) {
     console.error(error);
     const message =
-      error.message || (isEdit ? "Could not rename profile." : "Could not add profile.");
+      error.message || (isEdit ? "Could not update profile." : "Could not add profile.");
     showProfileFormModalStatus("error", message);
     addLog("error", message);
   } finally {
@@ -605,8 +647,12 @@ function setSaveButtonsDisabled(disabled) {
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
   if (makeResumeModalBuildButton) makeResumeModalBuildButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
-  if (addPromptResumeButton) addPromptResumeButton.disabled = disabled;
   if (addProfileButton) addProfileButton.disabled = disabled;
+  profileList
+    ?.querySelectorAll(".profile-add-prompt-resume")
+    .forEach((button) => {
+      button.disabled = disabled;
+    });
   if (profileFormModalSubmitButton) profileFormModalSubmitButton.disabled = disabled;
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
   if (promptFormModalSubmitButton) promptFormModalSubmitButton.disabled = disabled;
@@ -761,7 +807,9 @@ function setPromptResumeFormModalOpen(isOpen) {
   editingPromptResumeId = null;
   resetPromptResumeFormModal();
   updatePromptResumeFormModalCopy();
-  addPromptResumeButton?.focus();
+  profileList
+    ?.querySelector(".profile-item.is-expanded .profile-add-prompt-resume")
+    ?.focus();
 }
 
 function openAddPromptResumeModal() {
@@ -1757,9 +1805,6 @@ async function loadSheetConfig() {
     if (sheetNameInput) {
       sheetNameInput.value = response.sheetName || "";
     }
-    if (resumeTemplateInput) {
-      resumeTemplateInput.value = response.resumeTemplateId || "";
-    }
   } catch (error) {
     console.error(error);
     addLog("error", error.message || "Could not load configuration.");
@@ -1777,8 +1822,7 @@ async function saveSheetConfig() {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_SHEET_CONFIG",
       spreadsheetId: spreadsheetIdInput?.value.trim() || "",
-      sheetName: sheetNameInput?.value.trim() || "",
-      resumeTemplateId: resumeTemplateInput?.value.trim() || ""
+      sheetName: sheetNameInput?.value.trim() || ""
     });
 
     if (!response?.ok) {
@@ -1791,12 +1835,8 @@ async function saveSheetConfig() {
     if (sheetNameInput) {
       sheetNameInput.value = response.sheetName || "";
     }
-    if (resumeTemplateInput) {
-      resumeTemplateInput.value = response.resumeTemplateId || "";
-    }
 
-    const successMessage = `Saved. Sheet tab "${response.sheetName}", Resume template configured.`;
-    addLog("success", successMessage);
+    addLog("success", `Saved. Sheet tab "${response.sheetName}".`);
   } catch (error) {
     console.error(error);
     const message = error.message || "Could not save configuration.";
@@ -2282,7 +2322,6 @@ configToggleButton?.addEventListener("click", () => {
 
 saveConfigButton?.addEventListener("click", saveSheetConfig);
 
-addPromptResumeButton?.addEventListener("click", openAddPromptResumeModal);
 promptResumeFormModalBackdrop?.addEventListener("click", () =>
   setPromptResumeFormModalOpen(false)
 );
