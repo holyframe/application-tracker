@@ -67,7 +67,7 @@ input {
   grid-auto-rows: max-content;
   min-height: 100vh;
   min-width: 0;
-  padding: var(--card-padding) 16px;
+  padding: var(--card-padding) 8px;
 }
 
 .hero {
@@ -485,6 +485,7 @@ h1 {
 }
 
 .profile-edit,
+.profile-notes,
 .profile-remove {
   display: grid;
   place-items: center;
@@ -498,13 +499,15 @@ h1 {
   background: rgba(84, 87, 255, 0.1);
 }
 
-.profile-edit svg {
+.profile-edit svg,
+.profile-notes svg {
   width: 14px;
   height: 14px;
   stroke-width: 2.2;
 }
 
-.profile-edit:hover {
+.profile-edit:hover,
+.profile-notes:hover {
   color: var(--primary-dark);
   background: rgba(84, 87, 255, 0.2);
 }
@@ -1511,7 +1514,8 @@ textarea:focus {
 .prompt-resume-content-input,
 .prompt-content-input,
 .job-description-content-input,
-.make-resume-content-input {
+.make-resume-content-input,
+.profile-notes-input {
   min-height: 160px;
   resize: vertical;
 }
@@ -1520,7 +1524,8 @@ textarea:focus {
 .prompt-form-modal .modal-panel,
 .humanize-form-modal .modal-panel,
 .job-description-form-modal .modal-panel,
-.make-resume-modal .modal-panel {
+.make-resume-modal .modal-panel,
+.profile-notes-modal .modal-panel {
   width: min(100%, 800px);
   max-height: min(92vh, 875px);
   overflow-y: auto;
@@ -1530,7 +1535,8 @@ textarea:focus {
 .prompt-form-modal .prompt-content-input,
 .humanize-form-modal .humanize-content-input,
 .job-description-form-modal .job-description-content-input,
-.make-resume-modal .make-resume-content-input {
+.make-resume-modal .make-resume-content-input,
+.profile-notes-modal .profile-notes-input {
   min-height: 400px;
 }
 
@@ -1538,7 +1544,8 @@ textarea:focus {
 .prompt-form-modal .config-label,
 .humanize-form-modal .config-label,
 .job-description-form-modal .config-label,
-.make-resume-modal .config-label {
+.make-resume-modal .config-label,
+.profile-notes-modal .config-label {
   font-size: var(--text-sm);
 }
 

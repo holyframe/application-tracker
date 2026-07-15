@@ -336,6 +336,62 @@
     </div>
 
     <div
+      id="profileNotesModal"
+      class="modal profile-notes-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profileNotesModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="profileNotesModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close profile notes dialog"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="profileNotesModalTitle">Profile notes</h2>
+          <button
+            id="profileNotesModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <p id="profileNotesModalHelp" class="modal-help">
+          Keep notes for this profile.
+        </p>
+
+        <div class="modal-form">
+          <div class="config-field">
+            <label class="config-label" for="profileNotesInput">Notes</label>
+            <textarea
+              id="profileNotesInput"
+              class="profile-notes-input"
+              placeholder="Write notes for this profile..."
+              rows="16"
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="profileNotesModalCancelButton" type="button" class="secondary-button modal-action-button">
+            <span>Cancel</span>
+          </button>
+
+          <button id="profileNotesModalSubmitButton" type="button" class="primary-button modal-action-button">
+            <span>Save notes</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
       id="promptResumeFormModal"
       class="modal prompt-resume-form-modal is-hidden"
       role="dialog"

@@ -55,12 +55,35 @@ function parseGoogleDocId(input) {
     return "";
   }
 
-  const urlMatch = raw.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
+  const urlMatch = raw.match(/\/document\/(?:u\/\d+\/)?d\/([a-zA-Z0-9-_]+)/);
   if (urlMatch) {
     return urlMatch[1];
   }
 
   return raw;
+}
+
+function isGoogleDocsDocumentUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    if (parsed.hostname !== "docs.google.com") {
+      return false;
+    }
+
+    return /\/document\/(?:u\/\d+\/)?d\/[a-zA-Z0-9-_]+/.test(parsed.pathname);
+  } catch (_error) {
+    return false;
+  }
+}
+
+function sanitizeDownloadFilename(name) {
+  const cleaned = String(name || "")
+    .replace(/\s*-\s*Google Docs\s*$/i, "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned || "document";
 }
 
 function createPromptResumeId() {
@@ -146,6 +169,7 @@ function createDefaultProfile(
     id: createProfileId(),
     name: DEFAULT_PROFILE_NAME,
     resumeTemplateId: parseGoogleDocId(resumeTemplateId) || DEFAULT_RESUME_TEMPLATE_ID,
+    notes: "",
     promptResumes: resumes.promptResumes,
     selectedPromptResumeId: resumes.selectedPromptResumeId
   };
@@ -163,6 +187,7 @@ function normalizeProfile(entry) {
     id: String(entry?.id || createProfileId()),
     name,
     resumeTemplateId: parseGoogleDocId(entry?.resumeTemplateId) || "",
+    notes: String(entry?.notes ?? "").trim(),
     promptResumes: resumes.promptResumes,
     selectedPromptResumeId: resumes.selectedPromptResumeId
   };
@@ -1020,9 +1045,56 @@ async function sendHumanizePromptToChatGpt(runId) {
   };
 }
 
+async function downloadActiveGoogleDocAsPdf(runId) {
+  sendLog(runId, "info", "Checking active tab for Google Docs...");
+
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true
+  });
+
+  if (!tab?.url) {
+    throw new Error("No active tab with a URL found.");
+  }
+
+  if (!isGoogleDocsDocumentUrl(tab.url)) {
+    throw new Error("Current tab is not a Google Docs document.");
+  }
+
+  const documentId = parseGoogleDocId(tab.url);
+  if (!documentId || documentId === tab.url.trim()) {
+    throw new Error("Could not find a Google Docs document ID in the current tab URL.");
+  }
+
+  const filename = `${sanitizeDownloadFilename(tab.title)}.pdf`;
+  const exportUrl = `https://docs.google.com/document/d/${documentId}/export?format=pdf`;
+
+  sendLog(runId, "info", `Downloading Google Doc as PDF: ${filename}`);
+
+  const downloadId = await chrome.downloads.download({
+    url: exportUrl,
+    filename,
+    saveAs: false,
+    conflictAction: "uniquify"
+  });
+
+  if (typeof downloadId !== "number") {
+    throw new Error("Could not start the PDF download.");
+  }
+
+  sendLog(runId, "success", `PDF download started: ${filename}`);
+
+  return {
+    documentId,
+    filename,
+    downloadId,
+    url: tab.url
+  };
+}
+
 async function humanizeChatGptConversation(runId) {
   sendLog(runId, "info", "Starting Humanize...");
-  return sendHumanizePromptToChatGpt(runId);
+  return downloadActiveGoogleDocAsPdf(runId);
 }
 
 async function scheduleSaveCheckReminder(
