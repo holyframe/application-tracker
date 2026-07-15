@@ -67,6 +67,14 @@ const profileFormModalCancelButton = document.querySelector("#profileFormModalCa
 const profileFormModalSubmitButton = document.querySelector("#profileFormModalSubmitButton");
 const profileFormModalStatus = document.querySelector("#profileFormModalStatus");
 const profileNameInput = document.querySelector("#profileNameInput");
+const profileNotesModal = document.querySelector("#profileNotesModal");
+const profileNotesModalTitle = document.querySelector("#profileNotesModalTitle");
+const profileNotesModalHelp = document.querySelector("#profileNotesModalHelp");
+const profileNotesModalBackdrop = document.querySelector("#profileNotesModalBackdrop");
+const profileNotesModalCloseButton = document.querySelector("#profileNotesModalCloseButton");
+const profileNotesModalCancelButton = document.querySelector("#profileNotesModalCancelButton");
+const profileNotesModalSubmitButton = document.querySelector("#profileNotesModalSubmitButton");
+const profileNotesInput = document.querySelector("#profileNotesInput");
 const uiLockNotice = document.querySelector("#uiLockNotice");
 const appRoot = document.querySelector(".app");
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
@@ -101,6 +109,7 @@ let profileSelectionState = {
 
 let profileFormMode = "add";
 let editingProfileId = null;
+let notesProfileId = null;
 
 function normalizePromptResumeEntry(entry) {
   const label = String(entry?.label ?? entry?.name ?? "").trim();
@@ -144,6 +153,7 @@ function createDefaultProfile(promptResumeSelection = null, resumeTemplateId = "
     id: createProfileId(),
     name: DEFAULT_PROFILE_NAME,
     resumeTemplateId: String(resumeTemplateId || "").trim(),
+    notes: "",
     promptResumes: resumes.promptResumes,
     selectedPromptResumeId: resumes.selectedPromptResumeId
   };
@@ -161,6 +171,7 @@ function normalizeProfile(entry) {
     id: String(entry?.id || createProfileId()),
     name,
     resumeTemplateId: String(entry?.resumeTemplateId || "").trim(),
+    notes: String(entry?.notes ?? "").trim(),
     promptResumes: resumes.promptResumes,
     selectedPromptResumeId: resumes.selectedPromptResumeId
   };
@@ -303,6 +314,89 @@ function setProfileFormModalOpen(isOpen) {
   addProfileButton?.focus();
 }
 
+function setProfileNotesModalOpen(isOpen) {
+  if (!profileNotesModal) return;
+
+  profileNotesModal.classList.toggle("is-hidden", !isOpen);
+  profileNotesModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    profileNotesInput?.focus();
+    return;
+  }
+
+  notesProfileId = null;
+  if (profileNotesInput) profileNotesInput.value = "";
+  profileList
+    ?.querySelector(".profile-item.is-expanded .profile-notes")
+    ?.focus();
+}
+
+function openProfileNotesModal(profileId) {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  const profile = profileSelectionState.profiles.find((entry) => entry.id === profileId);
+  if (!profile) {
+    addLog("error", "Selected profile could not be found.");
+    return;
+  }
+
+  notesProfileId = profile.id;
+
+  if (profileNotesModalTitle) {
+    profileNotesModalTitle.textContent = `Notes · ${profile.name}`;
+  }
+
+  if (profileNotesModalHelp) {
+    profileNotesModalHelp.textContent = `Keep notes for ${profile.name}.`;
+  }
+
+  if (profileNotesInput) {
+    profileNotesInput.value = profile.notes || "";
+  }
+
+  setProfileNotesModalOpen(true);
+}
+
+async function submitProfileNotesForm() {
+  if (!notesProfileId) {
+    addLog("error", "No profile selected for notes.");
+    return;
+  }
+
+  const notes = profileNotesInput?.value.trim() || "";
+  const profile = profileSelectionState.profiles.find(
+    (entry) => entry.id === notesProfileId
+  );
+
+  if (!profile) {
+    addLog("error", "Selected profile could not be found.");
+    return;
+  }
+
+  if (profileNotesModalSubmitButton) {
+    profileNotesModalSubmitButton.disabled = true;
+  }
+
+  try {
+    profileSelectionState.profiles = profileSelectionState.profiles.map((entry) =>
+      entry.id === notesProfileId ? { ...entry, notes } : entry
+    );
+
+    await persistProfileSelection(`Notes saved for "${profile.name}".`);
+    setProfileNotesModalOpen(false);
+  } catch (error) {
+    console.error(error);
+    addLog("error", error.message || "Could not save profile notes.");
+  } finally {
+    if (profileNotesModalSubmitButton) {
+      profileNotesModalSubmitButton.disabled = false;
+    }
+  }
+}
+
 function openAddProfileModal() {
   if (!guardExtensionUiAction()) {
     return;
@@ -441,6 +535,33 @@ function renderProfileList() {
       openAddPromptResumeModal();
     });
 
+    const notesButton = document.createElement("button");
+    notesButton.type = "button";
+    notesButton.className = "profile-notes";
+    notesButton.setAttribute("aria-label", `Notes for ${profile.name}`);
+    notesButton.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M16 13H8" />
+        <path d="M16 17H8" />
+        <path d="M10 9H8" />
+      </svg>
+    `;
+    notesButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+
+      if (!guardExtensionUiAction()) {
+        return;
+      }
+
+      if (profile.id !== profileSelectionState.selectedProfileId) {
+        await selectProfile(profile.id);
+      }
+
+      openProfileNotesModal(profile.id);
+    });
+
     const editButton = document.createElement("button");
     editButton.type = "button";
     editButton.className = "profile-edit";
@@ -467,7 +588,7 @@ function renderProfileList() {
       removeProfile(profile.id);
     });
 
-    actions.append(addPromptResumeButton, editButton, removeButton);
+    actions.append(addPromptResumeButton, notesButton, editButton, removeButton);
     header.append(toggle, actions);
 
     const body = document.createElement("div");
@@ -616,6 +737,7 @@ async function submitProfileForm() {
         id: createProfileId(),
         name,
         resumeTemplateId,
+        notes: "",
         promptResumes: [],
         selectedPromptResumeId: ""
       };
@@ -649,11 +771,12 @@ function setSaveButtonsDisabled(disabled) {
   if (saveConfigButton) saveConfigButton.disabled = disabled;
   if (addProfileButton) addProfileButton.disabled = disabled;
   profileList
-    ?.querySelectorAll(".profile-add-prompt-resume")
+    ?.querySelectorAll(".profile-add-prompt-resume, .profile-notes")
     .forEach((button) => {
       button.disabled = disabled;
     });
   if (profileFormModalSubmitButton) profileFormModalSubmitButton.disabled = disabled;
+  if (profileNotesModalSubmitButton) profileNotesModalSubmitButton.disabled = disabled;
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
   if (promptFormModalSubmitButton) promptFormModalSubmitButton.disabled = disabled;
   if (humanizeFormModalSubmitButton) humanizeFormModalSubmitButton.disabled = disabled;
@@ -662,6 +785,7 @@ function setSaveButtonsDisabled(disabled) {
 
 function closeOpenModalsForUiLock() {
   setProfileFormModalOpen(false);
+  setProfileNotesModalOpen(false);
   setMakeResumeModalOpen(false);
   setPromptResumeFormModalOpen(false);
   setPromptFormModalOpen(false);
@@ -2275,7 +2399,7 @@ async function humanizeChat() {
 
   clearStatus();
   clearDeletedRows();
-  beginButtonProcess("Humanize clicked. Sending prompt to ChatGPT...");
+  beginButtonProcess("Humanize clicked. Checking Google Docs tab...");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -2284,11 +2408,11 @@ async function humanizeChat() {
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error || "Could not send humanize prompt.");
+      throw new Error(response?.error || "Could not download Google Doc PDF.");
     }
 
-    showStatus("success", response.url || "https://chatgpt.com", "Sent:");
-    addLog("success", "Humanize prompt sent to ChatGPT.");
+    showStatus("success", response.filename || "document.pdf", "Downloaded:");
+    addLog("success", `Google Doc PDF download started: ${response.filename || "document.pdf"}`);
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Something went wrong.");
@@ -2308,6 +2432,11 @@ profileFormModalBackdrop?.addEventListener("click", () => setProfileFormModalOpe
 profileFormModalCloseButton?.addEventListener("click", () => setProfileFormModalOpen(false));
 profileFormModalCancelButton?.addEventListener("click", () => setProfileFormModalOpen(false));
 profileFormModalSubmitButton?.addEventListener("click", submitProfileForm);
+
+profileNotesModalBackdrop?.addEventListener("click", () => setProfileNotesModalOpen(false));
+profileNotesModalCloseButton?.addEventListener("click", () => setProfileNotesModalOpen(false));
+profileNotesModalCancelButton?.addEventListener("click", () => setProfileNotesModalOpen(false));
+profileNotesModalSubmitButton?.addEventListener("click", submitProfileNotesForm);
 
 makeResumeModalBackdrop?.addEventListener("click", () => setMakeResumeModalOpen(false));
 makeResumeModalCloseButton?.addEventListener("click", () => setMakeResumeModalOpen(false));
@@ -2364,6 +2493,11 @@ document.addEventListener("keydown", (event) => {
 
   if (profileFormModal && !profileFormModal.classList.contains("is-hidden")) {
     setProfileFormModalOpen(false);
+    return;
+  }
+
+  if (profileNotesModal && !profileNotesModal.classList.contains("is-hidden")) {
+    setProfileNotesModalOpen(false);
     return;
   }
 
