@@ -23,6 +23,7 @@ const JOB_GPT_TAB_GROUP_ALARM_NAME = "group-job-gpt-tabs-after-save";
 const JOB_GPT_TAB_GROUP_STORAGE_KEY = "pendingJobGptTabGroup";
 const JOB_GPT_TAB_GROUP_DELAY_MINUTES = 1.9;
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
+const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -667,7 +668,7 @@ function normalizeUrlForStorage(url) {
     for (const [key, value] of originalParams) {
       const normalizedKey = key.toLowerCase();
       if (normalizedKey.startsWith("utm_")) {
-        break;
+        continue;
       }
       if (TRACKING_PARAM_KEYS.has(normalizedKey)) {
         continue;
@@ -1139,14 +1140,35 @@ async function scheduleSaveCheckReminder(
 
 async function isExtensionUiLockedForNotification() {
   const stored = await chrome.storage.local.get(EXTENSION_UI_LOCK_STORAGE_KEY);
-  return Boolean(stored[EXTENSION_UI_LOCK_STORAGE_KEY]?.locked);
+  const lock = stored[EXTENSION_UI_LOCK_STORAGE_KEY];
+
+  if (!lock?.locked) {
+    return false;
+  }
+
+  const expiresAt = Number(lock.expiresAt);
+  const lockedAt = Number(lock.lockedAt);
+  const isActive = Number.isFinite(expiresAt)
+    ? expiresAt > Date.now()
+    : Number.isFinite(lockedAt) &&
+      Date.now() - lockedAt < EXTENSION_UI_LOCK_MAX_AGE_MS;
+
+  if (isActive) {
+    return true;
+  }
+
+  await unlockExtensionUi();
+  return false;
 }
 
 async function lockExtensionUiUntilNotification(runId) {
+  const lockedAt = Date.now();
+
   await chrome.storage.local.set({
     [EXTENSION_UI_LOCK_STORAGE_KEY]: {
       locked: true,
-      lockedAt: Date.now()
+      lockedAt,
+      expiresAt: lockedAt + EXTENSION_UI_LOCK_MAX_AGE_MS
     }
   });
 
@@ -1471,6 +1493,34 @@ const APP_ACTION_COMMANDS = {
   "save-app": { groupTabs: false }
 };
 
+async function notifyExtensionPages(message) {
+  try {
+    await chrome.runtime.sendMessage(message);
+    return true;
+  } catch (error) {
+    if (isReceivingEndMissingError(error)) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+async function isSidePanelOpen() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "SIDE_PANEL_PING"
+    });
+    return response?.open === true;
+  } catch (error) {
+    if (isReceivingEndMissingError(error)) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
 chrome.commands.onCommand.addListener((command) => {
   const action = APP_ACTION_COMMANDS[command];
   if (!action) {
@@ -1479,9 +1529,14 @@ chrome.commands.onCommand.addListener((command) => {
 
   const runId = `shortcut-${Date.now()}`;
   (async () => {
+    if (!(await isSidePanelOpen())) {
+      console.info(`Ignoring "${command}" because the side panel is closed.`);
+      return;
+    }
+
     if (await isExtensionUiLockedForNotification()) {
       sendLog(runId, "error", "Please wait for the check notification before starting another save.");
-      await chrome.runtime.sendMessage({
+      await notifyExtensionPages({
         type: "HOTKEY_SAVE_FINISHED",
         runId,
         ok: false,
@@ -1493,7 +1548,7 @@ chrome.commands.onCommand.addListener((command) => {
     const validation = await validateApplicationInputsForSave();
     if (!validation.ok) {
       sendLog(runId, "error", validation.error);
-      await chrome.runtime.sendMessage({
+      await notifyExtensionPages({
         type: "HOTKEY_SAVE_FINISHED",
         runId,
         ok: false,
@@ -1513,7 +1568,7 @@ chrome.commands.onCommand.addListener((command) => {
       });
     } catch (error) {
       sendLog(runId, "error", error.message);
-      await chrome.runtime.sendMessage({
+      await notifyExtensionPages({
         type: "HOTKEY_SAVE_FINISHED",
         runId,
         ok: false,
@@ -1522,7 +1577,7 @@ chrome.commands.onCommand.addListener((command) => {
       return;
     }
 
-    await chrome.runtime.sendMessage({
+    await notifyExtensionPages({
       type: "HOTKEY_SAVE_STARTED",
       runId
     });
@@ -1531,7 +1586,7 @@ chrome.commands.onCommand.addListener((command) => {
       groupTabs: action.groupTabs
     });
 
-    await chrome.runtime.sendMessage({
+    await notifyExtensionPages({
       type: "HOTKEY_SAVE_FINISHED",
       runId,
       ok: true,
@@ -1541,11 +1596,13 @@ chrome.commands.onCommand.addListener((command) => {
     console.error("Hotkey app action failed:", error);
     sendLog(runId, "error", error.message || "Hotkey app action failed.");
 
-    chrome.runtime.sendMessage({
+    notifyExtensionPages({
       type: "HOTKEY_SAVE_FINISHED",
       runId,
       ok: false,
       error: error.message || "Hotkey app action failed."
+    }).catch((notificationError) => {
+      console.error("Could not notify extension pages:", notificationError);
     });
   });
 });
@@ -2152,6 +2209,11 @@ async function removeDuplicateUrlsFromSheet(runId) {
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
     const urlKey = normalizeUrlKeyForDedupe(row[2]);
+
+    if (!urlKey) {
+      continue;
+    }
+
     const profileKey = String(row[4] ?? "").trim().toLowerCase();
     const dedupeKey = `${urlKey}||${profileKey}`;
     if (seen.has(dedupeKey)) {
@@ -2474,10 +2536,16 @@ async function createGoogleDoc(runId, options = {}) {
   const resumeTemplateId = await getSelectedProfileResumeTemplateId();
   sendLog(runId, "info", `Using resume template: ${resumeTemplateId}`);
 
+  const profileState = await getProfileSelectionState();
+  const selectedProfile = getSelectedProfileFromState(profileState);
+  const profileName = sanitizeDownloadFilename(
+    selectedProfile?.name || DEFAULT_PROFILE_NAME
+  ).replace(/\s+/g, "_");
+
   let token = await getGoogleAccessToken();
   sendLog(runId, "success", "Google authorization token received.");
 
-  const title = "Robert_Coan_Resume";
+  const title = `${profileName}_Resume`;
 
   sendLog(runId, "info", `Copying template document: ${title}`);
 

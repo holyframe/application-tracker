@@ -80,11 +80,13 @@ const appRoot = document.querySelector(".app");
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
+const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const DEFAULT_PROFILE_NAME = "Default";
 
 let activeRunId = null;
 let isExtensionUiLocked = false;
+let extensionUiLockExpiryTimer = null;
 
 function createRunId() {
   if (crypto.randomUUID) {
@@ -964,10 +966,51 @@ function guardExtensionUiAction() {
   return false;
 }
 
+function getExtensionUiLockExpiresAt(lock) {
+  const expiresAt = Number(lock?.expiresAt);
+  if (Number.isFinite(expiresAt)) {
+    return expiresAt;
+  }
+
+  const lockedAt = Number(lock?.lockedAt);
+  return Number.isFinite(lockedAt)
+    ? lockedAt + EXTENSION_UI_LOCK_MAX_AGE_MS
+    : 0;
+}
+
+function isExtensionUiLockActive(lock) {
+  return Boolean(lock?.locked) && getExtensionUiLockExpiresAt(lock) > Date.now();
+}
+
+function scheduleExtensionUiLockExpiryCheck(lock) {
+  if (extensionUiLockExpiryTimer !== null) {
+    clearTimeout(extensionUiLockExpiryTimer);
+    extensionUiLockExpiryTimer = null;
+  }
+
+  if (!isExtensionUiLockActive(lock)) {
+    return;
+  }
+
+  const delayMs = Math.max(0, getExtensionUiLockExpiresAt(lock) - Date.now());
+  extensionUiLockExpiryTimer = setTimeout(() => {
+    extensionUiLockExpiryTimer = null;
+    loadExtensionUiLockState();
+  }, delayMs + 50);
+}
+
 async function loadExtensionUiLockState() {
   try {
     const stored = await chrome.storage.local.get(EXTENSION_UI_LOCK_STORAGE_KEY);
-    applyExtensionUiLockState(Boolean(stored[EXTENSION_UI_LOCK_STORAGE_KEY]?.locked));
+    const lock = stored[EXTENSION_UI_LOCK_STORAGE_KEY];
+    const isLocked = isExtensionUiLockActive(lock);
+
+    if (lock?.locked && !isLocked) {
+      await chrome.storage.local.remove(EXTENSION_UI_LOCK_STORAGE_KEY);
+    }
+
+    applyExtensionUiLockState(isLocked);
+    scheduleExtensionUiLockExpiryCheck(lock);
   } catch (error) {
     console.error("Could not load extension UI lock state:", error);
   }
@@ -2487,7 +2530,12 @@ async function removeDuplicateSheetRows() {
   }
 }
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "SIDE_PANEL_PING") {
+    sendResponse({ open: true });
+    return;
+  }
+
   if (message.type === "HOTKEY_SAVE_STARTED") {
     activeRunId = message.runId;
     clearStatus();
@@ -2701,7 +2749,15 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 
   if (changes[EXTENSION_UI_LOCK_STORAGE_KEY]) {
-    applyExtensionUiLockState(Boolean(changes[EXTENSION_UI_LOCK_STORAGE_KEY].newValue?.locked));
+    const lock = changes[EXTENSION_UI_LOCK_STORAGE_KEY].newValue;
+    const isLocked = isExtensionUiLockActive(lock);
+
+    applyExtensionUiLockState(isLocked);
+    scheduleExtensionUiLockExpiryCheck(lock);
+
+    if (lock?.locked && !isLocked) {
+      chrome.storage.local.remove(EXTENSION_UI_LOCK_STORAGE_KEY).catch(() => {});
+    }
   }
 });
 

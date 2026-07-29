@@ -1,36 +1,95 @@
-# Partial Width Side Panel Chrome Extension
+# Application Helper
 
-A minimal Chrome Extension MV3 project that opens a partial-width UI using the Chrome Side Panel API.
+Application Helper is a dependency-free Chrome Manifest V3 extension for managing
+job-application workflows from the Chrome side panel.
 
-## Project structure
+It combines:
 
-```txt
-chrome-partial-width-extension/
-├─ manifest.json
-├─ service-worker.js
-├─ sidepanel/
-│  ├─ sidepanel.html
-│  ├─ sidepanel.css
-│  └─ sidepanel.js
-├─ assets/
-│  ├─ icon16.png
-│  ├─ icon32.png
-│  ├─ icon48.png
-│  └─ icon128.png
-└─ README.md
+- Applicant profiles, profile notes, resume templates, and reusable resume text
+- Job-description and ChatGPT prompt storage
+- Google Docs template copying and resume generation
+- ChatGPT prompt submission
+- Google Sheets application tracking
+- Chrome tab grouping, keyboard shortcuts, reminders, and Google Docs PDF downloads
+
+## Main workflow
+
+Before saving an application, select a profile and resume variant and provide a
+base GPT prompt and job description.
+
+`Save App` and `Apply Now` then:
+
+1. Read and normalize the active job-page URL.
+2. Copy the selected profile's Google Docs resume template.
+3. Open ChatGPT and submit the base prompt, job description, and selected resume text.
+4. Wait for the permanent ChatGPT conversation URL.
+5. Append an application record to the configured Google Sheet.
+6. Organize the related browser tabs and schedule a two-minute check reminder.
+
+`Save App` accepts ungrouped or grouped job tabs. If the job tab is already
+grouped, the generated ChatGPT tab is added to that existing group.
+
+`Apply Now` requires an ungrouped job tab and immediately groups the job page,
+resume document, and ChatGPT conversation.
+
+## Google Sheet columns
+
+The extension appends seven columns:
+
+| Column | Value |
+| --- | --- |
+| A | ISO timestamp |
+| B | Job-page title |
+| C | Normalized job URL |
+| D | ChatGPT conversation URL |
+| E | Profile name |
+| F | Copied resume-document URL |
+| G | `Yes` for Apply Now; otherwise blank |
+
+## Other actions
+
+- **Make a resume** copies the selected profile's Google Docs template, replaces
+  `{{RESUME}}` with the supplied resume text, and opens the new document. If the
+  placeholder is absent, the document body is replaced.
+- **Humanize** currently downloads the active Google Docs document as a PDF.
+- Profile notes are stored locally for reference and are not sent to ChatGPT or
+  written to the Google Sheet.
+
+## Keyboard shortcuts
+
+- `Ctrl+Q`: Apply Now
+- `Ctrl+Shift+E`: Save App
+
+The shortcuts are handled only while the side panel is open. If the panel is
+closed, Chrome ignores these application actions.
+
+## Configuration and storage
+
+The side-panel settings accept a Google Spreadsheet URL or ID and a sheet-tab
+name. Missing sheet tabs are created automatically.
+
+Profiles, prompts, job descriptions, notes, selected resume variants, and
+workflow state are stored in `chrome.storage.local`. The extension has no
+application server or third-party JavaScript dependencies.
+
+Google authorization uses `chrome.identity` and the OAuth configuration in
+`manifest.json`. The signed-in account must be able to access the configured
+spreadsheet and resume-template documents.
+
+## Load in Chrome
+
+1. Open `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Select **Load unpacked**.
+4. Choose this repository directory.
+5. Click the extension icon to open the side panel.
+
+## Development checks
+
+There is no build step. The JavaScript files can be syntax-checked with:
+
+```powershell
+node --check service-worker.js
+node --check sidepanel\sidepanel.js
+node --check content\chatgpt.js
 ```
-
-## How to load in Chrome
-
-1. Unzip the project.
-2. Open Chrome and go to `chrome://extensions`.
-3. Turn on **Developer mode**.
-4. Click **Load unpacked**.
-5. Select the unzipped `chrome-partial-width-extension` folder.
-6. Click the extension icon to open the side panel.
-
-## Notes
-
-Chrome controls the side panel container width. Your extension can style the content inside the panel,
-but the Side Panel API does not provide an exact `setWidth()` method for forcing the panel to a fixed
-percentage of the browser window.
