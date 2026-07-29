@@ -107,9 +107,61 @@ let profileSelectionState = {
   selectedProfileId: ""
 };
 
+let expandedProfileId = "";
+let draggedProfileId = "";
 let profileFormMode = "add";
 let editingProfileId = null;
 let notesProfileId = null;
+
+function moveProfileBeforeTarget(draggedId, targetId) {
+  if (!draggedId || !targetId || draggedId === targetId) {
+    return false;
+  }
+
+  const items = [...profileSelectionState.profiles];
+  const fromIndex = items.findIndex((entry) => entry.id === draggedId);
+  const toIndex = items.findIndex((entry) => entry.id === targetId);
+
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+    return false;
+  }
+
+  const [movedItem] = items.splice(fromIndex, 1);
+  items.splice(toIndex, 0, movedItem);
+  profileSelectionState.profiles = items;
+  return true;
+}
+
+function clearProfileDragState() {
+  draggedProfileId = "";
+
+  profileList
+    ?.querySelectorAll(".profile-item.is-dragging, .profile-item.is-drag-over")
+    .forEach((item) => {
+      item.classList.remove("is-dragging", "is-drag-over");
+    });
+}
+
+async function reorderProfile(draggedId, targetId) {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  const didMove = moveProfileBeforeTarget(draggedId, targetId);
+  if (!didMove) {
+    return;
+  }
+
+  renderProfileList();
+
+  try {
+    await persistProfileSelection();
+  } catch (error) {
+    console.error(error);
+    addLog("error", error.message || "Could not save profile order.");
+    await loadProfileSelection();
+  }
+}
 
 function normalizePromptResumeEntry(entry) {
   const label = String(entry?.label ?? entry?.name ?? "").trim();
@@ -467,7 +519,7 @@ function renderProfileList() {
   }
 
   profileSelectionState.profiles.forEach((profile) => {
-    const isExpanded = profile.id === profileSelectionState.selectedProfileId;
+    const isExpanded = profile.id === expandedProfileId;
     const bodyId = `profile-body-${profile.id}`;
 
     const item = document.createElement("li");
@@ -477,6 +529,55 @@ function renderProfileList() {
 
     const header = document.createElement("div");
     header.className = "profile-item-header";
+
+    const dragHandle = document.createElement("button");
+    dragHandle.type = "button";
+    dragHandle.className = "profile-drag-handle";
+    dragHandle.draggable = true;
+    dragHandle.setAttribute("aria-label", `Reorder ${profile.name}`);
+    dragHandle.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01" />
+      </svg>
+    `;
+    dragHandle.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    dragHandle.addEventListener("dragstart", (event) => {
+      if (!guardExtensionUiAction()) {
+        event.preventDefault();
+        return;
+      }
+
+      draggedProfileId = profile.id;
+      item.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", profile.id);
+    });
+    dragHandle.addEventListener("dragend", () => {
+      clearProfileDragState();
+    });
+
+    item.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+
+      if (draggedProfileId && draggedProfileId !== profile.id) {
+        item.classList.add("is-drag-over");
+      }
+    });
+    item.addEventListener("dragleave", () => {
+      item.classList.remove("is-drag-over");
+    });
+    item.addEventListener("drop", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      item.classList.remove("is-drag-over");
+
+      const draggedId = event.dataTransfer.getData("text/plain") || draggedProfileId;
+      reorderProfile(draggedId, profile.id);
+      clearProfileDragState();
+    });
 
     const toggle = document.createElement("button");
     toggle.type = "button";
@@ -507,7 +608,7 @@ function renderProfileList() {
 
     toggle.append(copy, chevron);
     toggle.addEventListener("click", () => {
-      selectProfile(profile.id);
+      toggleProfileExpand(profile.id);
     });
 
     const actions = document.createElement("div");
@@ -589,7 +690,7 @@ function renderProfileList() {
     });
 
     actions.append(addPromptResumeButton, notesButton, editButton, removeButton);
-    header.append(toggle, actions);
+    header.append(dragHandle, toggle, actions);
 
     const body = document.createElement("div");
     body.id = bodyId;
@@ -617,6 +718,14 @@ async function persistProfileSelection(successMessage) {
   }
 
   profileSelectionState = normalizeProfileSelectionState(response);
+
+  if (
+    expandedProfileId &&
+    !profileSelectionState.profiles.some((entry) => entry.id === expandedProfileId)
+  ) {
+    expandedProfileId = profileSelectionState.selectedProfileId;
+  }
+
   syncPromptResumeStateFromSelectedProfile();
   renderProfileList();
 
@@ -636,15 +745,40 @@ async function loadProfileSelection() {
     }
 
     profileSelectionState = normalizeProfileSelectionState(response);
+    expandedProfileId = profileSelectionState.selectedProfileId;
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
   } catch (error) {
     console.error(error);
     profileSelectionState = normalizeProfileSelectionState(null);
+    expandedProfileId = profileSelectionState.selectedProfileId;
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
     addLog("error", error.message || "Could not load profiles.");
   }
+}
+
+async function toggleProfileExpand(profileId) {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  if (expandedProfileId === profileId) {
+    expandedProfileId = "";
+    parkProfilePromptResumeSection();
+    renderProfileList();
+    return;
+  }
+
+  expandedProfileId = profileId;
+
+  if (profileId !== profileSelectionState.selectedProfileId) {
+    await selectProfile(profileId);
+    return;
+  }
+
+  syncPromptResumeStateFromSelectedProfile();
+  renderProfileList();
 }
 
 async function selectProfile(profileId) {
@@ -652,7 +786,11 @@ async function selectProfile(profileId) {
     return;
   }
 
+  expandedProfileId = profileId;
+
   if (profileId === profileSelectionState.selectedProfileId) {
+    syncPromptResumeStateFromSelectedProfile();
+    renderProfileList();
     return;
   }
 
@@ -686,6 +824,10 @@ async function removeProfile(profileId) {
   if (profileSelectionState.selectedProfileId === profileId) {
     profileSelectionState.selectedProfileId =
       profileSelectionState.profiles[0]?.id || "";
+  }
+
+  if (expandedProfileId === profileId) {
+    expandedProfileId = profileSelectionState.selectedProfileId;
   }
 
   try {
@@ -743,6 +885,7 @@ async function submitProfileForm() {
       };
       profileSelectionState.profiles = [...profileSelectionState.profiles, profile];
       profileSelectionState.selectedProfileId = profile.id;
+      expandedProfileId = profile.id;
     }
 
     await persistProfileSelection(
