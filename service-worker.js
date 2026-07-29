@@ -808,7 +808,7 @@ function isTabInGroup(tab) {
   );
 }
 
-function assertActiveJobTabUsable(tab) {
+function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
   if (!tab) {
     throw new Error("No active tab found.");
   }
@@ -821,7 +821,7 @@ function assertActiveJobTabUsable(tab) {
     throw new Error("Pinned tabs are not supported. Unpin the tab and try again.");
   }
 
-  if (isTabInGroup(tab)) {
+  if (!allowGrouped && isTabInGroup(tab)) {
     throw new Error(
       "Grouped tabs are not supported. Ungroup the tab or open it outside a tab group and try again."
     );
@@ -1255,6 +1255,18 @@ async function groupJobAndGptTabs({
     }
   }
 
+  const existingJobGroupId = isTabInGroup(jobTab) ? jobTab.groupId : null;
+
+  if (existingJobGroupId !== null) {
+    sendLog(runId, "info", "Adding ChatGPT tab to the existing job tab group...");
+    await chrome.tabs.group({
+      groupId: existingJobGroupId,
+      tabIds: [chatGptTabId]
+    });
+    sendLog(runId, "success", "ChatGPT tab added to the existing job tab group.");
+    return existingJobGroupId;
+  }
+
   sendLog(runId, "info", "Grouping job and ChatGPT tabs...");
   const groupId = await chrome.tabs.group({ tabIds: [jobTabId, chatGptTabId] });
 
@@ -1496,7 +1508,9 @@ chrome.commands.onCommand.addListener((command) => {
     });
 
     try {
-      assertActiveJobTabUsable(tab);
+      assertActiveJobTabUsable(tab, {
+        allowGrouped: !action.groupTabs
+      });
     } catch (error) {
       sendLog(runId, "error", error.message);
       await chrome.runtime.sendMessage({
@@ -1835,7 +1849,9 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
     lastFocusedWindow: true
   });
 
-  assertActiveJobTabUsable(tab);
+  assertActiveJobTabUsable(tab, {
+    allowGrouped: !groupTabsInsteadOfClosing
+  });
 
   await lockExtensionUiUntilNotification(runId);
 

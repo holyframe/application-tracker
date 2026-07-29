@@ -2251,7 +2251,7 @@ function validateSaveCurrentTabInputs() {
   return { ok: false, error: message, missing };
 }
 
-async function validateActiveBrowserTabForAppAction() {
+async function validateActiveBrowserTabForAppAction(mode = "save") {
   const [tab] = await chrome.tabs.query({
     active: true,
     lastFocusedWindow: true
@@ -2273,6 +2273,7 @@ async function validateActiveBrowserTabForAppAction() {
   }
 
   if (
+    mode === "apply" &&
     typeof tab.groupId === "number" &&
     tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE
   ) {
@@ -2301,7 +2302,7 @@ async function runCurrentAppAction(mode = "save") {
     return;
   }
 
-  const tabValidation = await validateActiveBrowserTabForAppAction();
+  const tabValidation = await validateActiveBrowserTabForAppAction(mode);
   if (!tabValidation.ok) {
     showStatus("error", tabValidation.error);
     addLog("error", tabValidation.error);
