@@ -829,7 +829,14 @@ function assertActiveJobTabUsable(tab) {
 }
 
 function isChatGptConversationUrl(url = "") {
-  return /\/c\/[a-zA-Z0-9-]+/.test(url);
+  try {
+    const parsed = new URL(url);
+    return /^\/c\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\/?$/i.test(
+      parsed.pathname
+    );
+  } catch (_error) {
+    return false;
+  }
 }
 
 function formatSaveValidationError(missing) {
@@ -919,30 +926,28 @@ async function openNewChatGptTab(runId, { active = true } = {}) {
 
 async function resolveChatGptUrlAfterSend(tabId, runId) {
   const startedAt = Date.now();
-  const timeoutMs = 20000;
+  const timeoutMs = 60000;
 
   while (Date.now() - startedAt < timeoutMs) {
     const tab = await chrome.tabs.get(tabId);
     const url = tab.url || "";
 
     if (isChatGptConversationUrl(url)) {
-      return url;
+      const parsed = new URL(url);
+      return `${parsed.origin}${parsed.pathname.replace(/\/$/, "")}`;
     }
 
     await sleep(500);
   }
 
-  const tab = await chrome.tabs.get(tabId);
-  if (tab.url && isChatGptUrl(tab.url)) {
-    sendLog(
-      runId,
-      "info",
-      "Conversation URL not detected yet. Using current ChatGPT tab URL."
-    );
-    return tab.url;
-  }
-
-  return CHATGPT_URL;
+  sendLog(
+    runId,
+    "error",
+    "Permanent ChatGPT conversation URL was not available after 60 seconds."
+  );
+  throw new Error(
+    "Could not get the permanent ChatGPT conversation URL. The temporary URL was not saved."
+  );
 }
 
 async function sendToChatGptAndGetUrl(text, runId) {
@@ -1876,9 +1881,9 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       new Date().toISOString(),
       tab.title || "",
       urlForSheet,
+      chatGptUrl,
       profileName,
       resumeUrl,
-      chatGptUrl,
       groupTabsInsteadOfClosing ? "Yes" : ""
     ];
 
@@ -2131,7 +2136,7 @@ async function removeDuplicateUrlsFromSheet(runId) {
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
     const urlKey = normalizeUrlKeyForDedupe(row[2]);
-    const profileKey = String(row[3] ?? "").trim().toLowerCase();
+    const profileKey = String(row[4] ?? "").trim().toLowerCase();
     const dedupeKey = `${urlKey}||${profileKey}`;
     if (seen.has(dedupeKey)) {
       duplicateRowIndices.push(i);
@@ -2147,9 +2152,9 @@ async function removeDuplicateUrlsFromSheet(runId) {
       timestamp: row[0] || "",
       title: row[1] || "",
       url: row[2] || "",
-      profileName: row[3] || "",
-      resumeUrl: row[4] || "",
-      chatGptUrl: row[5] || "",
+      chatGptUrl: row[3] || "",
+      profileName: row[4] || "",
+      resumeUrl: row[5] || "",
       note: row[6] || ""
     };
   });
