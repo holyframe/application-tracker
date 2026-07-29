@@ -23,7 +23,7 @@ base GPT prompt and job description.
 2. Copy the selected profile's Google Docs resume template.
 3. Open ChatGPT and submit the base prompt, job description, and selected resume text.
 4. Wait for the permanent ChatGPT conversation URL.
-5. Append an application record to the configured Google Sheet.
+5. Append an application record to a sheet tab named after the selected profile.
 6. Organize the related browser tabs and schedule a two-minute check reminder.
 
 `Save App` accepts ungrouped or grouped job tabs. If the job tab is already
@@ -34,7 +34,8 @@ resume document, and ChatGPT conversation.
 
 ## Google Sheet columns
 
-The extension appends seven columns:
+Each profile uses its own sheet tab. Missing profile tabs are created
+automatically. The extension appends six columns:
 
 | Column | Value |
 | --- | --- |
@@ -42,9 +43,12 @@ The extension appends seven columns:
 | B | Job-page title |
 | C | Normalized job URL |
 | D | ChatGPT conversation URL |
-| E | Profile name |
-| F | Copied resume-document URL |
-| G | `Yes` for Apply Now; otherwise blank |
+| E | Copied resume-document URL |
+| F | `Yes` for Apply Now; otherwise blank |
+
+When a profile tab is created, these column labels are written to row 1 before
+the first application is appended. The header row is bold, and cells in columns
+A–F use the Google Sheets `CLIP` wrap strategy.
 
 ## Other actions
 
@@ -65,8 +69,10 @@ closed, Chrome ignores these application actions.
 
 ## Configuration and storage
 
-The side-panel settings accept a Google Spreadsheet URL or ID and a sheet-tab
-name. Missing sheet tabs are created automatically.
+The side-panel settings accept a Google Spreadsheet URL or ID. Application
+records are routed to the tab matching the selected profile name, and missing
+profile tabs are created automatically. The configured default tab name is
+retained for backward compatibility.
 
 Profiles, prompts, job descriptions, notes, selected resume variants, and
 workflow state are stored in `chrome.storage.local`. The extension has no

@@ -24,6 +24,14 @@ const JOB_GPT_TAB_GROUP_STORAGE_KEY = "pendingJobGptTabGroup";
 const JOB_GPT_TAB_GROUP_DELAY_MINUTES = 1.9;
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
 const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
+const APPLICATION_SHEET_HEADERS = Object.freeze([
+  "ISO timestamp",
+  "Job-page title",
+  "Job URL",
+  "ChatGPT conversation URL",
+  "Copied resume-document URL",
+  "Apply Now"
+]);
 const TRACKING_PARAM_KEYS = new Set([
   "source",
   "src",
@@ -48,6 +56,124 @@ function parseSpreadsheetId(input) {
   }
 
   return raw;
+}
+
+function formatSheetRange(sheetName, cellRange) {
+  const normalizedSheetName = String(sheetName ?? "").trim();
+  const normalizedCellRange = String(cellRange ?? "").trim();
+
+  if (!normalizedSheetName) {
+    throw new Error("Sheet tab name is required.");
+  }
+
+  if (!normalizedCellRange) {
+    throw new Error("Sheet cell range is required.");
+  }
+
+  const escapedSheetName = normalizedSheetName.replace(/'/g, "''");
+  return `'${escapedSheetName}'!${normalizedCellRange}`;
+}
+
+function buildApplicationSheetRow({
+  timestamp,
+  jobTitle,
+  jobUrl,
+  chatGptUrl,
+  resumeUrl,
+  applyNow = false
+}) {
+  return [
+    String(timestamp || ""),
+    String(jobTitle || ""),
+    String(jobUrl || ""),
+    String(chatGptUrl || ""),
+    String(resumeUrl || ""),
+    applyNow ? "Yes" : ""
+  ];
+}
+
+function hasApplicationSheetHeaders(row) {
+  return (
+    Array.isArray(row) &&
+    APPLICATION_SHEET_HEADERS.every(
+      (header, index) => String(row[index] ?? "").trim() === header
+    )
+  );
+}
+
+function createUniqueSheetId(sheets = []) {
+  const usedSheetIds = new Set(
+    sheets
+      .map((sheet) => sheet?.properties?.sheetId)
+      .filter((sheetId) => Number.isInteger(sheetId))
+  );
+
+  let sheetId;
+  do {
+    sheetId = Math.floor(Math.random() * 2147483647);
+  } while (usedSheetIds.has(sheetId));
+
+  return sheetId;
+}
+
+function buildApplicationSheetInitializationRequests(sheetId) {
+  const columnCount = APPLICATION_SHEET_HEADERS.length;
+
+  return [
+    {
+      updateCells: {
+        start: {
+          sheetId,
+          rowIndex: 0,
+          columnIndex: 0
+        },
+        rows: [
+          {
+            values: APPLICATION_SHEET_HEADERS.map((header) => ({
+              userEnteredValue: {
+                stringValue: header
+              }
+            }))
+          }
+        ],
+        fields: "userEnteredValue"
+      }
+    },
+    {
+      repeatCell: {
+        range: {
+          sheetId,
+          startColumnIndex: 0,
+          endColumnIndex: columnCount
+        },
+        cell: {
+          userEnteredFormat: {
+            wrapStrategy: "CLIP"
+          }
+        },
+        fields: "userEnteredFormat.wrapStrategy"
+      }
+    },
+    {
+      repeatCell: {
+        range: {
+          sheetId,
+          startRowIndex: 0,
+          endRowIndex: 1,
+          startColumnIndex: 0,
+          endColumnIndex: columnCount
+        },
+        cell: {
+          userEnteredFormat: {
+            textFormat: {
+              bold: true
+            }
+          }
+        },
+        fields: "userEnteredFormat.textFormat.bold"
+      }
+    }
+  ];
 }
 
 function parseGoogleDocId(input) {
@@ -1950,20 +2076,29 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       chatGptTabId = chatGptResult.tabId;
     }
 
-    const row = [
-      new Date().toISOString(),
-      tab.title || "",
-      urlForSheet,
+    const row = buildApplicationSheetRow({
+      timestamp: new Date().toISOString(),
+      jobTitle: tab.title,
+      jobUrl: urlForSheet,
       chatGptUrl,
-      profileName,
       resumeUrl,
-      groupTabsInsteadOfClosing ? "Yes" : ""
-    ];
+      applyNow: groupTabsInsteadOfClosing
+    });
 
-    sendLog(runId, "info", "Preparing row for Google Sheet...");
+    sendLog(
+      runId,
+      "info",
+      `Preparing row for profile sheet tab "${profileName}"...`
+    );
 
-    await appendRowsToGoogleSheet([row], runId);
-    sendLog(runId, "success", "URL saved to Google Sheet.");
+    await appendRowsToGoogleSheet([row], runId, {
+      sheetName: profileName
+    });
+    sendLog(
+      runId,
+      "success",
+      `URL saved to profile sheet tab "${profileName}".`
+    );
 
     if (typeof tab.id !== "number") {
       throw new Error("Current tab does not have a valid tab ID.");
@@ -2030,34 +2165,13 @@ function normalizeUrlKeyForDedupe(cellValue) {
   return normalizeUrlForStorage(raw);
 }
 
-async function getSheetIdByTitle(token, spreadsheetId, sheetTitle) {
-  const fields = encodeURIComponent("sheets(properties(sheetId,title))");
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=${fields}`;
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Google Sheets API error: ${errorText}`);
-  }
-
-  const data = await response.json();
-  const sheet = data.sheets?.find(
-    (s) => s.properties?.title === sheetTitle
-  );
-
-  if (sheet?.properties?.sheetId == null) {
-    throw new Error(`Sheet "${sheetTitle}" not found in spreadsheet.`);
-  }
-
-  return sheet.properties.sheetId;
-}
-
-async function ensureSheetExists(token, spreadsheetId, sheetTitle, runId) {
+async function ensureSheetExists(
+  token,
+  spreadsheetId,
+  sheetTitle,
+  runId,
+  options = {}
+) {
   const fields = encodeURIComponent("sheets(properties(sheetId,title))");
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=${fields}`;
 
@@ -2085,6 +2199,22 @@ async function ensureSheetExists(token, spreadsheetId, sheetTitle, runId) {
     sendLog(runId, "info", `Sheet "${sheetTitle}" not found. Creating it...`);
   }
 
+  const newSheetId = createUniqueSheetId(data.sheets || []);
+  const requests = [
+    {
+      addSheet: {
+        properties: {
+          sheetId: newSheetId,
+          title: sheetTitle
+        }
+      }
+    }
+  ];
+
+  if (options.initializeApplicationSheet === true) {
+    requests.push(...buildApplicationSheetInitializationRequests(newSheetId));
+  }
+
   const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
   const createResponse = await fetch(batchUrl, {
     method: "POST",
@@ -2093,13 +2223,7 @@ async function ensureSheetExists(token, spreadsheetId, sheetTitle, runId) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      requests: [
-        {
-          addSheet: {
-            properties: { title: sheetTitle }
-          }
-        }
-      ]
+      requests
     })
   });
 
@@ -2109,22 +2233,29 @@ async function ensureSheetExists(token, spreadsheetId, sheetTitle, runId) {
   }
 
   const createData = await createResponse.json();
-  const newSheetId = createData.replies?.[0]?.addSheet?.properties?.sheetId;
+  const createdSheetId =
+    createData.replies?.[0]?.addSheet?.properties?.sheetId ?? newSheetId;
 
-  if (newSheetId == null) {
+  if (createdSheetId == null) {
     throw new Error(`Failed to create sheet "${sheetTitle}".`);
   }
 
   if (runId) {
-    sendLog(runId, "success", `Created sheet tab "${sheetTitle}".`);
+    sendLog(
+      runId,
+      "success",
+      options.initializeApplicationSheet === true
+        ? `Created and initialized sheet tab "${sheetTitle}".`
+        : `Created sheet tab "${sheetTitle}".`
+    );
   }
 
-  return newSheetId;
+  return createdSheetId;
 }
 
-async function readSheetValuesAD(token, runId, sheetConfig) {
+async function readSheetValues(token, runId, sheetConfig) {
   const { spreadsheetId, sheetName } = sheetConfig;
-  const range = encodeURIComponent(`${sheetName}!A:G`);
+  const range = encodeURIComponent(formatSheetRange(sheetName, "A:F"));
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`;
 
   sendLog(runId, "info", `Reading rows from ${sheetName}...`);
@@ -2189,14 +2320,26 @@ async function removeDuplicateUrlsFromSheet(runId) {
   const token = await getGoogleAccessToken();
   sendLog(runId, "success", "Google authorization token received.");
 
-  const sheetConfig = await getSheetConfig();
-  const sheetId = await getSheetIdByTitle(
+  const baseSheetConfig = await getSheetConfig();
+  const profileState = await getProfileSelectionState();
+  const selectedProfile = getSelectedProfileFromState(profileState);
+  const profileName =
+    String(selectedProfile?.name || "").trim() || DEFAULT_PROFILE_NAME;
+  const sheetConfig = {
+    ...baseSheetConfig,
+    sheetName: profileName
+  };
+  const sheetId = await ensureSheetExists(
     token,
     sheetConfig.spreadsheetId,
-    sheetConfig.sheetName
+    profileName,
+    runId,
+    {
+      initializeApplicationSheet: true
+    }
   );
 
-  const values = await readSheetValuesAD(token, runId, sheetConfig);
+  const values = await readSheetValues(token, runId, sheetConfig);
 
   if (values.length === 0) {
     sendLog(runId, "info", "Sheet has no rows. Nothing to do.");
@@ -2205,8 +2348,10 @@ async function removeDuplicateUrlsFromSheet(runId) {
 
   const seen = new Set();
   const duplicateRowIndices = [];
+  const firstDataRowIndex = hasApplicationSheetHeaders(values[0]) ? 1 : 0;
+  const dataRowCount = values.length - firstDataRowIndex;
 
-  for (let i = 0; i < values.length; i++) {
+  for (let i = firstDataRowIndex; i < values.length; i++) {
     const row = values[i];
     const urlKey = normalizeUrlKeyForDedupe(row[2]);
 
@@ -2214,12 +2359,10 @@ async function removeDuplicateUrlsFromSheet(runId) {
       continue;
     }
 
-    const profileKey = String(row[4] ?? "").trim().toLowerCase();
-    const dedupeKey = `${urlKey}||${profileKey}`;
-    if (seen.has(dedupeKey)) {
+    if (seen.has(urlKey)) {
       duplicateRowIndices.push(i);
     } else {
-      seen.add(dedupeKey);
+      seen.add(urlKey);
     }
   }
 
@@ -2231,15 +2374,14 @@ async function removeDuplicateUrlsFromSheet(runId) {
       title: row[1] || "",
       url: row[2] || "",
       chatGptUrl: row[3] || "",
-      profileName: row[4] || "",
-      resumeUrl: row[5] || "",
-      note: row[6] || ""
+      resumeUrl: row[4] || "",
+      applyNow: row[5] || ""
     };
   });
 
   if (duplicateRowIndices.length === 0) {
     sendLog(runId, "success", "No duplicate URLs found.");
-    return { removed: 0, rowCount: values.length, deletedRows: [] };
+    return { removed: 0, rowCount: dataRowCount, deletedRows: [] };
   }
 
   sendLog(
@@ -2264,26 +2406,38 @@ async function removeDuplicateUrlsFromSheet(runId) {
 
   return {
     removed: duplicateRowIndices.length,
-    rowCount: values.length,
+    rowCount: dataRowCount,
     deletedRows
   };
 }
 
-async function appendRowsToGoogleSheet(rows, runId) {
+async function appendRowsToGoogleSheet(rows, runId, options = {}) {
   sendLog(runId, "info", "Requesting Google authorization token...");
 
   const token = await getGoogleAccessToken();
   const sheetConfig = await getSheetConfig();
+  const sheetName =
+    String(options.sheetName || sheetConfig.sheetName || "").trim();
 
   sendLog(runId, "success", "Google authorization token received.");
 
-  const range = encodeURIComponent(`${sheetConfig.sheetName}!A1`);
+  await ensureSheetExists(
+    token,
+    sheetConfig.spreadsheetId,
+    sheetName,
+    runId,
+    {
+      initializeApplicationSheet: true
+    }
+  );
+
+  const range = encodeURIComponent(formatSheetRange(sheetName, "A1"));
   const url =
     `https://sheets.googleapis.com/v4/spreadsheets/${sheetConfig.spreadsheetId}` +
     `/values/${range}:append?valueInputOption=USER_ENTERED` +
     `&insertDataOption=INSERT_ROWS`;
 
-  sendLog(runId, "info", `Sending data to sheet: ${sheetConfig.sheetName}`);
+  sendLog(runId, "info", `Sending data to sheet: ${sheetName}`);
 
   const response = await fetch(url, {
     method: "POST",
