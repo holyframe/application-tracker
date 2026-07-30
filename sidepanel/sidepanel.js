@@ -2,7 +2,23 @@ const saveButton = document.querySelector("#saveButton");
 const applyNowButton = document.querySelector("#applyNowButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const humanizeButton = document.querySelector("#humanizeButton");
-const downloadResumeButton = document.querySelector("#downloadResumeButton");
+const openSplitWindowsButton = document.querySelector("#openSplitWindowsButton");
+const splitWindowsModal = document.querySelector("#splitWindowsModal");
+const splitWindowsModalBackdrop = document.querySelector("#splitWindowsModalBackdrop");
+const splitWindowsModalCloseButton = document.querySelector("#splitWindowsModalCloseButton");
+const splitWindowsModalCancelButton = document.querySelector("#splitWindowsModalCancelButton");
+const splitWindowsModalOpenButton = document.querySelector("#splitWindowsModalOpenButton");
+const splitWindowLeftUrlInput = document.querySelector("#splitWindowLeftUrlInput");
+const splitWindowRightUrlInput = document.querySelector("#splitWindowRightUrlInput");
+const splitWindowsModalTitle = document.querySelector("#splitWindowsModalTitle");
+const splitWindowsInputView = document.querySelector("#splitWindowsInputView");
+const splitWindowsPreviewView = document.querySelector("#splitWindowsPreviewView");
+const splitWindowsPreviewUrl = document.querySelector("#splitWindowsPreviewUrl");
+const splitWindowsPreviewFrame = document.querySelector("#splitWindowsPreviewFrame");
+const splitWindowsPreviewBackButton = document.querySelector("#splitWindowsPreviewBackButton");
+const splitWindowsPreviewDownloadButton = document.querySelector(
+  "#splitWindowsPreviewDownloadButton"
+);
 const makeResumeModal = document.querySelector("#makeResumeModal");
 const makeResumeModalBackdrop = document.querySelector("#makeResumeModalBackdrop");
 const makeResumeModalCloseButton = document.querySelector("#makeResumeModalCloseButton");
@@ -88,6 +104,9 @@ const DEFAULT_PROFILE_NAME = "Default";
 let activeRunId = null;
 let isExtensionUiLocked = false;
 let extensionUiLockExpiryTimer = null;
+let currentSplitWindowRightUrl = "";
+let currentSplitWindowOpenedTabId = null;
+let currentSplitWindowReturnTabId = null;
 
 function createRunId() {
   if (crypto.randomUUID) {
@@ -912,7 +931,12 @@ function setSaveButtonsDisabled(disabled) {
   if (applyNowButton) applyNowButton.disabled = disabled;
   if (saveButton) saveButton.disabled = disabled;
   if (humanizeButton) humanizeButton.disabled = disabled;
-  if (downloadResumeButton) downloadResumeButton.disabled = disabled;
+  if (openSplitWindowsButton) openSplitWindowsButton.disabled = disabled;
+  if (splitWindowsModalOpenButton) splitWindowsModalOpenButton.disabled = disabled;
+  if (splitWindowsPreviewBackButton) splitWindowsPreviewBackButton.disabled = disabled;
+  if (splitWindowsPreviewDownloadButton) {
+    splitWindowsPreviewDownloadButton.disabled = disabled;
+  }
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
   if (makeResumeModalBuildButton) makeResumeModalBuildButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
@@ -934,6 +958,7 @@ function closeOpenModalsForUiLock() {
   setProfileFormModalOpen(false);
   setProfileNotesModalOpen(false);
   setMakeResumeModalOpen(false);
+  setSplitWindowsModalOpen(false);
   setPromptResumeFormModalOpen(false);
   setPromptFormModalOpen(false);
   setHumanizeFormModalOpen(false);
@@ -2616,7 +2641,7 @@ async function humanizeChat() {
   }
 }
 
-async function downloadResume() {
+async function runResumeDownload(documentUrl = "") {
   if (!guardExtensionUiAction()) {
     return;
   }
@@ -2625,12 +2650,17 @@ async function downloadResume() {
 
   clearStatus();
   clearDeletedRows();
-  beginButtonProcess("Download Resume clicked. Checking Google Docs tab...");
+  beginButtonProcess(
+    documentUrl
+      ? "Download Resume clicked. Checking the right-side Google Docs URL..."
+      : "Download Resume clicked. Checking Google Docs tab..."
+  );
 
   try {
     const response = await chrome.runtime.sendMessage({
       type: "DOWNLOAD_RESUME_PDF",
-      runId: activeRunId
+      runId: activeRunId,
+      documentUrl
     });
 
     if (!response?.ok) {
@@ -2651,11 +2681,251 @@ async function downloadResume() {
   }
 }
 
+async function downloadSplitWindowResume() {
+  if (!currentSplitWindowRightUrl || splitWindowsPreviewDownloadButton?.disabled) {
+    return;
+  }
+
+  await runResumeDownload(currentSplitWindowRightUrl);
+}
+
+function resetSplitWindowsSession() {
+  currentSplitWindowRightUrl = "";
+  currentSplitWindowOpenedTabId = null;
+  currentSplitWindowReturnTabId = null;
+}
+
+function setSplitWindowsModalOpen(isOpen) {
+  if (!splitWindowsModal) return;
+
+  splitWindowsModal.classList.toggle("is-hidden", !isOpen);
+  splitWindowsModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    resetSplitWindowsSession();
+    setSplitWindowsPreview("");
+    splitWindowLeftUrlInput?.focus();
+    return;
+  }
+
+  setSplitWindowsPreview("");
+  resetSplitWindowsSession();
+  if (splitWindowLeftUrlInput) splitWindowLeftUrlInput.value = "";
+  if (splitWindowRightUrlInput) splitWindowRightUrlInput.value = "";
+  openSplitWindowsButton?.focus();
+}
+
+function openSplitWindowsModal() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  setSplitWindowsModalOpen(true);
+}
+
+function normalizeSplitWindowUrl(value, label) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    throw new Error(`${label} URL is required.`);
+  }
+
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw);
+  if (hasScheme && !/^https?:\/\//i.test(raw)) {
+    throw new Error(`${label} URL must use http:// or https://.`);
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch (_error) {
+    throw new Error(`${label} URL is not valid.`);
+  }
+
+  if (!parsed.hostname || !["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`${label} URL must be a valid web address.`);
+  }
+
+  return parsed.href;
+}
+
+function setSplitWindowsPreview(rightUrl) {
+  const url = String(rightUrl || "").trim();
+  const isPreviewing = Boolean(url);
+
+  currentSplitWindowRightUrl = url;
+  splitWindowsModal?.classList.toggle("is-previewing", isPreviewing);
+  splitWindowsInputView?.classList.toggle("is-hidden", isPreviewing);
+  splitWindowsPreviewView?.classList.toggle("is-hidden", !isPreviewing);
+
+  if (splitWindowsModalTitle) {
+    splitWindowsModalTitle.textContent = isPreviewing
+      ? "Right URL"
+      : "Open Tab + Sidebar";
+  }
+
+  if (splitWindowsPreviewUrl) {
+    splitWindowsPreviewUrl.textContent = url;
+    splitWindowsPreviewUrl.title = url;
+  }
+
+  if (splitWindowsPreviewFrame) {
+    splitWindowsPreviewFrame.src = isPreviewing ? url : "about:blank";
+  }
+}
+
+async function requestOpenUrlInNewTab(url) {
+  const response = await chrome.runtime.sendMessage({
+    type: "OPEN_URL_IN_NEW_TAB",
+    runId: activeRunId,
+    url
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Could not open the URL in a new tab.");
+  }
+
+  return response;
+}
+
+async function openSplitWindows() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  if (splitWindowsModalOpenButton?.disabled) {
+    return;
+  }
+
+  let leftUrl;
+  try {
+    leftUrl = normalizeSplitWindowUrl(splitWindowLeftUrlInput?.value, "Left");
+  } catch (error) {
+    const message = error.message || "Enter two valid web addresses.";
+    showStatus("error", message);
+    addLog("error", message);
+    splitWindowLeftUrlInput?.focus();
+    return;
+  }
+
+  let rightUrl;
+  try {
+    rightUrl = normalizeSplitWindowUrl(splitWindowRightUrlInput?.value, "Right");
+  } catch (error) {
+    const message = error.message || "Enter two valid web addresses.";
+    showStatus("error", message);
+    addLog("error", message);
+    splitWindowRightUrlInput?.focus();
+    return;
+  }
+
+  activeRunId = createRunId();
+  clearStatus();
+  clearDeletedRows();
+  beginButtonProcess("Open Split Windows clicked. Opening the left URL in a new tab...");
+
+  try {
+    const response = await requestOpenUrlInNewTab(leftUrl);
+
+    const isModalStillOpen = !splitWindowsModal?.classList.contains("is-hidden");
+    if (isModalStillOpen) {
+      currentSplitWindowOpenedTabId = Number.isInteger(response.tabId)
+        ? response.tabId
+        : null;
+      currentSplitWindowReturnTabId = Number.isInteger(response.returnTabId)
+        ? response.returnTabId
+        : null;
+      setSplitWindowsPreview(rightUrl);
+    }
+
+    showStatus(
+      "success",
+      isModalStillOpen
+        ? "Left URL opened in a new tab. The right URL is loading in the sidebar."
+        : "Left URL opened in a new tab.",
+      "Opened:"
+    );
+    addLog(
+      "success",
+      isModalStillOpen
+        ? "Left tab opened and right sidebar preview loaded."
+        : "Left tab opened; the sidebar dialog was closed before previewing the right URL."
+    );
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Something went wrong.");
+    addLog("error", error.message || "Something went wrong.");
+  } finally {
+    finishButtonProcess();
+  }
+}
+
+async function closeSplitWindowsAndReturn() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  if (splitWindowsPreviewBackButton?.disabled) {
+    return;
+  }
+
+  if (
+    !Number.isInteger(currentSplitWindowOpenedTabId) ||
+    !Number.isInteger(currentSplitWindowReturnTabId)
+  ) {
+    const message = "Could not identify the tabs needed to return.";
+    showStatus("error", message);
+    addLog("error", message);
+    return;
+  }
+
+  activeRunId = createRunId();
+  clearStatus();
+  clearDeletedRows();
+  beginButtonProcess("Back clicked. Closing the created tab and returning...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "CLOSE_TAB_AND_RETURN",
+      runId: activeRunId,
+      openedTabId: currentSplitWindowOpenedTabId,
+      returnTabId: currentSplitWindowReturnTabId
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not return to the previous tab.");
+    }
+
+    setSplitWindowsModalOpen(false);
+    showStatus("success", response.url || "Previous tab restored.", "Returned:");
+    addLog("success", "Created tab closed and previous tab restored.");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Something went wrong.");
+    addLog("error", error.message || "Something went wrong.");
+  } finally {
+    finishButtonProcess();
+  }
+}
+
 applyNowButton?.addEventListener("click", applyNow);
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 removeDuplicatesButton?.addEventListener("click", openMakeResumeModal);
 humanizeButton?.addEventListener("click", humanizeChat);
-downloadResumeButton?.addEventListener("click", downloadResume);
+openSplitWindowsButton?.addEventListener("click", openSplitWindowsModal);
+splitWindowsModalBackdrop?.addEventListener("click", () => setSplitWindowsModalOpen(false));
+splitWindowsModalCloseButton?.addEventListener("click", () => setSplitWindowsModalOpen(false));
+splitWindowsModalCancelButton?.addEventListener("click", () => setSplitWindowsModalOpen(false));
+splitWindowsModalOpenButton?.addEventListener("click", openSplitWindows);
+splitWindowsPreviewBackButton?.addEventListener("click", closeSplitWindowsAndReturn);
+splitWindowsPreviewDownloadButton?.addEventListener("click", downloadSplitWindowResume);
+[splitWindowLeftUrlInput, splitWindowRightUrlInput].forEach((input) => {
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      openSplitWindows();
+    }
+  });
+});
 
 addProfileButton?.addEventListener("click", openAddProfileModal);
 profileFormModalBackdrop?.addEventListener("click", () => setProfileFormModalOpen(false));
@@ -2738,6 +3008,11 @@ document.addEventListener("keydown", (event) => {
 
   if (makeResumeModal && !makeResumeModal.classList.contains("is-hidden")) {
     setMakeResumeModalOpen(false);
+    return;
+  }
+
+  if (splitWindowsModal && !splitWindowsModal.classList.contains("is-hidden")) {
+    setSplitWindowsModalOpen(false);
     return;
   }
 

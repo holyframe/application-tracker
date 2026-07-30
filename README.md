@@ -57,7 +57,10 @@ A–F use the Google Sheets `CLIP` wrap strategy.
   placeholder is absent, the document body is replaced.
 - **Humanize** sends the configured Humanize prompt to the active or most
   recently used ChatGPT conversation.
-- **Download Resume** downloads the active Google Docs document as a PDF.
+- **Open Split Windows** opens the left web address in a new Chrome tab and
+  displays the right web address inside a side-panel dialog. Its Back button
+  closes the created tab and returns to the previous tab, while Download Resume
+  exports a right-side Google Docs URL as PDF.
 - Profile notes are stored locally for reference and are not sent to ChatGPT or
   written to the Google Sheet.
 

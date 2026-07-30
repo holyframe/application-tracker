@@ -115,18 +115,17 @@
             </button>
 
             <button
-              id="downloadResumeButton"
+              id="openSplitWindowsButton"
               type="button"
-              class="download-resume-button"
+              class="split-windows-button"
             >
               <span class="button-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
-                  <path d="M12 3v12" />
-                  <path d="m7 10 5 5 5-5" />
-                  <path d="M5 21h14" />
+                  <rect x="3" y="5" width="8" height="14" rx="1.5" />
+                  <rect x="13" y="5" width="8" height="14" rx="1.5" />
                 </svg>
               </span>
-              <span>Download Resume</span>
+              <span>Open Split Windows</span>
             </button>
           </div>
         </div>
@@ -686,6 +685,127 @@
           >
             <span>Save Changes</span>
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="splitWindowsModal"
+      class="modal split-windows-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="splitWindowsModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="splitWindowsModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close split windows dialog"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="splitWindowsModalTitle">Open Tab + Sidebar</h2>
+          <button
+            id="splitWindowsModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div id="splitWindowsInputView" class="split-windows-input-view">
+          <p class="modal-help">
+            The left URL opens in a new Chrome tab. The right URL opens inside
+            this side-panel dialog.
+          </p>
+
+          <div class="modal-form">
+            <div class="config-field">
+              <label class="config-label" for="splitWindowLeftUrlInput">Left URL</label>
+              <input
+                id="splitWindowLeftUrlInput"
+                class="config-input"
+                type="url"
+                inputmode="url"
+                autocomplete="url"
+                placeholder="https://example.com"
+              />
+            </div>
+
+            <div class="config-field">
+              <label class="config-label" for="splitWindowRightUrlInput">Right URL</label>
+              <input
+                id="splitWindowRightUrlInput"
+                class="config-input"
+                type="url"
+                inputmode="url"
+                autocomplete="url"
+                placeholder="https://example.com"
+              />
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button
+              id="splitWindowsModalCancelButton"
+              type="button"
+              class="secondary-button modal-action-button"
+            >
+              <span>Cancel</span>
+            </button>
+
+            <button
+              id="splitWindowsModalOpenButton"
+              type="button"
+              class="primary-button modal-action-button"
+            >
+              <span>Open</span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="splitWindowsPreviewView"
+          class="split-windows-preview-view is-hidden"
+        >
+          <div class="split-windows-preview-location">
+            <span id="splitWindowsPreviewUrl"></span>
+          </div>
+
+          <iframe
+            id="splitWindowsPreviewFrame"
+            class="split-windows-preview-frame"
+            title="Right URL preview"
+            allow="clipboard-read; clipboard-write"
+            referrerpolicy="strict-origin-when-cross-origin"
+          ></iframe>
+
+          <p class="split-windows-preview-help">
+            Download Resume works when the right URL is a Google Docs document.
+            Some websites may block embedded previews.
+          </p>
+
+          <div class="modal-actions">
+            <button
+              id="splitWindowsPreviewBackButton"
+              type="button"
+              class="secondary-button modal-action-button"
+            >
+              <span>Back</span>
+            </button>
+
+            <button
+              id="splitWindowsPreviewDownloadButton"
+              type="button"
+              class="download-resume-button modal-action-button"
+            >
+              <span>Download Resume</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

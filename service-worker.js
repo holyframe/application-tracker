@@ -213,6 +213,31 @@ function sanitizeDownloadFilename(name) {
   return cleaned || "document";
 }
 
+function normalizeHttpUrl(value, label = "Web") {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    throw new Error(`${label} URL is required.`);
+  }
+
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw);
+  if (hasScheme && !/^https?:\/\//i.test(raw)) {
+    throw new Error(`${label} URL must use http:// or https://.`);
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch (_error) {
+    throw new Error(`${label} URL is not valid.`);
+  }
+
+  if (!parsed.hostname || !["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`${label} URL must be a valid web address.`);
+  }
+
+  return parsed.href;
+}
+
 function createPromptResumeId() {
   if (crypto.randomUUID) {
     return crypto.randomUUID();
@@ -1177,28 +1202,21 @@ async function sendHumanizePromptToChatGpt(runId) {
   };
 }
 
-async function downloadActiveGoogleDocAsPdf(runId) {
-  sendLog(runId, "info", "Checking active tab for Google Docs...");
-
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true
-  });
-
-  if (!tab?.url) {
-    throw new Error("No active tab with a URL found.");
+async function downloadGoogleDocUrlAsPdf(
+  runId,
+  { documentUrl = "", documentTitle = "resume" } = {}
+) {
+  const normalizedDocumentUrl = String(documentUrl || "").trim();
+  if (!isGoogleDocsDocumentUrl(normalizedDocumentUrl)) {
+    throw new Error("The resume URL is not a Google Docs document.");
   }
 
-  if (!isGoogleDocsDocumentUrl(tab.url)) {
-    throw new Error("Current tab is not a Google Docs document.");
+  const documentId = parseGoogleDocId(normalizedDocumentUrl);
+  if (!documentId || documentId === normalizedDocumentUrl) {
+    throw new Error("Could not find a Google Docs document ID in the resume URL.");
   }
 
-  const documentId = parseGoogleDocId(tab.url);
-  if (!documentId || documentId === tab.url.trim()) {
-    throw new Error("Could not find a Google Docs document ID in the current tab URL.");
-  }
-
-  const filename = `${sanitizeDownloadFilename(tab.title)}.pdf`;
+  const filename = `${sanitizeDownloadFilename(documentTitle)}.pdf`;
   const exportUrl = `https://docs.google.com/document/d/${documentId}/export?format=pdf`;
 
   sendLog(runId, "info", `Downloading Google Doc as PDF: ${filename}`);
@@ -1220,8 +1238,30 @@ async function downloadActiveGoogleDocAsPdf(runId) {
     documentId,
     filename,
     downloadId,
-    url: tab.url
+    url: normalizedDocumentUrl
   };
+}
+
+async function downloadActiveGoogleDocAsPdf(runId) {
+  sendLog(runId, "info", "Checking active tab for Google Docs...");
+
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true
+  });
+
+  if (!tab?.url) {
+    throw new Error("No active tab with a URL found.");
+  }
+
+  if (!isGoogleDocsDocumentUrl(tab.url)) {
+    throw new Error("Current tab is not a Google Docs document.");
+  }
+
+  return downloadGoogleDocUrlAsPdf(runId, {
+    documentUrl: tab.url,
+    documentTitle: tab.title
+  });
 }
 
 async function humanizeChatGptConversation(runId) {
@@ -1229,9 +1269,104 @@ async function humanizeChatGptConversation(runId) {
   return sendHumanizePromptToChatGpt(runId);
 }
 
-async function downloadResumeAsPdf(runId) {
+async function downloadResumeAsPdf(runId, options = {}) {
   sendLog(runId, "info", "Starting resume PDF download...");
+  if (String(options.documentUrl || "").trim()) {
+    return downloadGoogleDocUrlAsPdf(runId, {
+      documentUrl: options.documentUrl,
+      documentTitle: "resume"
+    });
+  }
+
   return downloadActiveGoogleDocAsPdf(runId);
+}
+
+async function openUrlInNewTab(runId, options = {}) {
+  const url = normalizeHttpUrl(options.url, "Page");
+  const sourceWindow = await chrome.windows.getLastFocused({
+    windowTypes: ["normal"]
+  });
+  const [returnTab] = await chrome.tabs.query(
+    Number.isInteger(sourceWindow?.id)
+      ? {
+          active: true,
+          windowId: sourceWindow.id
+        }
+      : {
+          active: true,
+          lastFocusedWindow: true
+        }
+  );
+
+  if (!Number.isInteger(returnTab?.id)) {
+    throw new Error("Could not identify the tab to return to.");
+  }
+
+  sendLog(runId, "info", "Opening URL in a new Chrome tab...");
+
+  const createOptions = {
+    url,
+    active: true
+  };
+  if (Number.isInteger(sourceWindow?.id)) {
+    createOptions.windowId = sourceWindow.id;
+  }
+
+  const tab = await chrome.tabs.create(createOptions);
+  if (!Number.isInteger(tab?.id)) {
+    throw new Error("Chrome did not return the newly opened tab.");
+  }
+
+  sendLog(runId, "success", "URL opened in a new Chrome tab.");
+
+  return {
+    url,
+    tabId: tab.id,
+    windowId: tab.windowId ?? sourceWindow?.id ?? null,
+    returnTabId: returnTab.id,
+    returnUrl: returnTab.url || ""
+  };
+}
+
+async function closeTabAndReturn(runId, options = {}) {
+  const openedTabId = Number(options.openedTabId);
+  const returnTabId = Number(options.returnTabId);
+
+  if (!Number.isInteger(openedTabId) || !Number.isInteger(returnTabId)) {
+    throw new Error("Opened tab and return tab IDs are required.");
+  }
+
+  if (openedTabId === returnTabId) {
+    throw new Error("Opened tab and return tab must be different.");
+  }
+
+  let returnTab;
+  try {
+    returnTab = await chrome.tabs.get(returnTabId);
+  } catch (_error) {
+    throw new Error("The previous tab is no longer open.");
+  }
+
+  sendLog(runId, "info", "Returning to the previous tab...");
+  await chrome.tabs.update(returnTabId, { active: true });
+
+  if (Number.isInteger(returnTab.windowId)) {
+    await chrome.windows.update(returnTab.windowId, { focused: true });
+  }
+
+  try {
+    await chrome.tabs.remove(openedTabId);
+  } catch (_error) {
+    // The requested return still succeeds if the created tab was already closed.
+  }
+
+  sendLog(runId, "success", "Created tab closed and previous tab restored.");
+
+  return {
+    closedTabId: openedTabId,
+    returnTabId,
+    url: returnTab.url || ""
+  };
 }
 
 async function scheduleSaveCheckReminder(
@@ -1906,6 +2041,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
     HUMANIZE_CHATGPT: humanizeChatGptConversation,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
+    OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
+    CLOSE_TAB_AND_RETURN: closeTabAndReturn,
     CREATE_GOOGLE_DOC: createGoogleDoc
   };
 
@@ -1919,11 +2056,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ? run(message.runId, {
           groupTabs: message.mode === "apply"
         })
-      : message.type === "CREATE_GOOGLE_DOC"
+      : message.type === "DOWNLOAD_RESUME_PDF"
         ? run(message.runId, {
-            resumeText: message.resumeText
+            documentUrl: message.documentUrl
           })
-        : run(message.runId);
+        : message.type === "OPEN_URL_IN_NEW_TAB"
+          ? run(message.runId, {
+              url: message.url
+            })
+          : message.type === "CLOSE_TAB_AND_RETURN"
+            ? run(message.runId, {
+                openedTabId: message.openedTabId,
+                returnTabId: message.returnTabId
+              })
+            : message.type === "CREATE_GOOGLE_DOC"
+              ? run(message.runId, {
+                  resumeText: message.resumeText
+                })
+              : run(message.runId);
 
   runPromise
     .then((result) => sendResponse({ ok: true, ...result }))
