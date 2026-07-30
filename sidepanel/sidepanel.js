@@ -1,6 +1,5 @@
 const saveButton = document.querySelector("#saveButton");
 const applyNowButton = document.querySelector("#applyNowButton");
-const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const humanizeButton = document.querySelector("#humanizeButton");
 const openSplitWindowsButton = document.querySelector("#openSplitWindowsButton");
 const splitWindowsModal = document.querySelector("#splitWindowsModal");
@@ -19,12 +18,6 @@ const splitWindowsPreviewBackButton = document.querySelector("#splitWindowsPrevi
 const splitWindowsPreviewDownloadButton = document.querySelector(
   "#splitWindowsPreviewDownloadButton"
 );
-const makeResumeModal = document.querySelector("#makeResumeModal");
-const makeResumeModalBackdrop = document.querySelector("#makeResumeModalBackdrop");
-const makeResumeModalCloseButton = document.querySelector("#makeResumeModalCloseButton");
-const makeResumeModalCancelButton = document.querySelector("#makeResumeModalCancelButton");
-const makeResumeModalBuildButton = document.querySelector("#makeResumeModalBuildButton");
-const makeResumeContentInput = document.querySelector("#makeResumeContentInput");
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
@@ -937,8 +930,6 @@ function setSaveButtonsDisabled(disabled) {
   if (splitWindowsPreviewDownloadButton) {
     splitWindowsPreviewDownloadButton.disabled = disabled;
   }
-  if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
-  if (makeResumeModalBuildButton) makeResumeModalBuildButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
   if (addProfileButton) addProfileButton.disabled = disabled;
   profileList
@@ -957,7 +948,6 @@ function setSaveButtonsDisabled(disabled) {
 function closeOpenModalsForUiLock() {
   setProfileFormModalOpen(false);
   setProfileNotesModalOpen(false);
-  setMakeResumeModalOpen(false);
   setSplitWindowsModalOpen(false);
   setPromptResumeFormModalOpen(false);
   setPromptFormModalOpen(false);
@@ -2424,139 +2414,6 @@ async function applyNow() {
   await runCurrentAppAction("apply");
 }
 
-function setMakeResumeModalOpen(isOpen) {
-  if (!makeResumeModal) return;
-
-  makeResumeModal.classList.toggle("is-hidden", !isOpen);
-  makeResumeModal.setAttribute("aria-hidden", String(!isOpen));
-
-  if (isOpen) {
-    const selectedPromptResume = promptResumeSelectionState.promptResumes.find(
-      (entry) => entry.id === promptResumeSelectionState.selectedPromptResumeId
-    );
-
-    if (makeResumeContentInput) {
-      makeResumeContentInput.value = selectedPromptResume?.content || "";
-    }
-
-    makeResumeContentInput?.focus();
-    return;
-  }
-
-  if (makeResumeContentInput) makeResumeContentInput.value = "";
-  removeDuplicatesButton?.focus();
-}
-
-function openMakeResumeModal() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
-
-  setMakeResumeModalOpen(true);
-}
-
-async function buildResume() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
-
-  const resumeText = makeResumeContentInput?.value.trim() || "";
-  if (!resumeText) {
-    const message = "Resume text is required before creating a Google Doc.";
-    showStatus("error", message);
-    addLog("error", message);
-    makeResumeContentInput?.focus();
-    return;
-  }
-
-  setMakeResumeModalOpen(false);
-
-  activeRunId = createRunId();
-
-  clearStatus();
-  clearDeletedRows();
-  beginButtonProcess("Build resume clicked. Creating Google Doc in Drive...");
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "CREATE_GOOGLE_DOC",
-      runId: activeRunId,
-      resumeText
-    });
-
-    if (!response?.ok) {
-      throw new Error(response?.error || "Could not create Google Doc.");
-    }
-
-    showStatus("success", response.url || "", "Resume:");
-    addLog("success", "Google Doc created in Drive.");
-  } catch (error) {
-    console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
-  } finally {
-    finishButtonProcess();
-  }
-}
-
-async function removeDuplicateSheetRows() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
-
-  activeRunId = createRunId();
-
-  clearStatus();
-  clearDeletedRows();
-  beginButtonProcess("Make a resume clicked. Scanning sheet...");
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "REMOVE_DUPLICATE_URLS_FROM_SHEET",
-      runId: activeRunId
-    });
-
-    if (!response?.ok) {
-      throw new Error(response?.error || "Could not remove duplicates.");
-    }
-
-    const removed = response.removed ?? 0;
-    const rowCount = response.rowCount ?? 0;
-    const deletedRows = Array.isArray(response.deletedRows)
-      ? response.deletedRows
-      : [];
-
-    if (rowCount === 0) {
-      showStatus(
-        "success",
-        "The sheet has no rows yet.",
-        "Done:"
-      );
-    } else if (removed === 0) {
-      showStatus(
-        "success",
-        `No duplicate URLs found among ${rowCount} row(s).`,
-        "Done:"
-      );
-      clearDeletedRows();
-    } else {
-      showStatus(
-        "success",
-        `Removed ${removed} duplicate row${removed === 1 ? "" : "s"} (${rowCount} row(s) scanned). First row for each URL was kept.`,
-        "Done:"
-      );
-      renderDeletedRows(deletedRows);
-    }
-    addLog("success", "Process completed successfully.");
-  } catch (error) {
-    console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
-  } finally {
-    finishButtonProcess();
-  }
-}
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "SIDE_PANEL_PING") {
     sendResponse({ open: true });
@@ -2821,7 +2678,7 @@ async function openSplitWindows() {
   activeRunId = createRunId();
   clearStatus();
   clearDeletedRows();
-  beginButtonProcess("Open Split Windows clicked. Opening the left URL in a new tab...");
+  beginButtonProcess("Make a resume clicked. Opening the left URL in a new tab...");
 
   try {
     const response = await requestOpenUrlInNewTab(leftUrl);
@@ -2909,7 +2766,6 @@ async function closeSplitWindowsAndReturn() {
 
 applyNowButton?.addEventListener("click", applyNow);
 saveButton?.addEventListener("click", saveCurrentTabUrl);
-removeDuplicatesButton?.addEventListener("click", openMakeResumeModal);
 humanizeButton?.addEventListener("click", humanizeChat);
 openSplitWindowsButton?.addEventListener("click", openSplitWindowsModal);
 splitWindowsModalBackdrop?.addEventListener("click", () => setSplitWindowsModalOpen(false));
@@ -2937,11 +2793,6 @@ profileNotesModalBackdrop?.addEventListener("click", () => setProfileNotesModalO
 profileNotesModalCloseButton?.addEventListener("click", () => setProfileNotesModalOpen(false));
 profileNotesModalCancelButton?.addEventListener("click", () => setProfileNotesModalOpen(false));
 profileNotesModalSubmitButton?.addEventListener("click", submitProfileNotesForm);
-
-makeResumeModalBackdrop?.addEventListener("click", () => setMakeResumeModalOpen(false));
-makeResumeModalCloseButton?.addEventListener("click", () => setMakeResumeModalOpen(false));
-makeResumeModalCancelButton?.addEventListener("click", () => setMakeResumeModalOpen(false));
-makeResumeModalBuildButton?.addEventListener("click", buildResume);
 
 configToggleButton?.addEventListener("click", () => {
   if (!guardExtensionUiAction()) {
@@ -3003,11 +2854,6 @@ document.addEventListener("keydown", (event) => {
 
   if (promptResumeFormModal && !promptResumeFormModal.classList.contains("is-hidden")) {
     setPromptResumeFormModalOpen(false);
-    return;
-  }
-
-  if (makeResumeModal && !makeResumeModal.classList.contains("is-hidden")) {
-    setMakeResumeModalOpen(false);
     return;
   }
 

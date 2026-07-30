@@ -52,12 +52,9 @@ A–F use the Google Sheets `CLIP` wrap strategy.
 
 ## Other actions
 
-- **Make a resume** copies the selected profile's Google Docs template, replaces
-  `{{RESUME}}` with the supplied resume text, and opens the new document. If the
-  placeholder is absent, the document body is replaced.
 - **Humanize** sends the configured Humanize prompt to the active or most
   recently used ChatGPT conversation.
-- **Open Split Windows** opens the left web address in a new Chrome tab and
+- **Make a resume** opens the left web address in a new Chrome tab and
   displays the right web address inside a side-panel dialog. Its Back button
   closes the created tab and returns to the previous tab, while Download Resume
   exports a right-side Google Docs URL as PDF.

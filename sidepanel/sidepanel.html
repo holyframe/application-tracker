@@ -90,15 +90,15 @@
 
         <div class="application-duplicate-section">
           <div class="sheet-duplicate-actions">
-            <button id="removeDuplicatesButton" type="button" class="remove-duplicates-button">
+            <button
+              id="openSplitWindowsButton"
+              type="button"
+              class="split-windows-button"
+            >
               <span class="button-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
-                  <path d="M8 6h11" />
-                  <path d="M8 12h8" />
-                  <path d="M8 18h5" />
-                  <path d="M5 6h.01M5 12h.01M5 18h.01" />
-                  <path d="M16 12v4" />
-                  <path d="M14 14h4" />
+                  <rect x="3" y="5" width="8" height="14" rx="1.5" />
+                  <rect x="13" y="5" width="8" height="14" rx="1.5" />
                 </svg>
               </span>
               <span>Make a resume</span>
@@ -114,19 +114,6 @@
               <span>Humanize</span>
             </button>
 
-            <button
-              id="openSplitWindowsButton"
-              type="button"
-              class="split-windows-button"
-            >
-              <span class="button-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <rect x="3" y="5" width="8" height="14" rx="1.5" />
-                  <rect x="13" y="5" width="8" height="14" rx="1.5" />
-                </svg>
-              </span>
-              <span>Open Split Windows</span>
-            </button>
           </div>
         </div>
       </section>
@@ -520,58 +507,6 @@
 
           <button id="promptFormModalSubmitButton" type="button" class="primary-button modal-action-button">
             <span>Save Changes</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div
-      id="makeResumeModal"
-      class="modal make-resume-modal is-hidden"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="makeResumeModalTitle"
-      aria-hidden="true"
-    >
-      <button
-        id="makeResumeModalBackdrop"
-        type="button"
-        class="modal-backdrop"
-        aria-label="Close make a resume dialog"
-      ></button>
-
-      <div class="modal-panel">
-        <div class="modal-header">
-          <h2 id="makeResumeModalTitle">Make a resume</h2>
-          <button
-            id="makeResumeModalCloseButton"
-            type="button"
-            class="modal-close-button"
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-
-        <div class="modal-form">
-          <div class="config-field">
-            <label class="config-label" for="makeResumeContentInput">Resume text</label>
-            <textarea
-              id="makeResumeContentInput"
-              class="make-resume-content-input"
-              placeholder="Paste or type the resume text..."
-              rows="20"
-            ></textarea>
-          </div>
-        </div>
-
-        <div class="modal-actions">
-          <button id="makeResumeModalCancelButton" type="button" class="secondary-button modal-action-button">
-            <span>Cancel</span>
-          </button>
-
-          <button id="makeResumeModalBuildButton" type="button" class="remove-duplicates-button modal-action-button">
-            <span>Build resume</span>
           </button>
         </div>
       </div>
