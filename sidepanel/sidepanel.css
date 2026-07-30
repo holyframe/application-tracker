@@ -1631,6 +1631,18 @@ textarea:focus {
   gap: 12px;
 }
 
+.split-window-urls-input {
+  min-height: 140px;
+  resize: vertical;
+  border-style: dashed;
+}
+
+.split-window-urls-input.is-drag-over {
+  border-color: rgba(84, 87, 255, 0.85);
+  background: rgba(84, 87, 255, 0.08);
+  box-shadow: 0 0 0 4px rgba(84, 87, 255, 0.14);
+}
+
 .split-windows-input-view.is-hidden,
 .split-windows-preview-view.is-hidden {
   display: none;

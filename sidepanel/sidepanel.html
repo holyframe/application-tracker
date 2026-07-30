@@ -656,33 +656,23 @@
 
         <div id="splitWindowsInputView" class="split-windows-input-view">
           <p class="modal-help">
-            The left URL opens in a new Chrome tab. The right URL opens inside
-            this side-panel dialog.
+            Drop or paste multiple URLs below. ChatGPT and Claude URLs open as
+            tabs; Google Docs URLs are paired with them in the same order.
           </p>
 
           <div class="modal-form">
             <div class="config-field">
-              <label class="config-label" for="splitWindowLeftUrlInput">Left URL</label>
-              <input
-                id="splitWindowLeftUrlInput"
-                class="config-input"
-                type="url"
+              <label class="config-label" for="splitWindowUrlsInput">
+                Chat and Google Docs URLs
+              </label>
+              <textarea
+                id="splitWindowUrlsInput"
+                class="split-window-urls-input"
                 inputmode="url"
-                autocomplete="url"
-                placeholder="https://example.com"
-              />
-            </div>
-
-            <div class="config-field">
-              <label class="config-label" for="splitWindowRightUrlInput">Right URL</label>
-              <input
-                id="splitWindowRightUrlInput"
-                class="config-input"
-                type="url"
-                inputmode="url"
-                autocomplete="url"
-                placeholder="https://example.com"
-              />
+                spellcheck="false"
+                rows="6"
+                placeholder="https://chatgpt.com/c/...&#10;https://docs.google.com/document/d/...&#10;https://claude.ai/chat/...&#10;https://docs.google.com/document/d/..."
+              ></textarea>
             </div>
           </div>
 

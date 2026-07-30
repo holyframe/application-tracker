@@ -54,11 +54,13 @@ A–F use the Google Sheets `CLIP` wrap strategy.
 
 - **Humanize** sends the configured Humanize prompt to the active or most
   recently used ChatGPT conversation.
-- **Make a resume** opens the left web address in a new Chrome tab and
-  displays the right web address inside a side-panel dialog. Its Back button
-  closes the created tab and returns to the previous tab, while Download Resume
-  exports a right-side Google Docs URL as PDF. This action is available only
-  while the current tab is a Google Sheets spreadsheet.
+- **Make a resume** accepts multiple dragged or pasted URLs in one textarea. It
+  pairs ChatGPT/Claude URLs with Google Docs URLs in their respective order,
+  opens every chat URL in a new tab, and shows the active chat tab's paired
+  Google Doc in the side panel. Its Back button closes all tabs created by the
+  batch and returns to the previous tab, while Download Resume exports the
+  currently displayed Google Doc as PDF. This action is available only while
+  the current tab is a Google Sheets spreadsheet.
 - Profile notes are stored locally for reference and are not sent to ChatGPT or
   written to the Google Sheet.
 

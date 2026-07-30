@@ -1359,16 +1359,22 @@ async function openUrlInNewTab(runId, options = {}) {
   };
 }
 
-async function closeTabAndReturn(runId, options = {}) {
-  const openedTabId = Number(options.openedTabId);
+async function closeTabsAndReturn(runId, options = {}) {
+  const openedTabIds = [
+    ...new Set(
+      (Array.isArray(options.openedTabIds) ? options.openedTabIds : [])
+        .map(Number)
+        .filter(Number.isInteger)
+    )
+  ];
   const returnTabId = Number(options.returnTabId);
 
-  if (!Number.isInteger(openedTabId) || !Number.isInteger(returnTabId)) {
-    throw new Error("Opened tab and return tab IDs are required.");
+  if (openedTabIds.length === 0 || !Number.isInteger(returnTabId)) {
+    throw new Error("Opened tab IDs and a return tab ID are required.");
   }
 
-  if (openedTabId === returnTabId) {
-    throw new Error("Opened tab and return tab must be different.");
+  if (openedTabIds.includes(returnTabId)) {
+    throw new Error("Opened tabs cannot include the return tab.");
   }
 
   let returnTab;
@@ -1385,16 +1391,20 @@ async function closeTabAndReturn(runId, options = {}) {
     await chrome.windows.update(returnTab.windowId, { focused: true });
   }
 
-  try {
-    await chrome.tabs.remove(openedTabId);
-  } catch (_error) {
-    // The requested return still succeeds if the created tab was already closed.
+  const closedTabIds = [];
+  for (const tabId of openedTabIds) {
+    try {
+      await chrome.tabs.remove(tabId);
+      closedTabIds.push(tabId);
+    } catch (_error) {
+      // The requested return still succeeds if a created tab was already closed.
+    }
   }
 
-  sendLog(runId, "success", "Created tab closed and previous tab restored.");
+  sendLog(runId, "success", "Created tabs closed and previous tab restored.");
 
   return {
-    closedTabId: openedTabId,
+    closedTabIds,
     returnTabId,
     url: returnTab.url || ""
   };
@@ -2074,7 +2084,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
-    CLOSE_TAB_AND_RETURN: closeTabAndReturn,
+    CLOSE_TABS_AND_RETURN: closeTabsAndReturn,
     CREATE_GOOGLE_DOC: createGoogleDoc
   };
 
@@ -2096,9 +2106,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ? run(message.runId, {
               url: message.url
             })
-          : message.type === "CLOSE_TAB_AND_RETURN"
+          : message.type === "CLOSE_TABS_AND_RETURN"
             ? run(message.runId, {
-                openedTabId: message.openedTabId,
+                openedTabIds: message.openedTabIds,
                 returnTabId: message.returnTabId
               })
             : message.type === "CREATE_GOOGLE_DOC"

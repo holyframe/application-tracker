@@ -7,8 +7,7 @@ const splitWindowsModalBackdrop = document.querySelector("#splitWindowsModalBack
 const splitWindowsModalCloseButton = document.querySelector("#splitWindowsModalCloseButton");
 const splitWindowsModalCancelButton = document.querySelector("#splitWindowsModalCancelButton");
 const splitWindowsModalOpenButton = document.querySelector("#splitWindowsModalOpenButton");
-const splitWindowLeftUrlInput = document.querySelector("#splitWindowLeftUrlInput");
-const splitWindowRightUrlInput = document.querySelector("#splitWindowRightUrlInput");
+const splitWindowUrlsInput = document.querySelector("#splitWindowUrlsInput");
 const splitWindowsModalTitle = document.querySelector("#splitWindowsModalTitle");
 const splitWindowsInputView = document.querySelector("#splitWindowsInputView");
 const splitWindowsPreviewView = document.querySelector("#splitWindowsPreviewView");
@@ -98,7 +97,7 @@ let activeRunId = null;
 let isExtensionUiLocked = false;
 let extensionUiLockExpiryTimer = null;
 let currentSplitWindowRightUrl = "";
-let currentSplitWindowOpenedTabId = null;
+let currentSplitWindowPairs = [];
 let currentSplitWindowReturnTabId = null;
 let areActionButtonsDisabled = false;
 let isCurrentTabGoogleSheet = false;
@@ -2610,7 +2609,7 @@ async function downloadSplitWindowResume() {
 
 function resetSplitWindowsSession() {
   currentSplitWindowRightUrl = "";
-  currentSplitWindowOpenedTabId = null;
+  currentSplitWindowPairs = [];
   currentSplitWindowReturnTabId = null;
 }
 
@@ -2623,14 +2622,13 @@ function setSplitWindowsModalOpen(isOpen) {
   if (isOpen) {
     resetSplitWindowsSession();
     setSplitWindowsPreview("");
-    splitWindowLeftUrlInput?.focus();
+    splitWindowUrlsInput?.focus();
     return;
   }
 
   setSplitWindowsPreview("");
   resetSplitWindowsSession();
-  if (splitWindowLeftUrlInput) splitWindowLeftUrlInput.value = "";
-  if (splitWindowRightUrlInput) splitWindowRightUrlInput.value = "";
+  if (splitWindowUrlsInput) splitWindowUrlsInput.value = "";
   openSplitWindowsButton?.focus();
 }
 
@@ -2704,6 +2702,112 @@ function normalizeSplitWindowUrl(value, label) {
   return parsed.href;
 }
 
+function parseSplitWindowUrls(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    throw new Error("Drop or paste URLs before continuing.");
+  }
+
+  const candidates = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .flatMap((line) => {
+      const detectedHttpUrls = line.match(/https?:\/\/[^\s<>"']+/gi);
+      return detectedHttpUrls?.length ? detectedHttpUrls : [line];
+    });
+  const normalizedUrls = [];
+  const seenUrls = new Set();
+
+  candidates.forEach((candidate, index) => {
+    try {
+      const url = normalizeSplitWindowUrl(candidate, `URL ${index + 1}`);
+      if (!seenUrls.has(url)) {
+        seenUrls.add(url);
+        normalizedUrls.push(url);
+      }
+    } catch (_error) {
+      // Ignore dropped text that is not a web URL.
+    }
+  });
+
+  const chatUrls = normalizedUrls.filter(isChatOrClaudeUrl);
+  const googleDocUrls = normalizedUrls.filter(isGoogleDocsUrl);
+  const pairCount = Math.min(chatUrls.length, googleDocUrls.length);
+
+  if (pairCount === 0) {
+    throw new Error(
+      "Add at least one ChatGPT or Claude URL and one Google Docs URL."
+    );
+  }
+
+  return {
+    pairs: Array.from({ length: pairCount }, (_unused, index) => ({
+      leftUrl: chatUrls[index],
+      rightUrl: googleDocUrls[index]
+    })),
+    ignoredUrlCount:
+      normalizedUrls.length - chatUrls.length - googleDocUrls.length,
+    unmatchedChatCount: chatUrls.length - pairCount,
+    unmatchedGoogleDocCount: googleDocUrls.length - pairCount
+  };
+}
+
+function isChatOrClaudeUrl(url = "") {
+  try {
+    const hostname = new URL(String(url || "")).hostname.toLowerCase();
+    return (
+      hostname === "chatgpt.com" ||
+      hostname.endsWith(".chatgpt.com") ||
+      hostname === "chat.openai.com" ||
+      hostname.endsWith(".chat.openai.com") ||
+      hostname === "claude.ai" ||
+      hostname.endsWith(".claude.ai")
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function isGoogleDocsUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    return (
+      parsed.hostname === "docs.google.com" &&
+      /\/document\/(?:u\/\d+\/)?d\/[a-zA-Z0-9-_]+/.test(parsed.pathname)
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function getDroppedUrlText(dataTransfer) {
+  const uriList = String(dataTransfer?.getData("text/uri-list") || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .join("\n");
+
+  return uriList || String(dataTransfer?.getData("text/plain") || "").trim();
+}
+
+function appendDroppedUrls(dataTransfer) {
+  if (!splitWindowUrlsInput) {
+    return;
+  }
+
+  const droppedText = getDroppedUrlText(dataTransfer);
+  if (!droppedText) {
+    return;
+  }
+
+  const existingText = splitWindowUrlsInput.value.trim();
+  splitWindowUrlsInput.value = [existingText, droppedText]
+    .filter(Boolean)
+    .join("\n");
+  splitWindowUrlsInput.focus();
+}
+
 function setSplitWindowsPreview(rightUrl) {
   const url = String(rightUrl || "").trim();
   const isPreviewing = Boolean(url);
@@ -2729,6 +2833,23 @@ function setSplitWindowsPreview(rightUrl) {
   }
 }
 
+function showSplitWindowPairForTab(tabId) {
+  const pairIndex = currentSplitWindowPairs.findIndex(
+    (pair) => pair.tabId === tabId
+  );
+  if (pairIndex < 0 || splitWindowsModal?.classList.contains("is-hidden")) {
+    return false;
+  }
+
+  setSplitWindowsPreview(currentSplitWindowPairs[pairIndex].rightUrl);
+  if (splitWindowsModalTitle) {
+    splitWindowsModalTitle.textContent =
+      `Resume ${pairIndex + 1} of ${currentSplitWindowPairs.length}`;
+  }
+
+  return true;
+}
+
 async function requestOpenUrlInNewTab(url) {
   const response = await chrome.runtime.sendMessage({
     type: "OPEN_URL_IN_NEW_TAB",
@@ -2752,25 +2873,14 @@ async function openSplitWindows() {
     return;
   }
 
-  let leftUrl;
+  let batch;
   try {
-    leftUrl = normalizeSplitWindowUrl(splitWindowLeftUrlInput?.value, "Left");
+    batch = parseSplitWindowUrls(splitWindowUrlsInput?.value);
   } catch (error) {
-    const message = error.message || "Enter two valid web addresses.";
+    const message = error.message || "Add valid ChatGPT, Claude, and Google Docs URLs.";
     showStatus("error", message);
     addLog("error", message);
-    splitWindowLeftUrlInput?.focus();
-    return;
-  }
-
-  let rightUrl;
-  try {
-    rightUrl = normalizeSplitWindowUrl(splitWindowRightUrlInput?.value, "Right");
-  } catch (error) {
-    const message = error.message || "Enter two valid web addresses.";
-    showStatus("error", message);
-    addLog("error", message);
-    splitWindowRightUrlInput?.focus();
+    splitWindowUrlsInput?.focus();
     return;
   }
 
@@ -2779,36 +2889,85 @@ async function openSplitWindows() {
   clearDeletedRows();
   beginButtonProcess("Make a resume clicked. Checking for an open Google Sheet...");
 
+  const openedPairs = [];
+  let returnTabId = null;
+
   try {
     await requireOpenGoogleSheet();
-    addLog("info", "Google Sheet found. Opening the left URL in a new tab...");
-    const response = await requestOpenUrlInNewTab(leftUrl);
+    addLog(
+      "info",
+      `Google Sheet found. Opening ${batch.pairs.length} chat/resume pair${
+        batch.pairs.length === 1 ? "" : "s"
+      }...`
+    );
+
+    for (const [index, pair] of batch.pairs.entries()) {
+      addLog(
+        "info",
+        `Opening ${index + 1} of ${batch.pairs.length}: ${pair.leftUrl}`
+      );
+      const response = await requestOpenUrlInNewTab(pair.leftUrl);
+
+      if (returnTabId === null && Number.isInteger(response.returnTabId)) {
+        returnTabId = response.returnTabId;
+      }
+
+      openedPairs.push({
+        tabId: response.tabId,
+        leftUrl: pair.leftUrl,
+        rightUrl: pair.rightUrl
+      });
+    }
 
     const isModalStillOpen = !splitWindowsModal?.classList.contains("is-hidden");
     if (isModalStillOpen) {
-      currentSplitWindowOpenedTabId = Number.isInteger(response.tabId)
-        ? response.tabId
-        : null;
-      currentSplitWindowReturnTabId = Number.isInteger(response.returnTabId)
-        ? response.returnTabId
-        : null;
-      setSplitWindowsPreview(rightUrl);
+      currentSplitWindowPairs = openedPairs;
+      currentSplitWindowReturnTabId = returnTabId;
+      showSplitWindowPairForTab(openedPairs.at(-1)?.tabId);
     }
 
     showStatus(
       "success",
       isModalStillOpen
-        ? "Left URL opened in a new tab. The right URL is loading in the sidebar."
-        : "Left URL opened in a new tab.",
+        ? `Opened ${openedPairs.length} chat tab${
+            openedPairs.length === 1 ? "" : "s"
+          }. Switch among them to load each paired Google Doc in the sidebar.`
+        : `Opened ${openedPairs.length} chat tab${
+            openedPairs.length === 1 ? "" : "s"
+          }.`,
       "Opened:"
     );
     addLog(
       "success",
       isModalStillOpen
-        ? "Left tab opened and right sidebar preview loaded."
-        : "Left tab opened; the sidebar dialog was closed before previewing the right URL."
+        ? `${openedPairs.length} chat/resume pair${
+            openedPairs.length === 1 ? "" : "s"
+          } opened successfully.`
+        : "Chat tabs opened; the sidebar dialog was closed before previewing the resumes."
     );
+
+    const unmatchedCount =
+      batch.unmatchedChatCount +
+      batch.unmatchedGoogleDocCount +
+      batch.ignoredUrlCount;
+    if (unmatchedCount > 0) {
+      addLog(
+        "info",
+        `Ignored ${unmatchedCount} unrelated or unmatched URL${
+          unmatchedCount === 1 ? "" : "s"
+        }.`
+      );
+    }
   } catch (error) {
+    if (
+      openedPairs.length > 0 &&
+      !splitWindowsModal?.classList.contains("is-hidden")
+    ) {
+      currentSplitWindowPairs = openedPairs;
+      currentSplitWindowReturnTabId = returnTabId;
+      showSplitWindowPairForTab(openedPairs.at(-1)?.tabId);
+    }
+
     console.error(error);
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
@@ -2827,7 +2986,7 @@ async function closeSplitWindowsAndReturn() {
   }
 
   if (
-    !Number.isInteger(currentSplitWindowOpenedTabId) ||
+    currentSplitWindowPairs.length === 0 ||
     !Number.isInteger(currentSplitWindowReturnTabId)
   ) {
     const message = "Could not identify the tabs needed to return.";
@@ -2839,13 +2998,13 @@ async function closeSplitWindowsAndReturn() {
   activeRunId = createRunId();
   clearStatus();
   clearDeletedRows();
-  beginButtonProcess("Back clicked. Closing the created tab and returning...");
+  beginButtonProcess("Back clicked. Closing the created tabs and returning...");
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: "CLOSE_TAB_AND_RETURN",
+      type: "CLOSE_TABS_AND_RETURN",
       runId: activeRunId,
-      openedTabId: currentSplitWindowOpenedTabId,
+      openedTabIds: currentSplitWindowPairs.map((pair) => pair.tabId),
       returnTabId: currentSplitWindowReturnTabId
     });
 
@@ -2855,7 +3014,7 @@ async function closeSplitWindowsAndReturn() {
 
     setSplitWindowsModalOpen(false);
     showStatus("success", response.url || "Previous tab restored.", "Returned:");
-    addLog("success", "Created tab closed and previous tab restored.");
+    addLog("success", "Created tabs closed and previous tab restored.");
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Something went wrong.");
@@ -2875,13 +3034,30 @@ splitWindowsModalCancelButton?.addEventListener("click", () => setSplitWindowsMo
 splitWindowsModalOpenButton?.addEventListener("click", openSplitWindows);
 splitWindowsPreviewBackButton?.addEventListener("click", closeSplitWindowsAndReturn);
 splitWindowsPreviewDownloadButton?.addEventListener("click", downloadSplitWindowResume);
-[splitWindowLeftUrlInput, splitWindowRightUrlInput].forEach((input) => {
-  input?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      openSplitWindows();
-    }
-  });
+splitWindowUrlsInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    openSplitWindows();
+  }
+});
+splitWindowUrlsInput?.addEventListener("dragenter", (event) => {
+  event.preventDefault();
+  splitWindowUrlsInput.classList.add("is-drag-over");
+});
+splitWindowUrlsInput?.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "copy";
+  }
+  splitWindowUrlsInput.classList.add("is-drag-over");
+});
+splitWindowUrlsInput?.addEventListener("dragleave", () => {
+  splitWindowUrlsInput.classList.remove("is-drag-over");
+});
+splitWindowUrlsInput?.addEventListener("drop", (event) => {
+  event.preventDefault();
+  splitWindowUrlsInput.classList.remove("is-drag-over");
+  appendDroppedUrls(event.dataTransfer);
 });
 
 addProfileButton?.addEventListener("click", openAddProfileModal);
@@ -2987,8 +3163,9 @@ clearLogsButton?.addEventListener("click", () => {
   addLog("info", "Process logs cleared.");
 });
 
-chrome.tabs.onActivated.addListener(() => {
+chrome.tabs.onActivated.addListener((activeInfo) => {
   refreshMakeResumeButtonAvailability();
+  showSplitWindowPairForTab(activeInfo.tabId);
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
