@@ -203,6 +203,37 @@ function isGoogleDocsDocumentUrl(url = "") {
   }
 }
 
+function isGoogleSheetsDocumentUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    if (parsed.hostname !== "docs.google.com") {
+      return false;
+    }
+
+    return /\/spreadsheets\/(?:u\/\d+\/)?d\/[a-zA-Z0-9-_]+/.test(
+      parsed.pathname
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function checkOpenGoogleSheet() {
+  const [sheetTab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true
+  });
+  const isCurrentTabGoogleSheet =
+    Number.isInteger(sheetTab?.id) &&
+    isGoogleSheetsDocumentUrl(sheetTab.url || "");
+
+  return {
+    open: isCurrentTabGoogleSheet,
+    tabId: isCurrentTabGoogleSheet ? sheetTab.id : null,
+    url: isCurrentTabGoogleSheet ? sheetTab.url || "" : ""
+  };
+}
+
 function sanitizeDownloadFilename(name) {
   const cleaned = String(name || "")
     .replace(/\s*-\s*Google Docs\s*$/i, "")
@@ -2041,6 +2072,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
     HUMANIZE_CHATGPT: humanizeChatGptConversation,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
+    CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
     CLOSE_TAB_AND_RETURN: closeTabAndReturn,
     CREATE_GOOGLE_DOC: createGoogleDoc

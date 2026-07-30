@@ -57,7 +57,8 @@ A–F use the Google Sheets `CLIP` wrap strategy.
 - **Make a resume** opens the left web address in a new Chrome tab and
   displays the right web address inside a side-panel dialog. Its Back button
   closes the created tab and returns to the previous tab, while Download Resume
-  exports a right-side Google Docs URL as PDF.
+  exports a right-side Google Docs URL as PDF. This action is available only
+  while the current tab is a Google Sheets spreadsheet.
 - Profile notes are stored locally for reference and are not sent to ChatGPT or
   written to the Google Sheet.
 

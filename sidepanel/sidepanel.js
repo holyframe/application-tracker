@@ -100,6 +100,10 @@ let extensionUiLockExpiryTimer = null;
 let currentSplitWindowRightUrl = "";
 let currentSplitWindowOpenedTabId = null;
 let currentSplitWindowReturnTabId = null;
+let areActionButtonsDisabled = false;
+let isCurrentTabGoogleSheet = false;
+let makeResumeAvailabilityRequestId = 0;
+let isMakeResumeOpening = false;
 
 function createRunId() {
   if (crypto.randomUUID) {
@@ -920,11 +924,69 @@ async function submitProfileForm() {
   }
 }
 
+function isGoogleSheetsDocumentUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    return (
+      parsed.hostname === "docs.google.com" &&
+      /\/spreadsheets\/(?:u\/\d+\/)?d\/[a-zA-Z0-9-_]+/.test(parsed.pathname)
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function updateMakeResumeButtonDisabledState() {
+  if (!openSplitWindowsButton) {
+    return;
+  }
+
+  const isDisabled =
+    areActionButtonsDisabled || isMakeResumeOpening || !isCurrentTabGoogleSheet;
+  openSplitWindowsButton.disabled = isDisabled;
+  openSplitWindowsButton.setAttribute("aria-disabled", String(isDisabled));
+
+  if (isCurrentTabGoogleSheet) {
+    openSplitWindowsButton.removeAttribute("title");
+  } else {
+    openSplitWindowsButton.title =
+      "Make a resume is available only when the current tab is a Google Sheet.";
+  }
+}
+
+async function refreshMakeResumeButtonAvailability() {
+  const requestId = ++makeResumeAvailabilityRequestId;
+
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true
+    });
+
+    if (requestId !== makeResumeAvailabilityRequestId) {
+      return;
+    }
+
+    isCurrentTabGoogleSheet = isGoogleSheetsDocumentUrl(tab?.url || "");
+  } catch (error) {
+    if (requestId !== makeResumeAvailabilityRequestId) {
+      return;
+    }
+
+    console.error("Could not check the current tab for Google Sheets:", error);
+    isCurrentTabGoogleSheet = false;
+  }
+
+  updateMakeResumeButtonDisabledState();
+}
+
 function setSaveButtonsDisabled(disabled) {
+  areActionButtonsDisabled = Boolean(disabled);
+
   if (applyNowButton) applyNowButton.disabled = disabled;
   if (saveButton) saveButton.disabled = disabled;
   if (humanizeButton) humanizeButton.disabled = disabled;
-  if (openSplitWindowsButton) openSplitWindowsButton.disabled = disabled;
+  updateMakeResumeButtonDisabledState();
   if (splitWindowsModalOpenButton) splitWindowsModalOpenButton.disabled = disabled;
   if (splitWindowsPreviewBackButton) splitWindowsPreviewBackButton.disabled = disabled;
   if (splitWindowsPreviewDownloadButton) {
@@ -2572,12 +2634,49 @@ function setSplitWindowsModalOpen(isOpen) {
   openSplitWindowsButton?.focus();
 }
 
-function openSplitWindowsModal() {
+async function requireOpenGoogleSheet() {
+  const response = await chrome.runtime.sendMessage({
+    type: "CHECK_GOOGLE_SHEET_OPEN"
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Could not check for an open Google Sheet.");
+  }
+
+  if (!response.open) {
+    throw new Error(
+      "Make a resume is available only when the current tab is a Google Sheet."
+    );
+  }
+
+  return response;
+}
+
+async function openSplitWindowsModal() {
   if (!guardExtensionUiAction()) {
     return;
   }
 
-  setSplitWindowsModalOpen(true);
+  if (openSplitWindowsButton?.disabled) {
+    return;
+  }
+
+  isMakeResumeOpening = true;
+  updateMakeResumeButtonDisabledState();
+
+  try {
+    await requireOpenGoogleSheet();
+    setSplitWindowsModalOpen(true);
+  } catch (error) {
+    console.error(error);
+    const message =
+      error.message || "Open a Google Sheets spreadsheet before continuing.";
+    showStatus("error", message);
+    addLog("error", message);
+  } finally {
+    isMakeResumeOpening = false;
+    await refreshMakeResumeButtonAvailability();
+  }
 }
 
 function normalizeSplitWindowUrl(value, label) {
@@ -2678,9 +2777,11 @@ async function openSplitWindows() {
   activeRunId = createRunId();
   clearStatus();
   clearDeletedRows();
-  beginButtonProcess("Make a resume clicked. Opening the left URL in a new tab...");
+  beginButtonProcess("Make a resume clicked. Checking for an open Google Sheet...");
 
   try {
+    await requireOpenGoogleSheet();
+    addLog("info", "Google Sheet found. Opening the left URL in a new tab...");
     const response = await requestOpenUrlInNewTab(leftUrl);
 
     const isModalStillOpen = !splitWindowsModal?.classList.contains("is-hidden");
@@ -2886,6 +2987,22 @@ clearLogsButton?.addEventListener("click", () => {
   addLog("info", "Process logs cleared.");
 });
 
+chrome.tabs.onActivated.addListener(() => {
+  refreshMakeResumeButtonAvailability();
+});
+
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (tab.active && (changeInfo.url || changeInfo.status === "complete")) {
+    refreshMakeResumeButtonAvailability();
+  }
+});
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+    refreshMakeResumeButtonAvailability();
+  }
+});
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") {
     return;
@@ -2927,4 +3044,6 @@ loadSheetConfig();
 loadPromptSelection();
 loadHumanizePromptSelection();
 loadJobDescriptionSelection();
-loadExtensionUiLockState();
+loadExtensionUiLockState().finally(() => {
+  refreshMakeResumeButtonAvailability();
+});
