@@ -245,7 +245,8 @@
         </div>
 
         <p id="uiLockNotice" class="ui-lock-notice is-hidden" aria-live="polite">
-          Waiting for the check notification. You can view process logs only.
+          Waiting for the check notification. The current application workspace
+          and process logs remain available.
         </p>
 
         <div class="logs-shell">
@@ -699,6 +700,34 @@
           id="splitWindowsPreviewView"
           class="split-windows-preview-view is-hidden"
         >
+          <div
+            id="splitWindowsPreviewTabs"
+            class="split-windows-preview-tabs is-hidden"
+            role="tablist"
+            aria-label="Application workspace"
+          >
+            <button
+              id="splitWindowsJobTabButton"
+              type="button"
+              class="split-windows-preview-tab is-active"
+              role="tab"
+              aria-selected="true"
+            >
+              <span>Job page</span>
+            </button>
+
+            <button
+              id="splitWindowsResumeTabButton"
+              type="button"
+              class="split-windows-preview-tab"
+              role="tab"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              <span>Profile resume</span>
+            </button>
+          </div>
+
           <div class="split-windows-preview-location">
             <span id="splitWindowsPreviewUrl"></span>
           </div>
@@ -712,8 +741,8 @@
           ></iframe>
 
           <p class="split-windows-preview-help">
-            Download Resume works when the right URL is a Google Docs document.
-            Some websites may block embedded previews.
+            Preview content is embedded in the side panel. Some websites may
+            block embedded previews.
           </p>
 
           <div class="modal-actions">

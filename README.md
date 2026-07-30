@@ -17,17 +17,22 @@ It combines:
 Before saving an application, select a profile and resume variant and provide a
 base GPT prompt and job description.
 
-`Save App` and `Apply Now` then:
+Both actions normalize the active job URL, copy the selected profile's
+configured Google Docs resume template, submit the prepared message to ChatGPT,
+save the six-column application record, and schedule a two-minute check
+reminder.
 
-1. Read and normalize the active job-page URL.
-2. Copy the selected profile's Google Docs resume template.
-3. Open ChatGPT and submit the base prompt, job description, and selected resume text.
-4. Wait for the permanent ChatGPT conversation URL.
-5. Append an application record to a sheet tab named after the selected profile.
-6. Organize the related browser tabs and schedule a two-minute check reminder.
+`Save App` uses the original job tab as the ChatGPT tab. Before navigating it
+to ChatGPT, the extension opens an application workspace in the side-panel
+modal with two custom tabs:
 
-`Save App` accepts ungrouped or grouped job tabs. If the job tab is already
-grouped, the generated ChatGPT tab is added to that existing group.
+- **Job page** embeds the original job URL.
+- **Profile resume** embeds the copied resume document created from the
+  selected profile's configured template.
+
+No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
+already-grouped job tab and leaves any existing group unchanged. The check
+reminder focuses the resulting ChatGPT tab instead of opening duplicate tabs.
 
 `Apply Now` requires an ungrouped job tab and immediately groups the job page,
 resume document, and ChatGPT conversation.

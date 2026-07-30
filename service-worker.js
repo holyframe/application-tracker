@@ -19,9 +19,6 @@ const SAVE_CHECK_REMINDER_ALARM_NAME = "save-current-tab-check-reminder";
 const SAVE_CHECK_REMINDER_STORAGE_KEY = "saveCheckReminder";
 const SAVE_CHECK_REMINDER_DELAY_MINUTES = 2;
 const SAVE_CHECK_REMINDER_NOTIFICATION_ID = "application-helper-check-reminder";
-const JOB_GPT_TAB_GROUP_ALARM_NAME = "group-job-gpt-tabs-after-save";
-const JOB_GPT_TAB_GROUP_STORAGE_KEY = "pendingJobGptTabGroup";
-const JOB_GPT_TAB_GROUP_DELAY_MINUTES = 1.9;
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
 const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
 const APPLICATION_SHEET_HEADERS = Object.freeze([
@@ -1107,6 +1104,24 @@ async function openNewChatGptTab(runId, { active = true } = {}) {
   };
 }
 
+async function openChatGptInExistingTab(tabId, runId) {
+  if (typeof tabId !== "number") {
+    throw new Error("Current job tab does not have a valid tab ID.");
+  }
+
+  sendLog(runId, "info", "Opening ChatGPT in the current job tab...");
+  await chrome.tabs.update(tabId, {
+    url: CHATGPT_URL,
+    active: true
+  });
+  await waitForTabComplete(tabId);
+
+  return {
+    url: CHATGPT_URL,
+    tabId
+  };
+}
+
 async function resolveChatGptUrlAfterSend(tabId, runId) {
   const startedAt = Date.now();
   const timeoutMs = 60000;
@@ -1133,15 +1148,19 @@ async function resolveChatGptUrlAfterSend(tabId, runId) {
   );
 }
 
-async function sendToChatGptAndGetUrl(text, runId) {
+async function sendToChatGptAndGetUrl(text, runId, options = {}) {
   const promptText = String(text ?? "").trim();
   if (!promptText) {
     throw new Error("Nothing to send to ChatGPT.");
   }
 
-  const { tabId } = await openNewChatGptTab(runId, { active: true });
+  const targetTab =
+    typeof options.tabId === "number"
+      ? await openChatGptInExistingTab(options.tabId, runId)
+      : await openNewChatGptTab(runId, { active: true });
+  const { tabId } = targetTab;
   if (typeof tabId !== "number") {
-    throw new Error("Could not open a new ChatGPT tab.");
+    throw new Error("Could not open ChatGPT.");
   }
 
   const settleMs = randomDelayMs(
@@ -1415,6 +1434,7 @@ async function scheduleSaveCheckReminder(
     jobTitle = "",
     jobUrl = "",
     chatGptUrl = "",
+    chatGptTabId = null,
     windowId = null,
     mode = "save",
     groupId = null
@@ -1426,6 +1446,7 @@ async function scheduleSaveCheckReminder(
       jobTitle: String(jobTitle || "Application").trim() || "Application",
       jobUrl: String(jobUrl || "").trim(),
       chatGptUrl: String(chatGptUrl || CHATGPT_URL).trim() || CHATGPT_URL,
+      chatGptTabId: typeof chatGptTabId === "number" ? chatGptTabId : null,
       windowId: typeof windowId === "number" ? windowId : null,
       mode: mode === "apply" ? "apply" : "save",
       groupId: typeof groupId === "number" ? groupId : null,
@@ -1482,23 +1503,12 @@ async function lockExtensionUiUntilNotification(runId) {
   sendLog(
     runId,
     "info",
-    "Extension locked until check notification. Process logs only."
+    "Extension locked until check notification. The application workspace and process logs remain available."
   );
 }
 
 async function unlockExtensionUi() {
   await chrome.storage.local.remove(EXTENSION_UI_LOCK_STORAGE_KEY);
-}
-
-async function openReminderUrls(jobUrl, chatGptUrl) {
-  const normalizedJobUrl = String(jobUrl || "").trim();
-  const normalizedChatGptUrl = String(chatGptUrl || CHATGPT_URL).trim() || CHATGPT_URL;
-
-  if (normalizedJobUrl) {
-    await chrome.tabs.create({ url: normalizedJobUrl, active: false });
-  }
-
-  await chrome.tabs.create({ url: normalizedChatGptUrl, active: true });
 }
 
 async function focusReminderSourceWindow(windowId) {
@@ -1511,6 +1521,25 @@ async function focusReminderSourceWindow(windowId) {
   } catch (_error) {
     // Window may have been closed.
   }
+}
+
+async function focusReminderChatTab(chatGptTabId, chatGptUrl, windowId) {
+  if (typeof chatGptTabId === "number") {
+    try {
+      const tab = await chrome.tabs.get(chatGptTabId);
+      await chrome.tabs.update(chatGptTabId, { active: true });
+      await focusReminderSourceWindow(tab.windowId);
+      return;
+    } catch (_error) {
+      // The original ChatGPT tab may have been closed.
+    }
+  }
+
+  await focusReminderSourceWindow(windowId);
+  await chrome.tabs.create({
+    url: String(chatGptUrl || CHATGPT_URL).trim() || CHATGPT_URL,
+    active: true
+  });
 }
 
 async function focusApplicationTabGroup(groupId, windowId) {
@@ -1546,129 +1575,6 @@ async function focusApplicationTabGroup(groupId, windowId) {
   }
 }
 
-async function groupJobAndGptTabs({
-  jobTabId,
-  chatGptTabId,
-  groupTitle = "Application",
-  runId = null
-}) {
-  if (typeof jobTabId !== "number" || typeof chatGptTabId !== "number") {
-    throw new Error("Job and ChatGPT tabs must have valid tab IDs.");
-  }
-
-  let jobTab;
-  let gptTab;
-
-  try {
-    jobTab = await chrome.tabs.get(jobTabId);
-    gptTab = await chrome.tabs.get(chatGptTabId);
-  } catch (_error) {
-    sendLog(
-      runId,
-      "info",
-      "One or both tabs were closed before grouping could run."
-    );
-    return null;
-  }
-
-  if (gptTab.windowId !== jobTab.windowId) {
-    try {
-      await chrome.tabs.move(chatGptTabId, { windowId: jobTab.windowId, index: -1 });
-    } catch (error) {
-      sendLog(
-        runId,
-        "error",
-        `Could not move ChatGPT tab for grouping: ${error.message || error}`
-      );
-      return null;
-    }
-  }
-
-  const existingJobGroupId = isTabInGroup(jobTab) ? jobTab.groupId : null;
-
-  if (existingJobGroupId !== null) {
-    sendLog(runId, "info", "Adding ChatGPT tab to the existing job tab group...");
-    await chrome.tabs.group({
-      groupId: existingJobGroupId,
-      tabIds: [chatGptTabId]
-    });
-    sendLog(runId, "success", "ChatGPT tab added to the existing job tab group.");
-    return existingJobGroupId;
-  }
-
-  sendLog(runId, "info", "Grouping job and ChatGPT tabs...");
-  const groupId = await chrome.tabs.group({ tabIds: [jobTabId, chatGptTabId] });
-
-  await chrome.tabGroups.update(groupId, {
-    title: String(groupTitle || "Application").trim().slice(0, 100) || "Application",
-    color: "green"
-  });
-
-  sendLog(runId, "success", "Job and ChatGPT tabs grouped.");
-  return groupId;
-}
-
-async function scheduleJobAndGptTabGroup(
-  chatGptTabId,
-  runId,
-  { jobTabId = null, groupTitle = "Application" } = {}
-) {
-  if (typeof jobTabId !== "number" || typeof chatGptTabId !== "number") {
-    sendLog(runId, "info", "Skipping tab grouping because a tab ID is missing.");
-    return;
-  }
-
-  await chrome.storage.local.set({
-    [JOB_GPT_TAB_GROUP_STORAGE_KEY]: {
-      jobTabId,
-      chatGptTabId,
-      groupTitle: String(groupTitle || "Application").trim() || "Application",
-      scheduledAt: Date.now()
-    }
-  });
-
-  await chrome.alarms.clear(JOB_GPT_TAB_GROUP_ALARM_NAME);
-  await chrome.alarms.create(JOB_GPT_TAB_GROUP_ALARM_NAME, {
-    delayInMinutes: JOB_GPT_TAB_GROUP_DELAY_MINUTES
-  });
-
-  sendLog(
-    runId,
-    "info",
-    `Job and ChatGPT tabs will be grouped in ${JOB_GPT_TAB_GROUP_DELAY_MINUTES} minutes.`
-  );
-}
-
-async function groupScheduledJobAndGptTabs() {
-  const stored = await chrome.storage.local.get([
-    JOB_GPT_TAB_GROUP_STORAGE_KEY,
-    SAVE_CHECK_REMINDER_STORAGE_KEY
-  ]);
-  const pending = stored[JOB_GPT_TAB_GROUP_STORAGE_KEY];
-
-  if (!pending) {
-    await chrome.storage.local.remove(JOB_GPT_TAB_GROUP_STORAGE_KEY);
-    return;
-  }
-
-  const groupId = await groupJobAndGptTabs({
-    jobTabId: pending.jobTabId,
-    chatGptTabId: pending.chatGptTabId,
-    groupTitle: pending.groupTitle
-  });
-
-  if (groupId != null && stored[SAVE_CHECK_REMINDER_STORAGE_KEY]) {
-    await chrome.storage.local.set({
-      [SAVE_CHECK_REMINDER_STORAGE_KEY]: {
-        ...stored[SAVE_CHECK_REMINDER_STORAGE_KEY],
-        groupId
-      }
-    });
-  }
-
-  await chrome.storage.local.remove(JOB_GPT_TAB_GROUP_STORAGE_KEY);
-}
-
 async function showSaveCheckReminderNotification() {
   const stored = await chrome.storage.local.get(SAVE_CHECK_REMINDER_STORAGE_KEY);
   const reminder = stored[SAVE_CHECK_REMINDER_STORAGE_KEY] || {};
@@ -1700,8 +1606,12 @@ async function dismissSaveCheckReminderNotification(
 ) {
   const reminder = await getSaveCheckReminderState();
 
-  if (action === "openUrls") {
-    await openReminderUrls(reminder.jobUrl, reminder.chatGptUrl);
+  if (action === "focusChat") {
+    await focusReminderChatTab(
+      reminder.chatGptTabId,
+      reminder.chatGptUrl,
+      reminder.windowId
+    );
   } else if (action === "focusWindow") {
     await focusReminderSourceWindow(reminder.windowId);
   } else if (action === "openGroup") {
@@ -1721,14 +1631,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
     return;
   }
-
-  if (alarm.name === JOB_GPT_TAB_GROUP_ALARM_NAME) {
-    try {
-      await groupScheduledJobAndGptTabs();
-    } catch (error) {
-      console.error("Could not group scheduled job and ChatGPT tabs:", error);
-    }
-  }
 });
 
 chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
@@ -1743,9 +1645,7 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
   try {
     const reminder = await getSaveCheckReminderState();
     const action =
-      reminder.mode === "apply" || typeof reminder.groupId === "number"
-        ? "dismiss"
-        : "openUrls";
+      reminder.mode === "apply" ? "dismiss" : "focusChat";
     await dismissSaveCheckReminderNotification(notificationId, { action });
   } catch (error) {
     console.error("Could not handle save check reminder notification button:", error);
@@ -1760,9 +1660,7 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
   try {
     const reminder = await getSaveCheckReminderState();
     const action =
-      reminder.mode === "apply" || typeof reminder.groupId === "number"
-        ? "openGroup"
-        : "focusWindow";
+      reminder.mode === "apply" ? "openGroup" : "focusChat";
     await dismissSaveCheckReminderNotification(notificationId, { action });
   } catch (error) {
     console.error("Could not handle save check reminder notification click:", error);
@@ -1781,6 +1679,9 @@ chrome.runtime.onInstalled.addListener(async () => {
   chrome.sidePanel.setPanelBehavior({
     openPanelOnActionClick: true
   });
+
+  await chrome.alarms.clear("group-job-gpt-tabs-after-save");
+  await chrome.storage.local.remove("pendingJobGptTabGroup");
 
   const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
   const config = stored[SHEET_CONFIG_STORAGE_KEY] || {};
@@ -2259,8 +2160,27 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
     let chatGptUrl = CHATGPT_URL;
     let chatGptTabId = null;
 
+    if (typeof tab.id !== "number") {
+      throw new Error("Current tab does not have a valid tab ID.");
+    }
+
+    if (!groupTabsInsteadOfClosing) {
+      await notifyExtensionPages({
+        type: "SHOW_SAVE_WORKSPACE",
+        runId,
+        jobTitle: tab.title || "Job page",
+        jobUrl: tab.url,
+        profileName,
+        resumeUrl
+      });
+    }
+
     if (chatGptMessage) {
-      const chatGptResult = await sendToChatGptAndGetUrl(chatGptMessage, runId);
+      const chatGptResult = await sendToChatGptAndGetUrl(
+        chatGptMessage,
+        runId,
+        groupTabsInsteadOfClosing ? {} : { tabId: tab.id }
+      );
       chatGptUrl = chatGptResult.url;
       chatGptTabId = chatGptResult.tabId;
     } else {
@@ -2269,7 +2189,9 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         "info",
         "No GPT prompt, job description, or prompt resume configured."
       );
-      const chatGptResult = await openNewChatGptTab(runId);
+      const chatGptResult = groupTabsInsteadOfClosing
+        ? await openNewChatGptTab(runId)
+        : await openChatGptInExistingTab(tab.id, runId);
       chatGptUrl = chatGptResult.url;
       chatGptTabId = chatGptResult.tabId;
     }
@@ -2298,10 +2220,6 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       `URL saved to profile sheet tab "${profileName}".`
     );
 
-    if (typeof tab.id !== "number") {
-      throw new Error("Current tab does not have a valid tab ID.");
-    }
-
     let applicationGroupId = null;
 
     if (groupTabsInsteadOfClosing) {
@@ -2313,15 +2231,6 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         groupTitle: tab.title || "Application",
         runId
       });
-    } else {
-      if (typeof chatGptTabId === "number") {
-        await scheduleJobAndGptTabGroup(chatGptTabId, runId, {
-          jobTabId: tab.id,
-          groupTitle: tab.title || "Application"
-        });
-      } else {
-        sendLog(runId, "info", "ChatGPT tab unavailable. Leaving job tab open.");
-      }
     }
 
     await scheduleSaveCheckReminder(
@@ -2329,6 +2238,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         jobTitle: tab.title || "",
         jobUrl: urlForSheet,
         chatGptUrl,
+        chatGptTabId,
         windowId: tab.windowId,
         mode: groupTabsInsteadOfClosing ? "apply" : "save",
         groupId: applicationGroupId
@@ -2341,12 +2251,17 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       "success",
       groupTabsInsteadOfClosing
         ? "Finished. Application tabs grouped."
-        : `Finished. Job and ChatGPT tabs will be grouped in ${JOB_GPT_TAB_GROUP_DELAY_MINUTES} minutes.`
+        : "Finished. ChatGPT is open in the original job tab; no tab group was created."
     );
 
     return {
       url: urlForSheet,
       chatGptUrl,
+      chatGptTabId,
+      jobTitle: tab.title || "Job page",
+      jobUrl: tab.url,
+      profileName,
+      resumeUrl,
       grouped: groupTabsInsteadOfClosing
     };
   } catch (error) {
