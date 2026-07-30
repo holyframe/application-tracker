@@ -2,6 +2,7 @@ const saveButton = document.querySelector("#saveButton");
 const applyNowButton = document.querySelector("#applyNowButton");
 const removeDuplicatesButton = document.querySelector("#removeDuplicatesButton");
 const humanizeButton = document.querySelector("#humanizeButton");
+const downloadResumeButton = document.querySelector("#downloadResumeButton");
 const makeResumeModal = document.querySelector("#makeResumeModal");
 const makeResumeModalBackdrop = document.querySelector("#makeResumeModalBackdrop");
 const makeResumeModalCloseButton = document.querySelector("#makeResumeModalCloseButton");
@@ -911,6 +912,7 @@ function setSaveButtonsDisabled(disabled) {
   if (applyNowButton) applyNowButton.disabled = disabled;
   if (saveButton) saveButton.disabled = disabled;
   if (humanizeButton) humanizeButton.disabled = disabled;
+  if (downloadResumeButton) downloadResumeButton.disabled = disabled;
   if (removeDuplicatesButton) removeDuplicatesButton.disabled = disabled;
   if (makeResumeModalBuildButton) makeResumeModalBuildButton.disabled = disabled;
   if (saveConfigButton) saveConfigButton.disabled = disabled;
@@ -2591,7 +2593,7 @@ async function humanizeChat() {
 
   clearStatus();
   clearDeletedRows();
-  beginButtonProcess("Humanize clicked. Checking Google Docs tab...");
+  beginButtonProcess("Humanize clicked. Looking for a ChatGPT conversation...");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -2600,11 +2602,46 @@ async function humanizeChat() {
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error || "Could not download Google Doc PDF.");
+      throw new Error(response?.error || "Could not send the Humanize prompt.");
+    }
+
+    showStatus("success", response.url || "Prompt sent to ChatGPT.", "Sent:");
+    addLog("success", "Humanize prompt sent to ChatGPT.");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Something went wrong.");
+    addLog("error", error.message || "Something went wrong.");
+  } finally {
+    finishButtonProcess();
+  }
+}
+
+async function downloadResume() {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  activeRunId = createRunId();
+
+  clearStatus();
+  clearDeletedRows();
+  beginButtonProcess("Download Resume clicked. Checking Google Docs tab...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "DOWNLOAD_RESUME_PDF",
+      runId: activeRunId
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not download the resume PDF.");
     }
 
     showStatus("success", response.filename || "document.pdf", "Downloaded:");
-    addLog("success", `Google Doc PDF download started: ${response.filename || "document.pdf"}`);
+    addLog(
+      "success",
+      `Resume PDF download started: ${response.filename || "document.pdf"}`
+    );
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Something went wrong.");
@@ -2618,6 +2655,7 @@ applyNowButton?.addEventListener("click", applyNow);
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 removeDuplicatesButton?.addEventListener("click", openMakeResumeModal);
 humanizeButton?.addEventListener("click", humanizeChat);
+downloadResumeButton?.addEventListener("click", downloadResume);
 
 addProfileButton?.addEventListener("click", openAddProfileModal);
 profileFormModalBackdrop?.addEventListener("click", () => setProfileFormModalOpen(false));

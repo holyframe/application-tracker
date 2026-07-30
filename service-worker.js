@@ -27,8 +27,8 @@ const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
 const APPLICATION_SHEET_HEADERS = Object.freeze([
   "ISO timestamp",
   "Job-page title",
-  "Job URL",
   "ChatGPT conversation URL",
+  "Job URL",
   "Copied resume-document URL",
   "Apply Now"
 ]);
@@ -85,8 +85,8 @@ function buildApplicationSheetRow({
   return [
     String(timestamp || ""),
     String(jobTitle || ""),
-    String(jobUrl || ""),
     String(chatGptUrl || ""),
+    String(jobUrl || ""),
     String(resumeUrl || ""),
     applyNow ? "Yes" : ""
   ];
@@ -1226,6 +1226,11 @@ async function downloadActiveGoogleDocAsPdf(runId) {
 
 async function humanizeChatGptConversation(runId) {
   sendLog(runId, "info", "Starting Humanize...");
+  return sendHumanizePromptToChatGpt(runId);
+}
+
+async function downloadResumeAsPdf(runId) {
+  sendLog(runId, "info", "Starting resume PDF download...");
   return downloadActiveGoogleDocAsPdf(runId);
 }
 
@@ -1900,6 +1905,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
     HUMANIZE_CHATGPT: humanizeChatGptConversation,
+    DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     CREATE_GOOGLE_DOC: createGoogleDoc
   };
 
@@ -2353,7 +2359,7 @@ async function removeDuplicateUrlsFromSheet(runId) {
 
   for (let i = firstDataRowIndex; i < values.length; i++) {
     const row = values[i];
-    const urlKey = normalizeUrlKeyForDedupe(row[2]);
+    const urlKey = normalizeUrlKeyForDedupe(row[3]);
 
     if (!urlKey) {
       continue;
@@ -2372,8 +2378,8 @@ async function removeDuplicateUrlsFromSheet(runId) {
       rowNumber: rowIndex + 1,
       timestamp: row[0] || "",
       title: row[1] || "",
-      url: row[2] || "",
-      chatGptUrl: row[3] || "",
+      chatGptUrl: row[2] || "",
+      url: row[3] || "",
       resumeUrl: row[4] || "",
       applyNow: row[5] || ""
     };

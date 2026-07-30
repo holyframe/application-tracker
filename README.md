@@ -41,8 +41,8 @@ automatically. The extension appends six columns:
 | --- | --- |
 | A | ISO timestamp |
 | B | Job-page title |
-| C | Normalized job URL |
-| D | ChatGPT conversation URL |
+| C | ChatGPT conversation URL |
+| D | Normalized job URL |
 | E | Copied resume-document URL |
 | F | `Yes` for Apply Now; otherwise blank |
 
@@ -55,7 +55,9 @@ A–F use the Google Sheets `CLIP` wrap strategy.
 - **Make a resume** copies the selected profile's Google Docs template, replaces
   `{{RESUME}}` with the supplied resume text, and opens the new document. If the
   placeholder is absent, the document body is replaced.
-- **Humanize** currently downloads the active Google Docs document as a PDF.
+- **Humanize** sends the configured Humanize prompt to the active or most
+  recently used ChatGPT conversation.
+- **Download Resume** downloads the active Google Docs document as a PDF.
 - Profile notes are stored locally for reference and are not sent to ChatGPT or
   written to the Google Sheet.
 

@@ -895,15 +895,20 @@ h1 {
 }
 
 .sheet-duplicate-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 
 .sheet-duplicate-actions .remove-duplicates-button,
-.sheet-duplicate-actions .warning-button {
-  flex: 1;
+.sheet-duplicate-actions .warning-button,
+.sheet-duplicate-actions .download-resume-button {
   width: auto;
   min-width: 0;
+}
+
+.sheet-duplicate-actions .download-resume-button {
+  grid-column: 1 / -1;
 }
 
 .card-title-row {
@@ -1068,6 +1073,7 @@ textarea:focus {
     .apply-now-button,
     .remove-duplicates-button,
     .warning-button,
+    .download-resume-button,
     .secondary-button,
     .config-save-button,
     .prompt-resume-add-button,
@@ -1181,6 +1187,57 @@ textarea:focus {
 }
 
 .warning-button .button-icon svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
+}
+
+.download-resume-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: var(--button-height);
+  min-height: var(--button-height);
+  border: 0;
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: #ffffff;
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  box-shadow:
+    0 16px 30px rgba(37, 99, 235, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  font-size: var(--text-sm);
+  font-weight: 850;
+  letter-spacing: -0.02em;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    filter 160ms ease;
+}
+
+.download-resume-button:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 18px 34px rgba(37, 99, 235, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.download-resume-button:active {
+  transform: translateY(0);
+  filter: brightness(0.96);
+}
+
+.download-resume-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+  transform: none;
+}
+
+.download-resume-button .button-icon svg {
   width: 14px;
   height: 14px;
   stroke-width: 2.4;
