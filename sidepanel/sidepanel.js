@@ -22,6 +22,19 @@ const splitWindowsPreviewBackButton = document.querySelector("#splitWindowsPrevi
 const splitWindowsPreviewDownloadButton = document.querySelector(
   "#splitWindowsPreviewDownloadButton"
 );
+const splitWindowsBatchActions = document.querySelector(
+  "#splitWindowsBatchActions"
+);
+const saveWorkspaceActions = document.querySelector("#saveWorkspaceActions");
+const saveWorkspaceBuildButton = document.querySelector(
+  "#saveWorkspaceBuildButton"
+);
+const saveWorkspaceDownloadButton = document.querySelector(
+  "#saveWorkspaceDownloadButton"
+);
+const saveWorkspaceExchangeButton = document.querySelector(
+  "#saveWorkspaceExchangeButton"
+);
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
@@ -2520,12 +2533,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       jobTitle: message.jobTitle,
       jobUrl: message.jobUrl,
       profileName: message.profileName,
-      resumeUrl: message.resumeUrl
+      resumeUrl: message.resumeUrl,
+      chatGptTabId: message.chatGptTabId
     });
     addLog(
       "success",
       "Job page and selected-profile resume opened in the sidebar workspace."
     );
+    return;
+  }
+
+  if (message.type === "SAVE_WORKSPACE_READY") {
+    if (message.runId !== activeRunId) {
+      return;
+    }
+
+    markSaveWorkspaceReady({
+      chatGptUrl: message.chatGptUrl,
+      chatGptTabId: message.chatGptTabId
+    });
+    addLog("success", "Application workspace actions are ready.");
     return;
   }
 
@@ -2638,6 +2665,157 @@ async function downloadSplitWindowResume() {
   await runResumeDownload(currentSplitWindowDownloadUrl);
 }
 
+function beginSaveWorkspaceAction(message) {
+  if (
+    currentSplitWindowSessionType !== "save-workspace" ||
+    !currentSaveWorkspace?.isReady ||
+    currentSaveWorkspace.isBusy
+  ) {
+    return false;
+  }
+
+  currentSaveWorkspace.isBusy = true;
+  updateSaveWorkspaceActions();
+  clearStatus();
+  clearDeletedRows();
+  addLog("info", message);
+  return true;
+}
+
+function finishSaveWorkspaceAction() {
+  if (!currentSaveWorkspace) {
+    return;
+  }
+
+  currentSaveWorkspace.isBusy = false;
+  updateSaveWorkspaceActions();
+}
+
+async function buildSaveWorkspaceResume() {
+  if (
+    saveWorkspaceBuildButton?.disabled ||
+    !beginSaveWorkspaceAction(
+      "Build resume clicked. Reading the latest ChatGPT response..."
+    )
+  ) {
+    return;
+  }
+
+  const workspace = currentSaveWorkspace;
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "BUILD_RESUME_FROM_CHATGPT",
+      runId: activeRunId || createRunId(),
+      chatGptTabId: workspace.chatGptTabId,
+      resumeUrl: workspace.resumeUrl
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not build the resume.");
+    }
+
+    if (currentSaveWorkspace === workspace) {
+      setSaveWorkspaceTab("resume");
+    }
+    showStatus("success", response.url || workspace.resumeUrl, "Built:");
+    addLog("success", "Resume document built from the latest ChatGPT response.");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Could not build the resume.");
+    addLog("error", error.message || "Could not build the resume.");
+  } finally {
+    if (currentSaveWorkspace === workspace) {
+      finishSaveWorkspaceAction();
+    }
+  }
+}
+
+async function downloadSaveWorkspaceResume() {
+  if (
+    saveWorkspaceDownloadButton?.disabled ||
+    !beginSaveWorkspaceAction("Download resume clicked.")
+  ) {
+    return;
+  }
+
+  const workspace = currentSaveWorkspace;
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "DOWNLOAD_RESUME_PDF",
+      runId: activeRunId || createRunId(),
+      documentUrl: workspace.resumeUrl
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not download the resume PDF.");
+    }
+
+    showStatus("success", response.filename || "resume.pdf", "Downloaded:");
+    addLog(
+      "success",
+      `Resume PDF download started: ${response.filename || "resume.pdf"}`
+    );
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Could not download the resume PDF.");
+    addLog("error", error.message || "Could not download the resume PDF.");
+  } finally {
+    if (currentSaveWorkspace === workspace) {
+      finishSaveWorkspaceAction();
+    }
+  }
+}
+
+async function exchangeSaveWorkspaceUrls() {
+  if (
+    saveWorkspaceExchangeButton?.disabled ||
+    !beginSaveWorkspaceAction(
+      "Exchange clicked. Swapping the main tab and sidebar URLs..."
+    )
+  ) {
+    return;
+  }
+
+  const workspace = currentSaveWorkspace;
+
+  try {
+    const mainTab = await chrome.tabs.get(workspace.chatGptTabId);
+    const mainTabUrl = String(mainTab?.url || "").trim();
+    const sidebarJobTabUrl = String(workspace.jobUrl || "").trim();
+
+    if (!mainTabUrl || !sidebarJobTabUrl) {
+      throw new Error("Could not identify both URLs for Exchange.");
+    }
+
+    await chrome.tabs.update(workspace.chatGptTabId, {
+      url: sidebarJobTabUrl,
+      active: true
+    });
+
+    if (currentSaveWorkspace === workspace) {
+      workspace.jobUrl = mainTabUrl;
+      workspace.mainTabIsChatGpt = isChatOrClaudeUrl(sidebarJobTabUrl);
+      if (isChatOrClaudeUrl(mainTabUrl)) {
+        workspace.chatGptUrl = mainTabUrl;
+      }
+      updateSaveWorkspaceActions();
+    }
+
+    showStatus("success", sidebarJobTabUrl, "Main tab:");
+    addLog("success", "Main-tab and sidebar Job page URLs exchanged.");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Could not exchange the URLs.");
+    addLog("error", error.message || "Could not exchange the URLs.");
+  } finally {
+    if (currentSaveWorkspace === workspace) {
+      finishSaveWorkspaceAction();
+    }
+  }
+}
+
 function resetSplitWindowsSession() {
   currentSplitWindowDownloadUrl = "";
   currentSplitWindowPairs = [];
@@ -2662,6 +2840,8 @@ function resetSplitWindowsSession() {
 
   const backLabel = splitWindowsPreviewBackButton?.querySelector("span");
   if (backLabel) backLabel.textContent = "Back";
+
+  updateSaveWorkspaceActions();
 }
 
 function setSplitWindowsModalOpen(isOpen) {
@@ -2895,6 +3075,7 @@ function setSaveWorkspaceTab(activeTab) {
   }
 
   const isResume = activeTab === "resume";
+  currentSaveWorkspace.activeTab = isResume ? "resume" : "job";
   splitWindowsJobTabButton?.classList.toggle("is-active", !isResume);
   splitWindowsJobTabButton?.setAttribute(
     "aria-selected",
@@ -2923,15 +3104,47 @@ function setSaveWorkspaceTab(activeTab) {
       downloadUrl: currentSaveWorkspace.resumeUrl
     }
   );
+
+  updateSaveWorkspaceActions();
+}
+
+function updateSaveWorkspaceActions() {
+  const isSaveWorkspace =
+    currentSplitWindowSessionType === "save-workspace" &&
+    Boolean(currentSaveWorkspace);
+  const showWorkspaceActions =
+    isSaveWorkspace && currentSaveWorkspace.activeTab === "resume";
+  const actionsDisabled =
+    !currentSaveWorkspace?.isReady || currentSaveWorkspace?.isBusy;
+  const buildDisabled =
+    actionsDisabled || currentSaveWorkspace?.mainTabIsChatGpt === false;
+
+  splitWindowsBatchActions?.classList.toggle("is-hidden", isSaveWorkspace);
+  saveWorkspaceActions?.classList.toggle("is-hidden", !showWorkspaceActions);
+
+  if (saveWorkspaceBuildButton) {
+    saveWorkspaceBuildButton.disabled = buildDisabled;
+    saveWorkspaceBuildButton.title =
+      currentSaveWorkspace?.mainTabIsChatGpt === false
+        ? "Click Exchange to bring ChatGPT back to the main tab before building."
+        : "";
+  }
+  if (saveWorkspaceDownloadButton) {
+    saveWorkspaceDownloadButton.disabled = actionsDisabled;
+  }
+  if (saveWorkspaceExchangeButton) {
+    saveWorkspaceExchangeButton.disabled = actionsDisabled;
+  }
 }
 
 function showSaveWorkspacePreview({
   jobTitle = "Job page",
   jobUrl = "",
   profileName = DEFAULT_PROFILE_NAME,
-  resumeUrl = ""
+  resumeUrl = "",
+  chatGptTabId = null
 } = {}) {
-  if (!jobUrl || !resumeUrl) {
+  if (!jobUrl || !resumeUrl || !Number.isInteger(chatGptTabId)) {
     return;
   }
 
@@ -2942,7 +3155,13 @@ function showSaveWorkspacePreview({
     jobUrl: String(jobUrl).trim(),
     profileName:
       String(profileName || DEFAULT_PROFILE_NAME).trim() || DEFAULT_PROFILE_NAME,
-    resumeUrl: String(resumeUrl).trim()
+    resumeUrl: String(resumeUrl).trim(),
+    chatGptTabId,
+    chatGptUrl: "",
+    mainTabIsChatGpt: true,
+    activeTab: "job",
+    isReady: false,
+    isBusy: false
   };
 
   splitWindowsPreviewTabs?.classList.remove("is-hidden");
@@ -2951,13 +3170,40 @@ function showSaveWorkspacePreview({
     resumeTabLabel.textContent = `${currentSaveWorkspace.profileName} resume`;
   }
 
-  const backLabel = splitWindowsPreviewBackButton?.querySelector("span");
-  if (backLabel) backLabel.textContent = "Close";
-  if (splitWindowsPreviewBackButton) {
-    splitWindowsPreviewBackButton.disabled = false;
+  setSaveWorkspaceTab("job");
+}
+
+function markSaveWorkspaceReady({
+  chatGptUrl = "",
+  chatGptTabId = null
+} = {}) {
+  if (
+    currentSplitWindowSessionType !== "save-workspace" ||
+    !currentSaveWorkspace ||
+    currentSaveWorkspace.chatGptTabId !== chatGptTabId
+  ) {
+    return false;
   }
 
-  setSaveWorkspaceTab("job");
+  currentSaveWorkspace.chatGptUrl = String(chatGptUrl || "").trim();
+  currentSaveWorkspace.isReady = true;
+  updateSaveWorkspaceActions();
+  return true;
+}
+
+function syncSaveWorkspaceVisibilityForTab(tabId) {
+  if (
+    currentSplitWindowSessionType !== "save-workspace" ||
+    !currentSaveWorkspace
+  ) {
+    return false;
+  }
+
+  const shouldShow = tabId === currentSaveWorkspace.chatGptTabId;
+  splitWindowsModal?.classList.toggle("is-hidden", !shouldShow);
+  splitWindowsModal?.setAttribute("aria-hidden", String(!shouldShow));
+
+  return true;
 }
 
 function showSplitWindowPairForTab(tabId) {
@@ -3172,6 +3418,15 @@ splitWindowsJobTabButton?.addEventListener("click", () =>
 splitWindowsResumeTabButton?.addEventListener("click", () =>
   setSaveWorkspaceTab("resume")
 );
+saveWorkspaceBuildButton?.addEventListener("click", buildSaveWorkspaceResume);
+saveWorkspaceDownloadButton?.addEventListener(
+  "click",
+  downloadSaveWorkspaceResume
+);
+saveWorkspaceExchangeButton?.addEventListener(
+  "click",
+  exchangeSaveWorkspaceUrls
+);
 splitWindowUrlsInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
@@ -3303,7 +3558,19 @@ clearLogsButton?.addEventListener("click", () => {
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
   refreshMakeResumeButtonAvailability();
+  if (syncSaveWorkspaceVisibilityForTab(activeInfo.tabId)) {
+    return;
+  }
   showSplitWindowPairForTab(activeInfo.tabId);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (
+    currentSplitWindowSessionType === "save-workspace" &&
+    currentSaveWorkspace?.chatGptTabId === tabId
+  ) {
+    setSplitWindowsModalOpen(false);
+  }
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
@@ -3312,9 +3579,19 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
   }
 });
 
-chrome.windows.onFocusChanged.addListener((windowId) => {
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId !== chrome.windows.WINDOW_ID_NONE) {
     refreshMakeResumeButtonAvailability();
+
+    try {
+      const [activeTab] = await chrome.tabs.query({
+        active: true,
+        windowId
+      });
+      syncSaveWorkspaceVisibilityForTab(activeTab?.id);
+    } catch (error) {
+      console.error("Could not check the focused window tab:", error);
+    }
   }
 });
 

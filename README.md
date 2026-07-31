@@ -28,11 +28,17 @@ modal with two custom tabs:
 
 - **Job page** embeds the original job URL.
 - **Profile resume** embeds the copied resume document created from the
-  selected profile's configured template.
+  selected profile's configured template. Its Build resume action writes the
+  latest ChatGPT assistant response into that copy, Download resume exports it
+  as PDF, and Exchange swaps the main Chrome tab URL with the URL shown by the
+  Job page workspace tab. Repeating Exchange swaps them back.
 
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
 already-grouped job tab and leaves any existing group unchanged. The check
 reminder focuses the resulting ChatGPT tab instead of opening duplicate tabs.
+The workspace modal is bound to that ChatGPT tab. It hides while another tab or
+browser window is active, reopens when its ChatGPT tab becomes active again,
+and is cleared only when that tab or the modal is closed.
 
 `Apply Now` requires an ungrouped job tab and immediately groups the job page,
 resume document, and ChatGPT conversation.

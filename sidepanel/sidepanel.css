@@ -1771,6 +1771,21 @@ textarea:focus {
   gap: 10px;
 }
 
+.save-workspace-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.save-workspace-actions.is-hidden,
+#splitWindowsBatchActions.is-hidden {
+  display: none;
+}
+
+.save-workspace-actions .modal-action-button {
+  padding-inline: 6px;
+  font-size: 10px;
+}
+
 .modal-action-button {
   width: 100%;
   height: var(--button-height);

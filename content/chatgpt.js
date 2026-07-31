@@ -83,10 +83,50 @@ async function fillAndSend(text) {
   sendButton.click();
 }
 
+function getLatestAssistantResponseText() {
+  const assistantMessages = Array.from(
+    document.querySelectorAll('[data-message-author-role="assistant"]')
+  );
+  const latestMessage = assistantMessages.at(-1);
+
+  if (!latestMessage) {
+    throw new Error(
+      "No ChatGPT assistant response found. Wait for ChatGPT to finish responding and try again."
+    );
+  }
+
+  const content =
+    latestMessage.querySelector(".markdown, .prose") || latestMessage;
+  const text = String(content.innerText || content.textContent || "").trim();
+
+  if (!text) {
+    throw new Error(
+      "The latest ChatGPT assistant response is empty. Wait for the response and try again."
+    );
+  }
+
+  return text;
+}
+
 if (!globalThis.__applicationHelperChatGptListenerRegistered) {
   globalThis.__applicationHelperChatGptListenerRegistered = true;
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === "GET_LATEST_ASSISTANT_RESPONSE") {
+      try {
+        sendResponse({
+          ok: true,
+          text: getLatestAssistantResponseText()
+        });
+      } catch (error) {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not read the latest ChatGPT response."
+        });
+      }
+      return;
+    }
+
     if (message.type !== "FILL_AND_SEND") {
       return;
     }

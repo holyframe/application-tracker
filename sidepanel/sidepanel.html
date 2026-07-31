@@ -745,7 +745,7 @@
             block embedded previews.
           </p>
 
-          <div class="modal-actions">
+          <div id="splitWindowsBatchActions" class="modal-actions">
             <button
               id="splitWindowsPreviewBackButton"
               type="button"
@@ -760,6 +760,38 @@
               class="download-resume-button modal-action-button"
             >
               <span>Download Resume</span>
+            </button>
+          </div>
+
+          <div
+            id="saveWorkspaceActions"
+            class="modal-actions save-workspace-actions is-hidden"
+          >
+            <button
+              id="saveWorkspaceBuildButton"
+              type="button"
+              class="primary-button modal-action-button"
+              disabled
+            >
+              <span>Build resume</span>
+            </button>
+
+            <button
+              id="saveWorkspaceDownloadButton"
+              type="button"
+              class="download-resume-button modal-action-button"
+              disabled
+            >
+              <span>Download resume</span>
+            </button>
+
+            <button
+              id="saveWorkspaceExchangeButton"
+              type="button"
+              class="secondary-button modal-action-button"
+              disabled
+            >
+              <span>Exchange</span>
             </button>
           </div>
         </div>

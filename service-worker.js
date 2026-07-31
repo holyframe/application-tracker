@@ -977,6 +977,57 @@ async function sendFillAndSendToTab(tabId, text, runId, maxAttempts = 24) {
   throw lastError;
 }
 
+async function getLatestAssistantResponseFromTab(tabId, runId) {
+  if (typeof tabId !== "number") {
+    throw new Error("ChatGPT tab does not have a valid tab ID.");
+  }
+
+  const tab = await chrome.tabs.get(tabId);
+  if (!isChatGptUrl(tab.url || "")) {
+    throw new Error(
+      "Build resume requires ChatGPT in the main Chrome tab. Click Exchange to bring ChatGPT back, then try again."
+    );
+  }
+
+  let response;
+  try {
+    response = await chrome.tabs.sendMessage(tabId, {
+      type: "GET_LATEST_ASSISTANT_RESPONSE"
+    });
+  } catch (error) {
+    if (!isReceivingEndMissingError(error)) {
+      throw error;
+    }
+
+    sendLog(
+      runId,
+      "info",
+      "ChatGPT page not connected. Injecting content script..."
+    );
+    await ensureChatGptContentScript(tabId, runId);
+    response = await chrome.tabs.sendMessage(tabId, {
+      type: "GET_LATEST_ASSISTANT_RESPONSE"
+    });
+  }
+
+  if (!response) {
+    await ensureChatGptContentScript(tabId, runId);
+    response = await chrome.tabs.sendMessage(tabId, {
+      type: "GET_LATEST_ASSISTANT_RESPONSE"
+    });
+  }
+
+  const text = String(response?.text || "").trim();
+  if (!response?.ok || !text) {
+    throw new Error(
+      response?.error ||
+        "No ChatGPT assistant response found. Wait for ChatGPT to finish responding and try again."
+    );
+  }
+
+  return text;
+}
+
 function isChatGptUrl(url = "") {
   return /^https:\/\/(chatgpt\.com|chat\.openai\.com)/.test(url);
 }
@@ -1986,6 +2037,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
     CLOSE_TABS_AND_RETURN: closeTabsAndReturn,
+    BUILD_RESUME_FROM_CHATGPT: buildResumeFromChatGpt,
     CREATE_GOOGLE_DOC: createGoogleDoc
   };
 
@@ -2012,6 +2064,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 openedTabIds: message.openedTabIds,
                 returnTabId: message.returnTabId
               })
+            : message.type === "BUILD_RESUME_FROM_CHATGPT"
+              ? run(message.runId, {
+                  chatGptTabId: message.chatGptTabId,
+                  resumeUrl: message.resumeUrl
+                })
             : message.type === "CREATE_GOOGLE_DOC"
               ? run(message.runId, {
                   resumeText: message.resumeText
@@ -2171,7 +2228,8 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         jobTitle: tab.title || "Job page",
         jobUrl: tab.url,
         profileName,
-        resumeUrl
+        resumeUrl,
+        chatGptTabId: tab.id
       });
     }
 
@@ -2219,6 +2277,15 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       "success",
       `URL saved to profile sheet tab "${profileName}".`
     );
+
+    if (!groupTabsInsteadOfClosing) {
+      await notifyExtensionPages({
+        type: "SAVE_WORKSPACE_READY",
+        runId,
+        chatGptUrl,
+        chatGptTabId
+      });
+    }
 
     let applicationGroupId = null;
 
@@ -2790,6 +2857,39 @@ async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
   }
 
   return `https://docs.google.com/document/d/${file.id}/edit`;
+}
+
+async function buildResumeFromChatGpt(runId, options = {}) {
+  const chatGptTabId = Number(options.chatGptTabId);
+  const resumeUrl = String(options.resumeUrl || "").trim();
+  const documentId = parseGoogleDocId(resumeUrl);
+
+  if (!Number.isInteger(chatGptTabId)) {
+    throw new Error("ChatGPT tab is unavailable.");
+  }
+  if (!documentId) {
+    throw new Error("The workspace resume URL is not a Google Docs document.");
+  }
+
+  sendLog(runId, "info", "Reading the latest ChatGPT assistant response...");
+  const resumeText = await getLatestAssistantResponseFromTab(
+    chatGptTabId,
+    runId
+  );
+
+  sendLog(runId, "info", "Building the copied resume document...");
+  const token = await getGoogleAccessToken();
+  await insertResumeTextIntoGoogleDoc(
+    token,
+    documentId,
+    resumeText,
+    runId
+  );
+  sendLog(runId, "success", "Resume document built from ChatGPT.");
+
+  return {
+    url: `https://docs.google.com/document/d/${documentId}/edit`
+  };
 }
 
 async function createGoogleDoc(runId, options = {}) {
