@@ -14,17 +14,24 @@ It combines:
 
 ## Main workflow
 
-Before saving an application, select a profile and resume variant and provide a
-base GPT prompt and job description.
+Before saving an application, expand one or more profiles and choose one resume
+variant for each. Choosing a variant checks its profile automatically; profiles
+can still be unchecked to exclude them, which also clears that profile's resume
+choice. A new application starts with every profile and prompt-resume selection
+clear. Every checked profile remains expanded so all selected resume variants
+stay visible. Then provide a base GPT prompt and job description.
 
-Both actions normalize the active job URL, copy the selected profile's
+Both actions normalize the active job URL, copy the relevant profile's
 configured Google Docs resume template, submit the prepared message to ChatGPT,
 save the six-column application record, and schedule a two-minute check
-reminder.
+reminder. `Save App` repeats that process once per checked profile. `Apply Now`
+currently requires exactly one checked profile.
 
-`Save App` uses the original job tab as the ChatGPT tab. Before navigating it
-to ChatGPT, the extension opens a full-page application workspace in the side
-panel with two custom tabs:
+`Save App` creates one ChatGPT workflow per checked profile. It reuses the
+original job tab for the first profile and creates one additional target tab
+for every remaining profile. Before navigating each target to ChatGPT, the
+extension opens a full-page application workspace in the side panel with two
+custom tabs:
 
 - **Job page** embeds the original job URL.
 - **Profile resume** embeds the copied resume document created from the
@@ -49,16 +56,16 @@ is currently feature-disabled and remains visible for later re-enabling.
 
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
 already-grouped job tab and leaves any existing group unchanged. The check
-reminder focuses the resulting ChatGPT tab instead of opening duplicate tabs.
+reminder focuses the final resulting ChatGPT tab instead of opening a duplicate.
 The matching **Home workspace** and **Application workspace** header panels
 always show an Exchange icon for switching between the two views. A compact
 line below each title retains the app's most recent success or error status.
 Before `Save App` runs, and on browser tabs that are not bound to the current
 saved application, the Job page and Profile resume tabs show empty states
-without URLs. Returning to the bound ChatGPT tab restores whichever populated
-side-panel view was last selected. The saved workspace data is cleared when its
-bound ChatGPT tab closes, while the empty Application workspace remains
-available.
+without URLs. Returning to any ChatGPT tab created by the batch restores that
+profile's populated side-panel workspace. Each workspace is removed when its
+bound tab closes; after the final bound tab closes, the empty Application
+workspace remains available.
 
 `Apply Now` requires an ungrouped job tab and immediately groups the job page,
 resume document, and ChatGPT conversation.
@@ -106,7 +113,7 @@ closed, Chrome ignores these application actions.
 ## Configuration and storage
 
 The side-panel settings accept a Google Spreadsheet URL or ID. Application
-records are routed to the tab matching the selected profile name, and missing
+records are routed to the tab matching each selected profile name, and missing
 profile tabs are created automatically. The configured default tab name is
 retained for backward compatibility.
 

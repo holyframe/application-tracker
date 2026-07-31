@@ -158,6 +158,7 @@ const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
 const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
+const PROFILE_SELECTION_VERSION = 3;
 const DEFAULT_PROFILE_NAME = "Default";
 const IS_BUILD_RESUME_ENABLED = false;
 
@@ -169,6 +170,7 @@ let currentSplitWindowPairs = [];
 let currentSplitWindowReturnTabId = null;
 let currentSplitWindowSessionType = "make-resume";
 let currentSaveWorkspace = null;
+const saveWorkspacesByTabId = new Map();
 let currentSaveWorkspaceSidePanelView = "workspace";
 let currentDefaultSidePanelView = "home";
 let currentEmptyWorkspaceTab = "job";
@@ -202,10 +204,12 @@ function createProfileId() {
 
 let profileSelectionState = {
   profiles: [],
-  selectedProfileId: ""
+  selectedProfileId: "",
+  selectedProfileIds: [],
+  selectionVersion: PROFILE_SELECTION_VERSION
 };
 
-let expandedProfileId = "";
+let expandedProfileIds = new Set();
 let draggedProfileId = "";
 let profileFormMode = "add";
 let editingProfileId = null;
@@ -285,13 +289,11 @@ function normalizePromptResumeSelection(selection) {
     .filter(Boolean);
 
   const selectedPromptResumeId =
-    selection?.selectedPromptResumeId === ""
-      ? ""
-      : promptResumes.some(
-            (entry) => entry.id === selection?.selectedPromptResumeId
-          )
-        ? selection.selectedPromptResumeId
-        : promptResumes[0]?.id || "";
+    promptResumes.some(
+      (entry) => entry.id === selection?.selectedPromptResumeId
+    )
+      ? selection.selectedPromptResumeId
+      : "";
 
   return { promptResumes, selectedPromptResumeId };
 }
@@ -328,26 +330,56 @@ function normalizeProfile(entry) {
 }
 
 function normalizeProfileSelectionState(selection) {
+  const hasCurrentSelectionVersion =
+    selection?.selectionVersion === PROFILE_SELECTION_VERSION;
   const profiles = (Array.isArray(selection?.profiles) ? selection.profiles : [])
     .map(normalizeProfile)
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((profile) =>
+      hasCurrentSelectionVersion
+        ? profile
+        : { ...profile, selectedPromptResumeId: "" }
+    );
 
   if (profiles.length === 0) {
     const defaultProfile = createDefaultProfile();
     return {
       profiles: [defaultProfile],
-      selectedProfileId: defaultProfile.id
+      selectedProfileId: defaultProfile.id,
+      selectedProfileIds: [],
+      selectionVersion: PROFILE_SELECTION_VERSION
     };
   }
 
   const selectedProfileId =
-    selection?.selectedProfileId === ""
-      ? ""
-      : profiles.some((entry) => entry.id === selection?.selectedProfileId)
-        ? selection.selectedProfileId
-        : profiles[0].id;
+    profiles.some((entry) => entry.id === selection?.selectedProfileId)
+      ? selection.selectedProfileId
+      : profiles[0].id;
 
-  return { profiles, selectedProfileId };
+  const requestedProfileIds =
+    hasCurrentSelectionVersion &&
+    Array.isArray(selection?.selectedProfileIds)
+      ? selection.selectedProfileIds
+      : [];
+  const validProfileIds = new Set(profiles.map((entry) => entry.id));
+  const selectedIds = new Set(
+    requestedProfileIds.map(String).filter((id) => validProfileIds.has(id))
+  );
+  profiles.forEach((profile) => {
+    if (profile.selectedPromptResumeId) {
+      selectedIds.add(profile.id);
+    }
+  });
+  const selectedProfileIds = profiles
+    .map((profile) => profile.id)
+    .filter((id) => selectedIds.has(id));
+
+  return {
+    profiles,
+    selectedProfileId,
+    selectedProfileIds,
+    selectionVersion: PROFILE_SELECTION_VERSION
+  };
 }
 
 function getSelectedProfile() {
@@ -358,6 +390,11 @@ function getSelectedProfile() {
     profileSelectionState.profiles[0] ||
     null
   );
+}
+
+function getSelectedProfiles() {
+  const selectedIds = new Set(profileSelectionState.selectedProfileIds);
+  return profileSelectionState.profiles.filter((entry) => selectedIds.has(entry.id));
 }
 
 function syncPromptResumeStateFromSelectedProfile() {
@@ -602,6 +639,90 @@ function mountProfilePromptResumeSection(body) {
   body.append(profilePromptResumeSection);
 }
 
+async function activateProfilePromptResume(profileId, promptResumeId) {
+  if (!guardExtensionUiAction()) {
+    return;
+  }
+
+  if (profileSelectionState.selectedProfileId !== profileId) {
+    await selectProfile(profileId);
+  }
+
+  if (profileSelectionState.selectedProfileId === profileId) {
+    await selectPromptResume(promptResumeId);
+  }
+}
+
+function renderProfilePromptResumeMirror(profile, body) {
+  const list = document.createElement("ul");
+  list.className = "prompt-resume-list profile-prompt-resume-mirror";
+  list.setAttribute("aria-label", `${profile.name} prompt resumes`);
+
+  if (profile.promptResumes.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "prompt-resume-list-empty";
+    empty.textContent = "No prompt resumes yet. Add one above.";
+    list.appendChild(empty);
+    body.appendChild(list);
+    return;
+  }
+
+  profile.promptResumes.forEach((promptResume) => {
+    const isSelected = promptResume.id === profile.selectedPromptResumeId;
+    const item = document.createElement("li");
+    item.className = "prompt-resume-item";
+    item.classList.toggle("is-selected", isSelected);
+
+    const dragSpacer = document.createElement("span");
+    dragSpacer.className = "prompt-resume-drag-spacer";
+    dragSpacer.setAttribute("aria-hidden", "true");
+
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = `promptResume-${profile.id}`;
+    radio.value = promptResume.id;
+    radio.checked = isSelected;
+    radio.setAttribute("aria-label", `Use ${promptResume.label} for ${profile.name}`);
+
+    const copy = document.createElement("div");
+    copy.className = "prompt-resume-copy";
+
+    const label = document.createElement("span");
+    label.className = "prompt-resume-label";
+    label.textContent = promptResume.label;
+
+    const preview = document.createElement("span");
+    preview.className = "prompt-resume-preview";
+    preview.textContent = truncatePreviewText(promptResume.content);
+    copy.append(label, preview);
+
+    const updatedAtText = formatPromptResumeUpdatedAt(promptResume.updatedAt);
+    if (updatedAtText) {
+      const updated = document.createElement("span");
+      updated.className = "prompt-resume-updated";
+      updated.textContent = updatedAtText;
+      copy.append(updated);
+    }
+
+    const actions = document.createElement("span");
+    actions.className = "prompt-resume-actions";
+    actions.setAttribute("aria-hidden", "true");
+
+    item.addEventListener("click", () => {
+      activateProfilePromptResume(profile.id, promptResume.id);
+    });
+    radio.addEventListener("click", (event) => {
+      event.stopPropagation();
+      activateProfilePromptResume(profile.id, promptResume.id);
+    });
+
+    item.append(dragSpacer, radio, copy, actions);
+    list.appendChild(item);
+  });
+
+  body.appendChild(list);
+}
+
 function renderProfileList() {
   if (!profileList) return;
 
@@ -617,13 +738,15 @@ function renderProfileList() {
   }
 
   profileSelectionState.profiles.forEach((profile) => {
-    const isExpanded = profile.id === expandedProfileId;
+    const isExpanded = expandedProfileIds.has(profile.id);
+    const isSelected = profileSelectionState.selectedProfileIds.includes(profile.id);
     const bodyId = `profile-body-${profile.id}`;
 
     const item = document.createElement("li");
     item.className = "profile-item";
     item.dataset.profileId = profile.id;
     item.classList.toggle("is-expanded", isExpanded);
+    item.classList.toggle("is-selected", isSelected);
 
     const header = document.createElement("div");
     header.className = "profile-item-header";
@@ -654,6 +777,29 @@ function renderProfileList() {
     });
     dragHandle.addEventListener("dragend", () => {
       clearProfileDragState();
+    });
+
+    const selectionCheckbox = document.createElement("input");
+    selectionCheckbox.type = "checkbox";
+    selectionCheckbox.className = "profile-selection-checkbox";
+    selectionCheckbox.checked = isSelected;
+    selectionCheckbox.disabled = areActionButtonsDisabled;
+    selectionCheckbox.setAttribute(
+      "aria-label",
+      `${isSelected ? "Remove" : "Add"} ${profile.name} ${
+        isSelected ? "from" : "to"
+      } this application`
+    );
+    selectionCheckbox.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    selectionCheckbox.addEventListener("change", async () => {
+      if (!guardExtensionUiAction()) {
+        selectionCheckbox.checked = isSelected;
+        return;
+      }
+
+      await toggleProfileSelection(profile.id);
     });
 
     item.addEventListener("dragover", (event) => {
@@ -788,15 +934,17 @@ function renderProfileList() {
     });
 
     actions.append(addPromptResumeButton, notesButton, editButton, removeButton);
-    header.append(dragHandle, toggle, actions);
+    header.append(dragHandle, selectionCheckbox, toggle, actions);
 
     const body = document.createElement("div");
     body.id = bodyId;
     body.className = "profile-item-body";
     body.hidden = !isExpanded;
 
-    if (isExpanded) {
+    if (isExpanded && profile.id === profileSelectionState.selectedProfileId) {
       mountProfilePromptResumeSection(body);
+    } else if (isExpanded) {
+      renderProfilePromptResumeMirror(profile, body);
     }
 
     item.append(header, body);
@@ -808,7 +956,9 @@ async function persistProfileSelection(successMessage) {
   const response = await chrome.runtime.sendMessage({
     type: "SAVE_PROFILE_SELECTION",
     profiles: profileSelectionState.profiles,
-    selectedProfileId: profileSelectionState.selectedProfileId
+    selectedProfileId: profileSelectionState.selectedProfileId,
+    selectedProfileIds: profileSelectionState.selectedProfileIds,
+    selectionVersion: profileSelectionState.selectionVersion
   });
 
   if (!response?.ok) {
@@ -817,18 +967,63 @@ async function persistProfileSelection(successMessage) {
 
   profileSelectionState = normalizeProfileSelectionState(response);
 
-  if (
-    expandedProfileId &&
-    !profileSelectionState.profiles.some((entry) => entry.id === expandedProfileId)
-  ) {
-    expandedProfileId = profileSelectionState.selectedProfileId;
-  }
+  const validProfileIds = new Set(
+    profileSelectionState.profiles.map((entry) => entry.id)
+  );
+  expandedProfileIds = new Set(
+    [
+      ...Array.from(expandedProfileIds).filter((id) => validProfileIds.has(id)),
+      ...profileSelectionState.selectedProfileIds
+    ]
+  );
 
   syncPromptResumeStateFromSelectedProfile();
   renderProfileList();
 
   if (successMessage) {
     addLog("success", successMessage);
+  }
+}
+
+async function toggleProfileSelection(profileId) {
+  const profile = profileSelectionState.profiles.find(
+    (entry) => entry.id === profileId
+  );
+  if (!profile) {
+    return;
+  }
+
+  const selectedIds = new Set(profileSelectionState.selectedProfileIds);
+  const willSelect = !selectedIds.has(profileId);
+  if (willSelect) {
+    selectedIds.add(profileId);
+    profileSelectionState.selectedProfileId = profileId;
+    expandedProfileIds.add(profileId);
+  } else {
+    selectedIds.delete(profileId);
+    expandedProfileIds.delete(profileId);
+    profileSelectionState.profiles = profileSelectionState.profiles.map(
+      (entry) =>
+        entry.id === profileId
+          ? { ...entry, selectedPromptResumeId: "" }
+          : entry
+    );
+  }
+
+  profileSelectionState.selectedProfileIds = profileSelectionState.profiles
+    .map((entry) => entry.id)
+    .filter((id) => selectedIds.has(id));
+
+  try {
+    await persistProfileSelection(
+      willSelect
+        ? `Added "${profile.name}" to this application.`
+        : `Removed "${profile.name}" from this application.`
+    );
+  } catch (error) {
+    console.error(error);
+    addLog("error", error.message || "Could not update profile selection.");
+    await loadProfileSelection();
   }
 }
 
@@ -843,13 +1038,13 @@ async function loadProfileSelection() {
     }
 
     profileSelectionState = normalizeProfileSelectionState(response);
-    expandedProfileId = profileSelectionState.selectedProfileId;
+    expandedProfileIds = new Set(profileSelectionState.selectedProfileIds);
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
   } catch (error) {
     console.error(error);
     profileSelectionState = normalizeProfileSelectionState(null);
-    expandedProfileId = profileSelectionState.selectedProfileId;
+    expandedProfileIds = new Set();
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
     addLog("error", error.message || "Could not load profiles.");
@@ -861,14 +1056,21 @@ async function toggleProfileExpand(profileId) {
     return;
   }
 
-  if (expandedProfileId === profileId) {
-    expandedProfileId = "";
-    parkProfilePromptResumeSection();
+  const isSelected = profileSelectionState.selectedProfileIds.includes(profileId);
+  if (expandedProfileIds.has(profileId)) {
+    if (isSelected) {
+      if (profileId !== profileSelectionState.selectedProfileId) {
+        await selectProfile(profileId);
+      }
+      return;
+    }
+
+    expandedProfileIds.delete(profileId);
     renderProfileList();
     return;
   }
 
-  expandedProfileId = profileId;
+  expandedProfileIds.add(profileId);
 
   if (profileId !== profileSelectionState.selectedProfileId) {
     await selectProfile(profileId);
@@ -884,7 +1086,7 @@ async function selectProfile(profileId) {
     return;
   }
 
-  expandedProfileId = profileId;
+  expandedProfileIds.add(profileId);
 
   if (profileId === profileSelectionState.selectedProfileId) {
     syncPromptResumeStateFromSelectedProfile();
@@ -896,7 +1098,7 @@ async function selectProfile(profileId) {
   profileSelectionState.selectedProfileId = profileId;
 
   try {
-    await persistProfileSelection(`Selected profile: ${profile?.name || profileId}`);
+    await persistProfileSelection(`Editing profile: ${profile?.name || profileId}`);
   } catch (error) {
     console.error(error);
     addLog("error", error.message || "Could not update profile selection.");
@@ -918,15 +1120,15 @@ async function removeProfile(profileId) {
   profileSelectionState.profiles = profileSelectionState.profiles.filter(
     (entry) => entry.id !== profileId
   );
+  profileSelectionState.selectedProfileIds =
+    profileSelectionState.selectedProfileIds.filter((id) => id !== profileId);
 
   if (profileSelectionState.selectedProfileId === profileId) {
     profileSelectionState.selectedProfileId =
       profileSelectionState.profiles[0]?.id || "";
   }
 
-  if (expandedProfileId === profileId) {
-    expandedProfileId = profileSelectionState.selectedProfileId;
-  }
+  expandedProfileIds.delete(profileId);
 
   try {
     await persistProfileSelection(
@@ -983,7 +1185,7 @@ async function submitProfileForm() {
       };
       profileSelectionState.profiles = [...profileSelectionState.profiles, profile];
       profileSelectionState.selectedProfileId = profile.id;
-      expandedProfileId = profile.id;
+      expandedProfileIds.add(profile.id);
     }
 
     await persistProfileSelection(
@@ -1077,9 +1279,11 @@ function setSaveButtonsDisabled(disabled) {
   if (saveConfigButton) saveConfigButton.disabled = disabled;
   if (addProfileButton) addProfileButton.disabled = disabled;
   profileList
-    ?.querySelectorAll(".profile-add-prompt-resume, .profile-notes")
-    .forEach((button) => {
-      button.disabled = disabled;
+    ?.querySelectorAll(
+      ".profile-add-prompt-resume, .profile-notes, .profile-selection-checkbox"
+    )
+    .forEach((control) => {
+      control.disabled = disabled;
     });
   if (profileFormModalSubmitButton) profileFormModalSubmitButton.disabled = disabled;
   if (profileNotesModalSubmitButton) profileNotesModalSubmitButton.disabled = disabled;
@@ -1583,23 +1787,55 @@ async function persistPromptResumeSelection(successMessage) {
 }
 
 async function selectPromptResume(promptResumeId) {
-  if (promptResumeId === promptResumeSelectionState.selectedPromptResumeId) {
+  const selectedProfile = getSelectedProfile();
+  const isProfileChecked = Boolean(
+    selectedProfile &&
+      profileSelectionState.selectedProfileIds.includes(selectedProfile.id)
+  );
+  if (
+    promptResumeId === promptResumeSelectionState.selectedPromptResumeId &&
+    isProfileChecked
+  ) {
     return;
   }
 
   const promptResume = promptResumeSelectionState.promptResumes.find(
     (entry) => entry.id === promptResumeId
   );
+  if (!promptResume || !selectedProfile) {
+    addLog("error", "Could not find the selected profile resume.");
+    return;
+  }
+
   promptResumeSelectionState.selectedPromptResumeId = promptResumeId;
+  applyPromptResumeStateToSelectedProfile(
+    promptResumeSelectionState.promptResumes,
+    promptResumeId
+  );
+
+  if (!isProfileChecked) {
+    const selectedIds = new Set([
+      ...profileSelectionState.selectedProfileIds,
+      selectedProfile.id
+    ]);
+    profileSelectionState.selectedProfileIds = profileSelectionState.profiles
+      .map((entry) => entry.id)
+      .filter((id) => selectedIds.has(id));
+  }
+
   addLog("info", `Selected prompt resume: ${promptResume?.label || promptResumeId}`);
 
   try {
-    await persistPromptResumeSelection("Prompt resume selection updated.");
+    await persistProfileSelection(
+      isProfileChecked
+        ? "Prompt resume selection updated."
+        : `Prompt resume selected and "${selectedProfile.name}" added to this application.`
+    );
   } catch (error) {
     console.error(error);
     const message = error.message || "Could not update selection.";
     addLog("error", message);
-    await loadPromptResumeSelection();
+    await loadProfileSelection();
   }
 }
 
@@ -1615,8 +1851,7 @@ async function removePromptResume(promptResumeId) {
     );
 
   if (promptResumeSelectionState.selectedPromptResumeId === promptResumeId) {
-    promptResumeSelectionState.selectedPromptResumeId =
-      promptResumeSelectionState.promptResumes[0]?.id || "";
+    promptResumeSelectionState.selectedPromptResumeId = "";
   }
 
   try {
@@ -2442,7 +2677,7 @@ async function refreshApplicationInputsAfterSave() {
   await Promise.all([loadProfileSelection(), loadJobDescriptionSelection()]);
 }
 
-function validateSaveCurrentTabInputs() {
+function validateSaveCurrentTabInputs(mode = "save") {
   const missing = [];
 
   if (!promptState.content?.trim()) {
@@ -2453,14 +2688,36 @@ function validateSaveCurrentTabInputs() {
     missing.push("job description");
   }
 
-  const hasSelectedResume =
-    Boolean(promptResumeSelectionState.selectedPromptResumeId) &&
-    promptResumeSelectionState.promptResumes.some(
-      (entry) => entry.id === promptResumeSelectionState.selectedPromptResumeId
-    );
+  const selectedProfiles = getSelectedProfiles();
+  if (selectedProfiles.length === 0) {
+    missing.push("profile selection");
+  }
 
-  if (!hasSelectedResume) {
-    missing.push("prompt resume selection");
+  const profilesMissingResume = selectedProfiles.filter(
+    (profile) =>
+      !profile.selectedPromptResumeId ||
+      !profile.promptResumes.some(
+        (entry) => entry.id === profile.selectedPromptResumeId
+      )
+  );
+
+  if (profilesMissingResume.length > 0) {
+    const profileNames = profilesMissingResume.map(
+      (profile) => `"${profile.name}"`
+    );
+    missing.push(
+      profileNames.length === 1
+        ? `prompt resume for ${profileNames[0]}`
+        : `one prompt resume for each of ${profileNames.join(", ")}`
+    );
+  }
+
+  if (mode === "apply" && selectedProfiles.length > 1) {
+    return {
+      ok: false,
+      error:
+        "Apply Now currently supports one profile. Keep one profile checked or use Save App for the selected profiles."
+    };
   }
 
   if (missing.length === 0) {
@@ -2519,7 +2776,7 @@ async function runCurrentAppAction(mode = "save") {
   clearStatus();
   clearDeletedRows();
 
-  const validation = validateSaveCurrentTabInputs();
+  const validation = validateSaveCurrentTabInputs(mode);
   if (!validation.ok) {
     showStatus("error", validation.error);
     addLog("error", validation.error);
@@ -2607,6 +2864,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     showSaveWorkspacePreview({
+      batchStart: message.batchStart,
+      batchIndex: message.batchIndex,
+      batchCount: message.batchCount,
       jobTitle: message.jobTitle,
       jobUrl: message.jobUrl,
       profileName: message.profileName,
@@ -3013,7 +3273,7 @@ async function exchangeSaveWorkspaceUrls() {
 function hasSaveWorkspaceSession() {
   return (
     currentSplitWindowSessionType === "save-workspace" &&
-    Boolean(currentSaveWorkspace)
+    saveWorkspacesByTabId.size > 0
   );
 }
 
@@ -3129,6 +3389,7 @@ function resetSplitWindowsSession() {
   currentSplitWindowReturnTabId = null;
   currentSplitWindowSessionType = "make-resume";
   currentSaveWorkspace = null;
+  saveWorkspacesByTabId.clear();
   currentSaveWorkspaceSidePanelView = "workspace";
   isSaveWorkspaceBoundTabActive = false;
   splitWindowsPreviewTabs?.classList.add("is-hidden");
@@ -3626,6 +3887,9 @@ function updateSaveWorkspaceActions() {
 }
 
 function showSaveWorkspacePreview({
+  batchStart = false,
+  batchIndex = 0,
+  batchCount = 1,
   jobTitle = "Job page",
   jobUrl = "",
   profileName = DEFAULT_PROFILE_NAME,
@@ -3636,11 +3900,18 @@ function showSaveWorkspacePreview({
     return;
   }
 
-  setSplitWindowsModalOpen(false);
+  if (batchStart || currentSplitWindowSessionType !== "save-workspace") {
+    setBuildResumeContextModalOpen(false, { returnFocus: false });
+    saveWorkspacesByTabId.clear();
+    currentSaveWorkspace = null;
+    currentSaveWorkspaceSidePanelView = "workspace";
+    setSplitWindowsPreview("");
+  }
+
+  isSplitWindowsDialogOpen = false;
   currentSplitWindowSessionType = "save-workspace";
-  currentSaveWorkspaceSidePanelView = "workspace";
   isSaveWorkspaceBoundTabActive = true;
-  currentSaveWorkspace = {
+  const workspace = {
     jobTitle: String(jobTitle || "Job page").trim() || "Job page",
     jobUrl: String(jobUrl).trim(),
     profileName:
@@ -3651,8 +3922,12 @@ function showSaveWorkspacePreview({
     storedExchangeUrl: "",
     activeTab: "job",
     isReady: false,
-    isBusy: false
+    isBusy: false,
+    batchIndex: Number(batchIndex) || 0,
+    batchCount: Math.max(1, Number(batchCount) || 1)
   };
+  saveWorkspacesByTabId.set(chatGptTabId, workspace);
+  currentSaveWorkspace = workspace;
 
   splitWindowsPreviewTabs?.classList.remove("is-hidden");
   const resumeTabLabel = splitWindowsResumeTabButton?.querySelector("span");
@@ -3668,31 +3943,37 @@ function markSaveWorkspaceReady({
   chatGptUrl = "",
   chatGptTabId = null
 } = {}) {
-  if (
-    currentSplitWindowSessionType !== "save-workspace" ||
-    !currentSaveWorkspace ||
-    currentSaveWorkspace.chatGptTabId !== chatGptTabId
-  ) {
+  if (currentSplitWindowSessionType !== "save-workspace") {
     return false;
   }
 
-  currentSaveWorkspace.chatGptUrl = String(chatGptUrl || "").trim();
-  currentSaveWorkspace.isReady = true;
-  updateSaveWorkspaceActions();
+  const workspace = saveWorkspacesByTabId.get(chatGptTabId);
+  if (!workspace) {
+    return false;
+  }
+
+  workspace.chatGptUrl = String(chatGptUrl || "").trim();
+  workspace.isReady = true;
+  if (currentSaveWorkspace === workspace) {
+    updateSaveWorkspaceActions();
+  }
   return true;
 }
 
 function syncSaveWorkspaceVisibilityForTab(tabId) {
   if (
     currentSplitWindowSessionType !== "save-workspace" ||
-    !currentSaveWorkspace
+    saveWorkspacesByTabId.size === 0
   ) {
     return false;
   }
 
+  const workspace = saveWorkspacesByTabId.get(tabId) || null;
   const wasBoundTabActive = isSaveWorkspaceBoundTabActive;
-  isSaveWorkspaceBoundTabActive =
-    tabId === currentSaveWorkspace.chatGptTabId;
+  isSaveWorkspaceBoundTabActive = Boolean(workspace);
+  if (workspace) {
+    currentSaveWorkspace = workspace;
+  }
   if (wasBoundTabActive && !isSaveWorkspaceBoundTabActive) {
     currentDefaultSidePanelView = "home";
   }
@@ -4122,10 +4403,25 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (
-    currentSplitWindowSessionType === "save-workspace" &&
-    currentSaveWorkspace?.chatGptTabId === tabId
+    currentSplitWindowSessionType !== "save-workspace" ||
+    !saveWorkspacesByTabId.has(tabId)
   ) {
-    setSplitWindowsModalOpen(false);
+    return;
+  }
+
+  const removedCurrentWorkspace = currentSaveWorkspace?.chatGptTabId === tabId;
+  saveWorkspacesByTabId.delete(tabId);
+
+  if (saveWorkspacesByTabId.size === 0) {
+    resetSplitWindowsSession();
+    return;
+  }
+
+  if (removedCurrentWorkspace) {
+    currentSaveWorkspace = saveWorkspacesByTabId.values().next().value || null;
+    isSaveWorkspaceBoundTabActive = false;
+    currentDefaultSidePanelView = "home";
+    renderSaveWorkspaceSidePanelView();
   }
 });
 

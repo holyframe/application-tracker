@@ -21,6 +21,7 @@ const SAVE_CHECK_REMINDER_DELAY_MINUTES = 2;
 const SAVE_CHECK_REMINDER_NOTIFICATION_ID = "application-helper-check-reminder";
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
 const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
+const PROFILE_SELECTION_VERSION = 3;
 const GOOGLE_DOC_WRITABLE_TEXT_STYLE_FIELDS = Object.freeze([
   "backgroundColor",
   "baselineOffset",
@@ -341,13 +342,11 @@ function normalizePromptResumeSelection(selection) {
     .filter(Boolean);
 
   const selectedPromptResumeId =
-    selection?.selectedPromptResumeId === ""
-      ? ""
-      : promptResumes.some(
-            (entry) => entry.id === selection?.selectedPromptResumeId
-          )
-        ? selection.selectedPromptResumeId
-        : promptResumes[0]?.id || "";
+    promptResumes.some(
+      (entry) => entry.id === selection?.selectedPromptResumeId
+    )
+      ? selection.selectedPromptResumeId
+      : "";
 
   return { promptResumes, selectedPromptResumeId };
 }
@@ -387,26 +386,56 @@ function normalizeProfile(entry) {
 }
 
 function normalizeProfileSelectionState(selection) {
+  const hasCurrentSelectionVersion =
+    selection?.selectionVersion === PROFILE_SELECTION_VERSION;
   const profiles = (Array.isArray(selection?.profiles) ? selection.profiles : [])
     .map(normalizeProfile)
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((profile) =>
+      hasCurrentSelectionVersion
+        ? profile
+        : { ...profile, selectedPromptResumeId: "" }
+    );
 
   if (profiles.length === 0) {
     const defaultProfile = createDefaultProfile();
     return {
       profiles: [defaultProfile],
-      selectedProfileId: defaultProfile.id
+      selectedProfileId: defaultProfile.id,
+      selectedProfileIds: [],
+      selectionVersion: PROFILE_SELECTION_VERSION
     };
   }
 
   const selectedProfileId =
-    selection?.selectedProfileId === ""
-      ? ""
-      : profiles.some((entry) => entry.id === selection?.selectedProfileId)
-        ? selection.selectedProfileId
-        : profiles[0].id;
+    profiles.some((entry) => entry.id === selection?.selectedProfileId)
+      ? selection.selectedProfileId
+      : profiles[0].id;
 
-  return { profiles, selectedProfileId };
+  const requestedProfileIds =
+    hasCurrentSelectionVersion &&
+    Array.isArray(selection?.selectedProfileIds)
+      ? selection.selectedProfileIds
+      : [];
+  const validProfileIds = new Set(profiles.map((entry) => entry.id));
+  const selectedIds = new Set(
+    requestedProfileIds.map(String).filter((id) => validProfileIds.has(id))
+  );
+  profiles.forEach((profile) => {
+    if (profile.selectedPromptResumeId) {
+      selectedIds.add(profile.id);
+    }
+  });
+  const selectedProfileIds = profiles
+    .map((profile) => profile.id)
+    .filter((id) => selectedIds.has(id));
+
+  return {
+    profiles,
+    selectedProfileId,
+    selectedProfileIds,
+    selectionVersion: PROFILE_SELECTION_VERSION
+  };
 }
 
 async function loadLegacyPromptResumeSelectionRecord() {
@@ -448,7 +477,13 @@ async function getProfileSelectionState() {
   let state = normalizeProfileSelectionState(
     stored[PROFILE_SELECTION_STORAGE_KEY]
   );
-  let didChange = !stored[PROFILE_SELECTION_STORAGE_KEY];
+  let didChange =
+    !stored[PROFILE_SELECTION_STORAGE_KEY] ||
+    stored[PROFILE_SELECTION_STORAGE_KEY]?.selectionVersion !==
+      PROFILE_SELECTION_VERSION ||
+    !Array.isArray(
+      stored[PROFILE_SELECTION_STORAGE_KEY]?.selectedProfileIds
+    );
 
   const legacyResumes = await loadLegacyPromptResumeSelectionRecord();
   const normalizedLegacy = legacyResumes
@@ -468,7 +503,7 @@ async function getProfileSelectionState() {
       nextDefault = {
         ...nextDefault,
         promptResumes: normalizedLegacy.promptResumes,
-        selectedPromptResumeId: normalizedLegacy.selectedPromptResumeId
+        selectedPromptResumeId: ""
       };
       didChange = true;
     }
@@ -525,6 +560,11 @@ function getSelectedProfileFromState(state) {
   );
 }
 
+function getSelectedProfilesFromState(state) {
+  const selectedIds = new Set(state.selectedProfileIds);
+  return state.profiles.filter((entry) => selectedIds.has(entry.id));
+}
+
 async function getPromptResumeSelectionState() {
   const profileState = await getProfileSelectionState();
   const selectedProfile = getSelectedProfileFromState(profileState);
@@ -550,11 +590,9 @@ async function savePromptResumeSelectionState(
     .filter(Boolean);
 
   const selectedPromptResumeId =
-    selectedPromptResumeIdInput === ""
-      ? ""
-      : promptResumes.some((entry) => entry.id === selectedPromptResumeIdInput)
-        ? selectedPromptResumeIdInput
-        : promptResumes[0]?.id || "";
+    promptResumes.some((entry) => entry.id === selectedPromptResumeIdInput)
+      ? selectedPromptResumeIdInput
+      : "";
 
   const profileState = await getProfileSelectionState();
   const selectedProfile = getSelectedProfileFromState(profileState);
@@ -585,12 +623,19 @@ async function savePromptResumeSelectionState(
 }
 
 async function resetApplicationInputsAfterSave(runId = "") {
-  const resumeState = await getPromptResumeSelectionState();
-
-  await savePromptResumeSelectionState(resumeState.promptResumes, "");
+  const profileState = await getProfileSelectionState();
+  await saveProfileSelectionState({
+    ...profileState,
+    selectedProfileIds: [],
+    profiles: profileState.profiles.map((profile) => ({
+      ...profile,
+      selectedPromptResumeId: ""
+    }))
+  });
   await saveJobDescriptionSelectionState("");
 
-  const message = "Cleared prompt resume selection and job description.";
+  const message =
+    "Cleared saved profile selections, prompt resume selections, and job description.";
 
   if (runId) {
     sendLog(runId, "info", message);
@@ -748,18 +793,23 @@ async function saveJobDescriptionSelectionState(contentInput) {
   return state;
 }
 
-async function getSelectedProfileResumeTemplateId() {
-  const profileState = await getProfileSelectionState();
-  const selectedProfile = getSelectedProfileFromState(profileState);
-  const resumeTemplateId = parseGoogleDocId(selectedProfile?.resumeTemplateId);
+function getProfileResumeTemplateId(profile) {
+  const resumeTemplateId = parseGoogleDocId(profile?.resumeTemplateId);
 
   if (!resumeTemplateId) {
     throw new Error(
-      "Resume Google Doc template is not configured for the selected profile."
+      `Resume Google Doc template is not configured for "${
+        String(profile?.name || DEFAULT_PROFILE_NAME).trim() || DEFAULT_PROFILE_NAME
+      }".`
     );
   }
 
   return resumeTemplateId;
+}
+
+async function getSelectedProfileResumeTemplateId() {
+  const profileState = await getProfileSelectionState();
+  return getProfileResumeTemplateId(getSelectedProfileFromState(profileState));
 }
 
 async function getSheetConfig() {
@@ -1040,14 +1090,15 @@ function formatSaveValidationError(missing) {
   return `These are required before saving: ${missing.join(", ")}.`;
 }
 
-async function validateApplicationInputsForSave() {
-  const [promptState, jobDescriptionState, resumeState] = await Promise.all([
+async function validateApplicationInputsForSave({ groupTabs = false } = {}) {
+  const [promptState, jobDescriptionState, profileState] = await Promise.all([
     getPromptSelectionState(),
     getJobDescriptionSelectionState(),
-    getPromptResumeSelectionState()
+    getProfileSelectionState()
   ]);
 
   const missing = [];
+  const selectedProfiles = getSelectedProfilesFromState(profileState);
 
   if (!promptState.content?.trim()) {
     missing.push("GPT prompt");
@@ -1057,18 +1108,39 @@ async function validateApplicationInputsForSave() {
     missing.push("job description");
   }
 
-  const hasSelectedResume =
-    Boolean(resumeState.selectedPromptResumeId) &&
-    resumeState.promptResumes.some(
-      (entry) => entry.id === resumeState.selectedPromptResumeId
-    );
+  if (selectedProfiles.length === 0) {
+    missing.push("profile selection");
+  }
 
-  if (!hasSelectedResume) {
-    missing.push("prompt resume selection");
+  const profilesMissingResume = selectedProfiles.filter(
+    (profile) =>
+      !profile.selectedPromptResumeId ||
+      !profile.promptResumes.some(
+        (entry) => entry.id === profile.selectedPromptResumeId
+      )
+  );
+
+  if (profilesMissingResume.length > 0) {
+    const profileNames = profilesMissingResume.map(
+      (profile) => `"${profile.name}"`
+    );
+    missing.push(
+      profileNames.length === 1
+        ? `prompt resume for ${profileNames[0]}`
+        : `one prompt resume for each of ${profileNames.join(", ")}`
+    );
+  }
+
+  if (groupTabs && selectedProfiles.length > 1) {
+    return {
+      ok: false,
+      error:
+        "Apply Now currently supports one profile. Keep one profile checked or use Save App for the selected profiles."
+    };
   }
 
   if (missing.length === 0) {
-    return { ok: true };
+    return { ok: true, profileState, selectedProfiles };
   }
 
   return {
@@ -1078,15 +1150,20 @@ async function validateApplicationInputsForSave() {
   };
 }
 
-async function buildChatGptMessageFromStorage() {
-  const [promptState, jobDescriptionState, resumeState] = await Promise.all([
+async function buildChatGptMessageFromStorage(profile = null) {
+  const [promptState, jobDescriptionState] = await Promise.all([
     getPromptSelectionState(),
-    getJobDescriptionSelectionState(),
-    getPromptResumeSelectionState()
+    getJobDescriptionSelectionState()
   ]);
 
-  const selectedResume = resumeState.promptResumes.find(
-    (entry) => entry.id === resumeState.selectedPromptResumeId
+  let targetProfile = profile;
+  if (!targetProfile) {
+    const profileState = await getProfileSelectionState();
+    targetProfile = getSelectedProfileFromState(profileState);
+  }
+
+  const selectedResume = targetProfile?.promptResumes.find(
+    (entry) => entry.id === targetProfile.selectedPromptResumeId
   );
 
   const parts = [];
@@ -1450,7 +1527,8 @@ async function scheduleSaveCheckReminder(
     chatGptTabId = null,
     windowId = null,
     mode = "save",
-    groupId = null
+    groupId = null,
+    profileCount = 1
   } = {},
   runId
 ) {
@@ -1463,6 +1541,7 @@ async function scheduleSaveCheckReminder(
       windowId: typeof windowId === "number" ? windowId : null,
       mode: mode === "apply" ? "apply" : "save",
       groupId: typeof groupId === "number" ? groupId : null,
+      profileCount: Math.max(1, Number(profileCount) || 1),
       scheduledAt: Date.now()
     }
   });
@@ -1593,12 +1672,16 @@ async function showSaveCheckReminderNotification() {
   const reminder = stored[SAVE_CHECK_REMINDER_STORAGE_KEY] || {};
   const jobTitle = reminder.jobTitle || "your saved application";
   const isApplyMode = reminder.mode === "apply";
+  const profileCount = Math.max(1, Number(reminder.profileCount) || 1);
 
   await chrome.notifications.create(SAVE_CHECK_REMINDER_NOTIFICATION_ID, {
     type: "basic",
     iconUrl: "assets/icon128.png",
     title: "Application Helper",
-    message: `Time to check ChatGPT for: ${jobTitle}`,
+    message:
+      profileCount > 1
+        ? `Time to check ${profileCount} ChatGPT conversations for: ${jobTitle}`
+        : `Time to check ChatGPT for: ${jobTitle}`,
     priority: 2,
     requireInteraction: false,
     buttons: [{ title: isApplyMode ? "Close" : "Check" }]
@@ -1766,7 +1849,9 @@ chrome.commands.onCommand.addListener((command) => {
       return;
     }
 
-    const validation = await validateApplicationInputsForSave();
+    const validation = await validateApplicationInputsForSave({
+      groupTabs: action.groupTabs
+    });
     if (!validation.ok) {
       sendLog(runId, "error", validation.error);
       await notifyExtensionPages({
@@ -1880,7 +1965,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SAVE_PROFILE_SELECTION") {
     saveProfileSelectionState({
       profiles: message.profiles,
-      selectedProfileId: message.selectedProfileId
+      selectedProfileId: message.selectedProfileId,
+      selectedProfileIds: message.selectedProfileIds,
+      selectionVersion: message.selectionVersion
     })
       .then((state) => sendResponse({ ok: true, ...state }))
       .catch((error) => {
@@ -2124,6 +2211,45 @@ async function groupApplicationTabs({
   return groupId;
 }
 
+async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId) {
+  if (typeof sourceTab?.id !== "number") {
+    throw new Error("Current tab does not have a valid tab ID.");
+  }
+
+  const targetTabIds = [sourceTab.id];
+  const additionalTabCount = Math.max(0, profileCount - 1);
+  if (additionalTabCount === 0) {
+    return targetTabIds;
+  }
+
+  sendLog(
+    runId,
+    "info",
+    `Opening ${additionalTabCount} additional job ${
+      additionalTabCount === 1 ? "tab" : "tabs"
+    } for the selected profiles...`
+  );
+
+  for (let index = 0; index < additionalTabCount; index += 1) {
+    const createProperties = {
+      url: sourceTab.url,
+      active: false,
+      windowId: sourceTab.windowId
+    };
+    if (Number.isInteger(sourceTab.index)) {
+      createProperties.index = sourceTab.index + index + 1;
+    }
+
+    const duplicateTab = await chrome.tabs.create(createProperties);
+    if (typeof duplicateTab.id !== "number") {
+      throw new Error("Could not create a ChatGPT target tab for every profile.");
+    }
+    targetTabIds.push(duplicateTab.id);
+  }
+
+  return targetTabIds;
+}
+
 async function saveCurrentTabUrlToSheet(runId, options = {}) {
   const groupTabsInsteadOfClosing = options.groupTabs === true;
   sendLog(
@@ -2140,7 +2266,9 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
     );
   }
 
-  const validation = await validateApplicationInputsForSave();
+  const validation = await validateApplicationInputsForSave({
+    groupTabs: groupTabsInsteadOfClosing
+  });
   if (!validation.ok) {
     throw new Error(validation.error);
   }
@@ -2163,114 +2291,166 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
 
     sendLog(runId, "success", `Found tab URL: ${tab.url}`);
 
-    const profileState = await getProfileSelectionState();
-    const selectedProfile = getSelectedProfileFromState(profileState);
-    const profileName = String(selectedProfile?.name || "").trim() || DEFAULT_PROFILE_NAME;
-    const resumeTemplateId = await getSelectedProfileResumeTemplateId();
+    const selectedProfiles = validation.selectedProfiles;
+    const resumeTemplateIds = new Map(
+      selectedProfiles.map((profile) => [
+        profile.id,
+        getProfileResumeTemplateId(profile)
+      ])
+    );
     const token = await getGoogleAccessToken();
-
-    const docTitle = tab.title || `Application ${new Date().toLocaleDateString()}`;
-    sendLog(runId, "info", "Creating resume copy...");
-    const resumeUrl = await copyResumeAndGetUrl(token, docTitle, resumeTemplateId, runId);
-    sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
-
-    sendLog(runId, "info", "Preparing ChatGPT prompt...");
-    const chatGptMessage = await buildChatGptMessageFromStorage();
-    let chatGptUrl = CHATGPT_URL;
-    let chatGptTabId = null;
 
     if (typeof tab.id !== "number") {
       throw new Error("Current tab does not have a valid tab ID.");
     }
 
-    if (!groupTabsInsteadOfClosing) {
-      await notifyExtensionPages({
-        type: "SHOW_SAVE_WORKSPACE",
-        runId,
-        jobTitle: tab.title || "Job page",
-        jobUrl: tab.url,
-        profileName,
-        resumeUrl,
-        chatGptTabId: tab.id
-      });
-    }
+    const targetTabIds = groupTabsInsteadOfClosing
+      ? []
+      : await createSaveProfileTargetTabIds(tab, selectedProfiles.length, runId);
+    const results = [];
 
-    if (chatGptMessage) {
-      const chatGptResult = await sendToChatGptAndGetUrl(
-        chatGptMessage,
-        runId,
-        groupTabsInsteadOfClosing ? {} : { tabId: tab.id }
-      );
-      chatGptUrl = chatGptResult.url;
-      chatGptTabId = chatGptResult.tabId;
-    } else {
+    for (let index = 0; index < selectedProfiles.length; index += 1) {
+      const profile = selectedProfiles[index];
+      const profileName =
+        String(profile?.name || "").trim() || DEFAULT_PROFILE_NAME;
+      const resumeTemplateId = resumeTemplateIds.get(profile.id);
+      const positionLabel = `${index + 1}/${selectedProfiles.length}`;
+
       sendLog(
         runId,
         "info",
-        "No GPT prompt, job description, or prompt resume configured."
+        `Processing profile ${positionLabel}: ${profileName}`
       );
-      const chatGptResult = groupTabsInsteadOfClosing
-        ? await openNewChatGptTab(runId)
-        : await openChatGptInExistingTab(tab.id, runId);
-      chatGptUrl = chatGptResult.url;
-      chatGptTabId = chatGptResult.tabId;
-    }
 
-    const row = buildApplicationSheetRow({
-      timestamp: new Date().toISOString(),
-      jobTitle: tab.title,
-      jobUrl: urlForSheet,
-      chatGptUrl,
-      resumeUrl,
-      applyNow: groupTabsInsteadOfClosing
-    });
+      const baseDocTitle =
+        tab.title || `Application ${new Date().toLocaleDateString()}`;
+      const docTitle =
+        selectedProfiles.length > 1
+          ? `${baseDocTitle} - ${profileName}`
+          : baseDocTitle;
+      sendLog(runId, "info", `Creating resume copy for "${profileName}"...`);
+      const resumeUrl = await copyResumeAndGetUrl(
+        token,
+        docTitle,
+        resumeTemplateId,
+        runId
+      );
+      sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
 
-    sendLog(
-      runId,
-      "info",
-      `Preparing row for profile sheet tab "${profileName}"...`
-    );
+      sendLog(runId, "info", `Preparing ChatGPT prompt for "${profileName}"...`);
+      const chatGptMessage = await buildChatGptMessageFromStorage(profile);
+      let chatGptUrl = CHATGPT_URL;
+      let chatGptTabId = null;
+      const targetTabId = groupTabsInsteadOfClosing
+        ? null
+        : targetTabIds[index];
 
-    await appendRowsToGoogleSheet([row], runId, {
-      sheetName: profileName
-    });
-    sendLog(
-      runId,
-      "success",
-      `URL saved to profile sheet tab "${profileName}".`
-    );
+      if (!groupTabsInsteadOfClosing) {
+        await notifyExtensionPages({
+          type: "SHOW_SAVE_WORKSPACE",
+          runId,
+          batchStart: index === 0,
+          batchIndex: index,
+          batchCount: selectedProfiles.length,
+          jobTitle: tab.title || "Job page",
+          jobUrl: tab.url,
+          profileName,
+          resumeUrl,
+          chatGptTabId: targetTabId
+        });
+      }
 
-    if (!groupTabsInsteadOfClosing) {
-      await notifyExtensionPages({
-        type: "SAVE_WORKSPACE_READY",
+      if (chatGptMessage) {
+        const chatGptResult = await sendToChatGptAndGetUrl(
+          chatGptMessage,
+          runId,
+          groupTabsInsteadOfClosing ? {} : { tabId: targetTabId }
+        );
+        chatGptUrl = chatGptResult.url;
+        chatGptTabId = chatGptResult.tabId;
+      } else {
+        sendLog(
+          runId,
+          "info",
+          `No ChatGPT message content was available for "${profileName}".`
+        );
+        const chatGptResult = groupTabsInsteadOfClosing
+          ? await openNewChatGptTab(runId)
+          : await openChatGptInExistingTab(targetTabId, runId);
+        chatGptUrl = chatGptResult.url;
+        chatGptTabId = chatGptResult.tabId;
+      }
+
+      const row = buildApplicationSheetRow({
+        timestamp: new Date().toISOString(),
+        jobTitle: tab.title,
+        jobUrl: urlForSheet,
+        chatGptUrl,
+        resumeUrl,
+        applyNow: groupTabsInsteadOfClosing
+      });
+
+      sendLog(
         runId,
+        "info",
+        `Preparing row for profile sheet tab "${profileName}"...`
+      );
+
+      await appendRowsToGoogleSheet([row], runId, {
+        sheetName: profileName
+      });
+      sendLog(
+        runId,
+        "success",
+        `URL saved to profile sheet tab "${profileName}".`
+      );
+
+      if (!groupTabsInsteadOfClosing) {
+        await notifyExtensionPages({
+          type: "SAVE_WORKSPACE_READY",
+          runId,
+          profileName,
+          chatGptUrl,
+          chatGptTabId
+        });
+      }
+
+      results.push({
+        profileId: profile.id,
+        profileName,
+        resumeUrl,
         chatGptUrl,
         chatGptTabId
       });
+      sendLog(runId, "success", `Finished profile ${positionLabel}: ${profileName}`);
     }
 
     let applicationGroupId = null;
 
     if (groupTabsInsteadOfClosing) {
+      const result = results[0];
       applicationGroupId = await groupApplicationTabs({
         jobTabId: tab.id,
-        resumeUrl,
-        chatGptUrl,
-        chatGptTabId,
+        resumeUrl: result.resumeUrl,
+        chatGptUrl: result.chatGptUrl,
+        chatGptTabId: result.chatGptTabId,
         groupTitle: tab.title || "Application",
         runId
       });
     }
 
+    const reminderResult = results[results.length - 1];
+
     await scheduleSaveCheckReminder(
       {
         jobTitle: tab.title || "",
         jobUrl: urlForSheet,
-        chatGptUrl,
-        chatGptTabId,
+        chatGptUrl: reminderResult.chatGptUrl,
+        chatGptTabId: reminderResult.chatGptTabId,
         windowId: tab.windowId,
         mode: groupTabsInsteadOfClosing ? "apply" : "save",
-        groupId: applicationGroupId
+        groupId: applicationGroupId,
+        profileCount: selectedProfiles.length
       },
       runId
     );
@@ -2280,17 +2460,21 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       "success",
       groupTabsInsteadOfClosing
         ? "Finished. Application tabs grouped."
-        : "Finished. ChatGPT is open in the original job tab; no tab group was created."
+        : `Finished. Opened ${selectedProfiles.length} ChatGPT ${
+            selectedProfiles.length === 1 ? "tab" : "tabs"
+          } for the selected profiles; no tab group was created.`
     );
 
     return {
       url: urlForSheet,
-      chatGptUrl,
-      chatGptTabId,
+      chatGptUrl: reminderResult.chatGptUrl,
+      chatGptTabId: reminderResult.chatGptTabId,
       jobTitle: tab.title || "Job page",
       jobUrl: tab.url,
-      profileName,
-      resumeUrl,
+      profileName: reminderResult.profileName,
+      resumeUrl: reminderResult.resumeUrl,
+      profileCount: selectedProfiles.length,
+      results,
       grouped: groupTabsInsteadOfClosing
     };
   } catch (error) {
