@@ -81,9 +81,6 @@ const buildResumeContextStatus = document.querySelector(
 const buildResumeContextInput = document.querySelector(
   "#buildResumeContextInput"
 );
-const statusCard = document.querySelector("#statusCard");
-const statusTitle = document.querySelector("#statusTitle");
-const status = document.querySelector("#status");
 const workspaceHeaderStatuses = document.querySelectorAll(
   ".workspace-header-status"
 );
@@ -94,7 +91,10 @@ const logsList = document.querySelector("#logsList");
 const emptyLogs = document.querySelector("#emptyLogs");
 const clearLogsButton = document.querySelector("#clearLogsButton");
 const configToggleButton = document.querySelector("#configToggleButton");
-const configPanel = document.querySelector("#configPanel");
+const configModal = document.querySelector("#configModal");
+const configModalBackdrop = document.querySelector("#configModalBackdrop");
+const configModalCloseButton = document.querySelector("#configModalCloseButton");
+const configModalCancelButton = document.querySelector("#configModalCancelButton");
 const spreadsheetIdInput = document.querySelector("#spreadsheetIdInput");
 const sheetNameInput = document.querySelector("#sheetNameInput");
 const resumeTemplateInput = document.querySelector("#resumeTemplateInput");
@@ -1294,6 +1294,7 @@ function setSaveButtonsDisabled(disabled) {
 }
 
 function closeOpenModalsForUiLock() {
+  setConfigModalOpen(false, { returnFocus: false });
   setProfileFormModalOpen(false);
   setProfileNotesModalOpen(false);
   setSplitWindowsModalOpen(false);
@@ -2486,16 +2487,21 @@ async function submitJobDescriptionForm() {
   }
 }
 
-function setConfigPanelOpen(isOpen) {
-  if (!configToggleButton || !configPanel) return;
-
-  const scrollTop = document.documentElement.scrollTop;
+function setConfigModalOpen(isOpen, { returnFocus = true } = {}) {
+  if (!configToggleButton || !configModal) return;
 
   configToggleButton.setAttribute("aria-expanded", String(isOpen));
-  configPanel.classList.toggle("is-open", isOpen);
-  configToggleButton.classList.toggle("is-open", isOpen);
+  configModal.classList.toggle("is-hidden", !isOpen);
+  configModal.setAttribute("aria-hidden", String(!isOpen));
 
-  document.documentElement.scrollTop = scrollTop;
+  if (isOpen) {
+    spreadsheetIdInput?.focus();
+    return;
+  }
+
+  if (returnFocus) {
+    configToggleButton.focus();
+  }
 }
 
 async function loadSheetConfig() {
@@ -2570,27 +2576,9 @@ function updateWorkspaceHeaderStatus(type, message, titleText) {
 
 function showStatus(type, message, titleText) {
   updateWorkspaceHeaderStatus(type, message, titleText);
-
-  if (!statusCard || !status || !statusTitle) return;
-
-  statusCard.classList.remove("is-hidden", "is-error");
-
-  if (type === "error") {
-    statusCard.classList.add("is-error");
-    statusTitle.textContent = "Error:";
-    status.textContent = message;
-    return;
-  }
-
-  statusTitle.textContent = titleText || "Saved:";
-  status.textContent = message;
 }
 
-function clearStatus() {
-  statusCard?.classList.add("is-hidden");
-  statusCard?.classList.remove("is-error");
-  if (status) status.textContent = "";
-}
+function clearStatus() {}
 
 function updateLogsState() {
   if (!logsList || !emptyLogs) return;
@@ -4294,9 +4282,12 @@ configToggleButton?.addEventListener("click", () => {
     return;
   }
 
-  const isOpen = configToggleButton.getAttribute("aria-expanded") === "true";
-  setConfigPanelOpen(!isOpen);
+  setConfigModalOpen(true);
 });
+
+configModalBackdrop?.addEventListener("click", () => setConfigModalOpen(false));
+configModalCloseButton?.addEventListener("click", () => setConfigModalOpen(false));
+configModalCancelButton?.addEventListener("click", () => setConfigModalOpen(false));
 
 saveConfigButton?.addEventListener("click", saveSheetConfig);
 
@@ -4381,6 +4372,11 @@ document.addEventListener("keydown", (event) => {
 
   if (jobDescriptionFormModal && !jobDescriptionFormModal.classList.contains("is-hidden")) {
     setJobDescriptionFormModalOpen(false);
+    return;
+  }
+
+  if (configModal && !configModal.classList.contains("is-hidden")) {
+    setConfigModalOpen(false);
   }
 });
 

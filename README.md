@@ -59,7 +59,9 @@ already-grouped job tab and leaves any existing group unchanged. The check
 reminder focuses the final resulting ChatGPT tab instead of opening a duplicate.
 The matching **Home workspace** and **Application workspace** header panels
 always show an Exchange icon for switching between the two views. A compact
-line below each title retains the app's most recent success or error status.
+line below each title is the only status display and retains the app's most
+recent success or error. The Home workspace header also provides a left-side
+Settings icon that opens configuration in a modal.
 Before `Save App` runs, and on browser tabs that are not bound to the current
 saved application, the Job page and Profile resume tabs show empty states
 without URLs. Returning to any ChatGPT tab created by the batch restores that
@@ -112,7 +114,7 @@ closed, Chrome ignores these application actions.
 
 ## Configuration and storage
 
-The side-panel settings accept a Google Spreadsheet URL or ID. Application
+The header Settings modal accepts a Google Spreadsheet URL or ID. Application
 records are routed to the tab matching each selected profile name, and missing
 profile tabs are created automatically. The configured default tab name is
 retained for backward compatibility.

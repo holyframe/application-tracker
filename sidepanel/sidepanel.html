@@ -15,6 +15,22 @@
         aria-label="Home workspace"
         aria-hidden="true"
       >
+        <button
+          id="configToggleButton"
+          type="button"
+          class="workspace-settings-button"
+          aria-label="Open app settings"
+          title="App settings"
+          aria-expanded="false"
+          aria-controls="configModal"
+          aria-haspopup="dialog"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+
         <h2>Home workspace</h2>
         <p
           id="homeWorkspaceLastStatus"
@@ -154,19 +170,6 @@
         </div>
       </section>
 
-      <section id="statusCard" class="status-card is-hidden" aria-live="polite">
-        <span class="status-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path d="m5 12.5 4.25 4.25L19 7" />
-          </svg>
-        </span>
-
-        <div>
-          <strong id="statusTitle">Saved:</strong>
-          <p id="status"></p>
-        </div>
-      </section>
-
       <section id="deletedRowsCard" class="card deleted-rows-card is-hidden">
         <div class="logs-header">
           <h2>Deleted Rows</h2>
@@ -189,76 +192,6 @@
           </div>
 
           <ul id="deletedRowsList" class="deleted-rows-list"></ul>
-        </div>
-      </section>
-
-      <section class="card config-card">
-        <button
-          id="configToggleButton"
-          type="button"
-          class="config-toggle"
-          aria-expanded="false"
-          aria-controls="configPanel"
-        >
-          <span class="config-toggle-label">
-            <span class="config-toggle-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </span>
-            <span>App Setting</span>
-          </span>
-          <span class="config-chevron" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </span>
-        </button>
-
-        <div id="configPanel" class="config-panel" role="region" aria-label="App Setting">
-          <div class="config-panel-inner">
-            <p class="config-help">
-              Set the Google Spreadsheet used by this extension. Application rows
-              are saved to a tab named after the selected profile.
-            </p>
-
-            <div class="config-field-row">
-              <div class="config-field">
-                <label class="config-label" for="spreadsheetIdInput">Google Sheet URL or ID</label>
-                <input
-                  id="spreadsheetIdInput"
-                  type="text"
-                  class="config-input"
-                  placeholder="https://docs.google.com/spreadsheets/d/..."
-                  autocomplete="off"
-                />
-              </div>
-
-              <div class="config-field">
-                <label class="config-label" for="sheetNameInput">Sheet tab name</label>
-                <input
-                  id="sheetNameInput"
-                  type="text"
-                  class="config-input"
-                  placeholder="Sheet1"
-                  autocomplete="off"
-                />
-              </div>
-            </div>
-
-            <div class="prompt-selection-section">
-              <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
-            </div>
-
-            <div class="prompt-selection-section">
-              <ul id="humanizePromptList" class="prompt-selection-list" aria-label="Humanize prompt"></ul>
-            </div>
-
-            <button id="saveConfigButton" type="button" class="secondary-button config-save-button">
-              <span>Save configuration</span>
-            </button>
-          </div>
         </div>
       </section>
 
@@ -303,6 +236,85 @@
         </div>
       </section>
     </main>
+
+    <div
+      id="configModal"
+      class="modal config-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="configModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="configModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close app settings"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="configModalTitle">App settings</h2>
+          <button
+            id="configModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            Ã—
+          </button>
+        </div>
+
+        <p class="config-help">
+          Set the Google Spreadsheet used by this extension. Application rows
+          are saved to a tab named after each selected profile.
+        </p>
+
+        <div class="modal-form config-modal-form">
+          <div class="config-field-row">
+            <div class="config-field">
+              <label class="config-label" for="spreadsheetIdInput">Google Sheet URL or ID</label>
+              <input
+                id="spreadsheetIdInput"
+                type="text"
+                class="config-input"
+                placeholder="https://docs.google.com/spreadsheets/d/..."
+                autocomplete="off"
+              />
+            </div>
+
+            <div class="config-field">
+              <label class="config-label" for="sheetNameInput">Sheet tab name</label>
+              <input
+                id="sheetNameInput"
+                type="text"
+                class="config-input"
+                placeholder="Sheet1"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="prompt-selection-section">
+            <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
+          </div>
+
+          <div class="prompt-selection-section">
+            <ul id="humanizePromptList" class="prompt-selection-list" aria-label="Humanize prompt"></ul>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="configModalCancelButton" type="button" class="secondary-button modal-action-button">
+            <span>Cancel</span>
+          </button>
+
+          <button id="saveConfigButton" type="button" class="primary-button modal-action-button">
+            <span>Save configuration</span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div
       id="profileFormModal"
