@@ -408,6 +408,11 @@ h1 {
   min-width: 0;
 }
 
+.profile-picker-card {
+  container-name: profiles-panel;
+  container-type: inline-size;
+}
+
 .prompt-resume-selection-card .application-save-section {
   margin-top: 0;
   padding-top: 0;
@@ -421,6 +426,17 @@ h1 {
   padding: 0;
   list-style: none;
   min-width: 0;
+}
+
+@container profiles-panel (min-width: 620px) {
+  .profile-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .profile-list-empty {
+    grid-column: 1 / -1;
+  }
 }
 
 .profile-item {
