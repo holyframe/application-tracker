@@ -35,6 +35,27 @@ const saveWorkspaceDownloadButton = document.querySelector(
 const saveWorkspaceExchangeButton = document.querySelector(
   "#saveWorkspaceExchangeButton"
 );
+const buildResumeContextModal = document.querySelector(
+  "#buildResumeContextModal"
+);
+const buildResumeContextModalBackdrop = document.querySelector(
+  "#buildResumeContextModalBackdrop"
+);
+const buildResumeContextModalCloseButton = document.querySelector(
+  "#buildResumeContextModalCloseButton"
+);
+const buildResumeContextCancelButton = document.querySelector(
+  "#buildResumeContextCancelButton"
+);
+const buildResumeContextSubmitButton = document.querySelector(
+  "#buildResumeContextSubmitButton"
+);
+const buildResumeContextStatus = document.querySelector(
+  "#buildResumeContextStatus"
+);
+const buildResumeContextInput = document.querySelector(
+  "#buildResumeContextInput"
+);
 const statusCard = document.querySelector("#statusCard");
 const statusTitle = document.querySelector("#statusTitle");
 const status = document.querySelector("#status");
@@ -110,6 +131,7 @@ const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
 const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const DEFAULT_PROFILE_NAME = "Default";
+const IS_BUILD_RESUME_ENABLED = false;
 
 let activeRunId = null;
 let isExtensionUiLocked = false;
@@ -123,6 +145,7 @@ let areActionButtonsDisabled = false;
 let isCurrentTabGoogleSheet = false;
 let makeResumeAvailabilityRequestId = 0;
 let isMakeResumeOpening = false;
+let isBuildResumeContextModalOpen = false;
 
 function createRunId() {
   if (crypto.randomUUID) {
@@ -2665,6 +2688,86 @@ async function downloadSplitWindowResume() {
   await runResumeDownload(currentSplitWindowDownloadUrl);
 }
 
+function showBuildResumeContextStatus(type, message) {
+  if (!buildResumeContextStatus) return;
+
+  buildResumeContextStatus.classList.remove(
+    "is-hidden",
+    "is-error",
+    "is-success"
+  );
+  buildResumeContextStatus.textContent = message;
+  buildResumeContextStatus.classList.add(
+    type === "error" ? "is-error" : "is-success"
+  );
+}
+
+function clearBuildResumeContextStatus() {
+  buildResumeContextStatus?.classList.add("is-hidden");
+  buildResumeContextStatus?.classList.remove("is-error", "is-success");
+  if (buildResumeContextStatus) buildResumeContextStatus.textContent = "";
+}
+
+function setBuildResumeContextModalBusy(isBusy) {
+  if (buildResumeContextInput) buildResumeContextInput.disabled = isBusy;
+  if (buildResumeContextModalBackdrop) {
+    buildResumeContextModalBackdrop.disabled = isBusy;
+  }
+  if (buildResumeContextModalCloseButton) {
+    buildResumeContextModalCloseButton.disabled = isBusy;
+  }
+  if (buildResumeContextCancelButton) {
+    buildResumeContextCancelButton.disabled = isBusy;
+  }
+  if (buildResumeContextSubmitButton) {
+    buildResumeContextSubmitButton.disabled = isBusy;
+  }
+}
+
+function setBuildResumeContextModalOpen(isOpen, { returnFocus = true } = {}) {
+  if (!buildResumeContextModal) return;
+
+  isBuildResumeContextModalOpen = isOpen;
+  const workspaceIsVisible =
+    currentSplitWindowSessionType === "save-workspace" &&
+    !splitWindowsModal?.classList.contains("is-hidden");
+  const shouldShow = isOpen && workspaceIsVisible;
+
+  buildResumeContextModal.classList.toggle("is-hidden", !shouldShow);
+  buildResumeContextModal.setAttribute("aria-hidden", String(!shouldShow));
+
+  if (isOpen) {
+    clearBuildResumeContextStatus();
+    setBuildResumeContextModalBusy(false);
+    buildResumeContextInput?.focus();
+    return;
+  }
+
+  clearBuildResumeContextStatus();
+  setBuildResumeContextModalBusy(false);
+  if (buildResumeContextInput) buildResumeContextInput.value = "";
+  if (
+    returnFocus &&
+    currentSplitWindowSessionType === "save-workspace" &&
+    !splitWindowsModal?.classList.contains("is-hidden")
+  ) {
+    saveWorkspaceBuildButton?.focus();
+  }
+}
+
+function openBuildResumeContextModal() {
+  if (
+    !IS_BUILD_RESUME_ENABLED ||
+    saveWorkspaceBuildButton?.disabled ||
+    currentSplitWindowSessionType !== "save-workspace" ||
+    !currentSaveWorkspace?.isReady
+  ) {
+    return;
+  }
+
+  setBuildResumeContextModalOpen(true);
+}
+
 function beginSaveWorkspaceAction(message) {
   if (
     currentSplitWindowSessionType !== "save-workspace" ||
@@ -2691,44 +2794,68 @@ function finishSaveWorkspaceAction() {
   updateSaveWorkspaceActions();
 }
 
-async function buildSaveWorkspaceResume() {
+async function submitBuildResumeContext() {
+  const resumeText = String(buildResumeContextInput?.value || "").trim();
+  if (!resumeText) {
+    showBuildResumeContextStatus(
+      "error",
+      "Paste the resume context before clicking OK."
+    );
+    buildResumeContextInput?.focus();
+    return;
+  }
+
   if (
-    saveWorkspaceBuildButton?.disabled ||
     !beginSaveWorkspaceAction(
-      "Build resume clicked. Reading the latest ChatGPT response..."
+      "Build resume confirmed. Updating the copied Google Docs resume..."
     )
   ) {
     return;
   }
 
   const workspace = currentSaveWorkspace;
+  setBuildResumeContextModalBusy(true);
+  let response;
+  let didBuildResume = false;
 
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: "BUILD_RESUME_FROM_CHATGPT",
+    response = await chrome.runtime.sendMessage({
+      type: "UPDATE_WORKSPACE_RESUME_CONTEXT",
       runId: activeRunId || createRunId(),
-      chatGptTabId: workspace.chatGptTabId,
-      resumeUrl: workspace.resumeUrl
+      resumeUrl: workspace.resumeUrl,
+      resumeText
     });
 
     if (!response?.ok) {
       throw new Error(response?.error || "Could not build the resume.");
     }
 
-    if (currentSaveWorkspace === workspace) {
-      setSaveWorkspaceTab("resume");
-    }
-    showStatus("success", response.url || workspace.resumeUrl, "Built:");
-    addLog("success", "Resume document built from the latest ChatGPT response.");
+    didBuildResume = true;
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Could not build the resume.");
+    showBuildResumeContextStatus(
+      "error",
+      error.message || "Could not build the resume."
+    );
     addLog("error", error.message || "Could not build the resume.");
   } finally {
     if (currentSaveWorkspace === workspace) {
       finishSaveWorkspaceAction();
     }
+    setBuildResumeContextModalBusy(false);
   }
+
+  if (!didBuildResume || currentSaveWorkspace !== workspace) {
+    return;
+  }
+
+  setBuildResumeContextModalOpen(false);
+  setSaveWorkspaceTab("resume");
+  showStatus("success", response.url || workspace.resumeUrl, "Built:");
+  addLog(
+    "success",
+    "Resume context inserted into the copied document without changing template styles."
+  );
 }
 
 async function downloadSaveWorkspaceResume() {
@@ -2805,7 +2932,6 @@ async function exchangeSaveWorkspaceUrls() {
 
     if (currentSaveWorkspace === workspace) {
       workspace.storedExchangeUrl = isRestoringChat ? "" : mainTabUrl;
-      workspace.mainTabIsChatGpt = isChatOrClaudeUrl(nextMainTabUrl);
       if (!isRestoringChat) {
         workspace.chatGptUrl = mainTabUrl;
       }
@@ -2831,6 +2957,7 @@ async function exchangeSaveWorkspaceUrls() {
 }
 
 function resetSplitWindowsSession() {
+  setBuildResumeContextModalOpen(false, { returnFocus: false });
   currentSplitWindowDownloadUrl = "";
   currentSplitWindowPairs = [];
   currentSplitWindowReturnTabId = null;
@@ -2860,6 +2987,10 @@ function resetSplitWindowsSession() {
 
 function setSplitWindowsModalOpen(isOpen) {
   if (!splitWindowsModal) return;
+
+  if (!isOpen) {
+    setBuildResumeContextModalOpen(false, { returnFocus: false });
+  }
 
   splitWindowsModal.classList.toggle("is-hidden", !isOpen);
   splitWindowsModal.setAttribute("aria-hidden", String(!isOpen));
@@ -3130,18 +3261,16 @@ function updateSaveWorkspaceActions() {
     isSaveWorkspace && currentSaveWorkspace.activeTab === "resume";
   const actionsDisabled =
     !currentSaveWorkspace?.isReady || currentSaveWorkspace?.isBusy;
-  const buildDisabled =
-    actionsDisabled || currentSaveWorkspace?.mainTabIsChatGpt === false;
 
   splitWindowsBatchActions?.classList.toggle("is-hidden", isSaveWorkspace);
   saveWorkspaceActions?.classList.toggle("is-hidden", !showWorkspaceActions);
 
   if (saveWorkspaceBuildButton) {
-    saveWorkspaceBuildButton.disabled = buildDisabled;
-    saveWorkspaceBuildButton.title =
-      currentSaveWorkspace?.mainTabIsChatGpt === false
-        ? "Click Exchange to bring ChatGPT back to the main tab before building."
-        : "";
+    saveWorkspaceBuildButton.disabled =
+      !IS_BUILD_RESUME_ENABLED || actionsDisabled;
+    saveWorkspaceBuildButton.title = IS_BUILD_RESUME_ENABLED
+      ? ""
+      : "Build resume is temporarily disabled.";
   }
   if (saveWorkspaceDownloadButton) {
     saveWorkspaceDownloadButton.disabled = actionsDisabled;
@@ -3173,7 +3302,6 @@ function showSaveWorkspacePreview({
     chatGptTabId,
     chatGptUrl: "",
     storedExchangeUrl: "",
-    mainTabIsChatGpt: true,
     activeTab: "job",
     isReady: false,
     isBusy: false
@@ -3217,6 +3345,16 @@ function syncSaveWorkspaceVisibilityForTab(tabId) {
   const shouldShow = tabId === currentSaveWorkspace.chatGptTabId;
   splitWindowsModal?.classList.toggle("is-hidden", !shouldShow);
   splitWindowsModal?.setAttribute("aria-hidden", String(!shouldShow));
+  const shouldShowBuildModal =
+    shouldShow && isBuildResumeContextModalOpen;
+  buildResumeContextModal?.classList.toggle(
+    "is-hidden",
+    !shouldShowBuildModal
+  );
+  buildResumeContextModal?.setAttribute(
+    "aria-hidden",
+    String(!shouldShowBuildModal)
+  );
 
   return true;
 }
@@ -3433,7 +3571,10 @@ splitWindowsJobTabButton?.addEventListener("click", () =>
 splitWindowsResumeTabButton?.addEventListener("click", () =>
   setSaveWorkspaceTab("resume")
 );
-saveWorkspaceBuildButton?.addEventListener("click", buildSaveWorkspaceResume);
+saveWorkspaceBuildButton?.addEventListener(
+  "click",
+  openBuildResumeContextModal
+);
 saveWorkspaceDownloadButton?.addEventListener(
   "click",
   downloadSaveWorkspaceResume
@@ -3442,6 +3583,25 @@ saveWorkspaceExchangeButton?.addEventListener(
   "click",
   exchangeSaveWorkspaceUrls
 );
+buildResumeContextModalBackdrop?.addEventListener("click", () =>
+  setBuildResumeContextModalOpen(false)
+);
+buildResumeContextModalCloseButton?.addEventListener("click", () =>
+  setBuildResumeContextModalOpen(false)
+);
+buildResumeContextCancelButton?.addEventListener("click", () =>
+  setBuildResumeContextModalOpen(false)
+);
+buildResumeContextSubmitButton?.addEventListener(
+  "click",
+  submitBuildResumeContext
+);
+buildResumeContextInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    submitBuildResumeContext();
+  }
+});
 splitWindowUrlsInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
@@ -3539,6 +3699,14 @@ document.addEventListener("keydown", (event) => {
 
   if (promptResumeFormModal && !promptResumeFormModal.classList.contains("is-hidden")) {
     setPromptResumeFormModalOpen(false);
+    return;
+  }
+
+  if (
+    buildResumeContextModal &&
+    !buildResumeContextModal.classList.contains("is-hidden")
+  ) {
+    setBuildResumeContextModalOpen(false);
     return;
   }
 

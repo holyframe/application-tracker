@@ -28,11 +28,20 @@ modal with two custom tabs:
 
 - **Job page** embeds the original job URL.
 - **Profile resume** embeds the copied resume document created from the
-  selected profile's configured template. Its Build resume action writes the
-  latest ChatGPT assistant response into that copy, Download resume exports it
-  as PDF, and Exchange stores the main ChatGPT/Claude URL before navigating the
-  main tab to the job URL. The chat URL is never loaded in the sidebar iframe;
-  the next Exchange restores it in the main tab.
+  selected profile's configured template. Its Build resume action opens a
+  Resume Context dialog and maps the submitted text onto that existing copy,
+  Download resume exports it as PDF, and Exchange stores the main
+  ChatGPT/Claude URL before navigating the main tab to the job URL. The chat
+  URL is never loaded in the sidebar iframe; the next Exchange restores it in
+  the main tab.
+
+Build resume maps each non-empty input line to the next existing text paragraph
+in the current copied Google Doc. It retains that document's paragraph
+structure, headings, bullets, tables, and existing text-style pattern. Blank
+input lines are ignored, and unused existing text paragraphs are cleared
+without deleting their paragraph formatting. The configured master template is
+never edited, and no placeholder is required. The Build resume workspace button
+is currently feature-disabled and remains visible for later re-enabling.
 
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
 already-grouped job tab and leaves any existing group unchanged. The check

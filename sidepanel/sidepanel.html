@@ -771,6 +771,7 @@
               id="saveWorkspaceBuildButton"
               type="button"
               class="primary-button modal-action-button"
+              title="Build resume is temporarily disabled."
               disabled
             >
               <span>Build resume</span>
@@ -794,6 +795,81 @@
               <span>Exchange</span>
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="buildResumeContextModal"
+      class="modal build-resume-context-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="buildResumeContextModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="buildResumeContextModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close resume context dialog"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="buildResumeContextModalTitle">Build resume</h2>
+          <button
+            id="buildResumeContextModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            &times;
+          </button>
+        </div>
+
+        <p class="modal-help">
+          Paste the completed resume text below in the same line order as the
+          current copied resume. Each non-empty line replaces the next existing
+          text paragraph while its heading, paragraph, bullet, and text styles
+          are retained. Blank lines are ignored.
+        </p>
+
+        <div class="modal-form">
+          <div class="config-field">
+            <label class="config-label" for="buildResumeContextInput">
+              Resume context
+            </label>
+            <textarea
+              id="buildResumeContextInput"
+              class="build-resume-context-input"
+              rows="18"
+              placeholder="Paste the completed resume content..."
+            ></textarea>
+          </div>
+        </div>
+
+        <p
+          id="buildResumeContextStatus"
+          class="config-status is-hidden"
+          aria-live="polite"
+        ></p>
+
+        <div class="modal-actions">
+          <button
+            id="buildResumeContextCancelButton"
+            type="button"
+            class="secondary-button modal-action-button"
+          >
+            <span>Cancel</span>
+          </button>
+
+          <button
+            id="buildResumeContextSubmitButton"
+            type="button"
+            class="primary-button modal-action-button"
+          >
+            <span>OK</span>
+          </button>
         </div>
       </div>
     </div>

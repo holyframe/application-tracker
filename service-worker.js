@@ -21,6 +21,19 @@ const SAVE_CHECK_REMINDER_DELAY_MINUTES = 2;
 const SAVE_CHECK_REMINDER_NOTIFICATION_ID = "application-helper-check-reminder";
 const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
 const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
+const GOOGLE_DOC_WRITABLE_TEXT_STYLE_FIELDS = Object.freeze([
+  "backgroundColor",
+  "baselineOffset",
+  "bold",
+  "fontSize",
+  "foregroundColor",
+  "italic",
+  "link",
+  "smallCaps",
+  "strikethrough",
+  "underline",
+  "weightedFontFamily"
+]);
 const APPLICATION_SHEET_HEADERS = Object.freeze([
   "ISO timestamp",
   "Job-page title",
@@ -975,57 +988,6 @@ async function sendFillAndSendToTab(tabId, text, runId, maxAttempts = 24) {
   }
 
   throw lastError;
-}
-
-async function getLatestAssistantResponseFromTab(tabId, runId) {
-  if (typeof tabId !== "number") {
-    throw new Error("ChatGPT tab does not have a valid tab ID.");
-  }
-
-  const tab = await chrome.tabs.get(tabId);
-  if (!isChatGptUrl(tab.url || "")) {
-    throw new Error(
-      "Build resume requires ChatGPT in the main Chrome tab. Click Exchange to bring ChatGPT back, then try again."
-    );
-  }
-
-  let response;
-  try {
-    response = await chrome.tabs.sendMessage(tabId, {
-      type: "GET_LATEST_ASSISTANT_RESPONSE"
-    });
-  } catch (error) {
-    if (!isReceivingEndMissingError(error)) {
-      throw error;
-    }
-
-    sendLog(
-      runId,
-      "info",
-      "ChatGPT page not connected. Injecting content script..."
-    );
-    await ensureChatGptContentScript(tabId, runId);
-    response = await chrome.tabs.sendMessage(tabId, {
-      type: "GET_LATEST_ASSISTANT_RESPONSE"
-    });
-  }
-
-  if (!response) {
-    await ensureChatGptContentScript(tabId, runId);
-    response = await chrome.tabs.sendMessage(tabId, {
-      type: "GET_LATEST_ASSISTANT_RESPONSE"
-    });
-  }
-
-  const text = String(response?.text || "").trim();
-  if (!response?.ok || !text) {
-    throw new Error(
-      response?.error ||
-        "No ChatGPT assistant response found. Wait for ChatGPT to finish responding and try again."
-    );
-  }
-
-  return text;
 }
 
 function isChatGptUrl(url = "") {
@@ -2037,7 +1999,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
     CLOSE_TABS_AND_RETURN: closeTabsAndReturn,
-    BUILD_RESUME_FROM_CHATGPT: buildResumeFromChatGpt,
+    UPDATE_WORKSPACE_RESUME_CONTEXT: updateWorkspaceResumeContext,
     CREATE_GOOGLE_DOC: createGoogleDoc
   };
 
@@ -2064,10 +2026,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 openedTabIds: message.openedTabIds,
                 returnTabId: message.returnTabId
               })
-            : message.type === "BUILD_RESUME_FROM_CHATGPT"
+            : message.type === "UPDATE_WORKSPACE_RESUME_CONTEXT"
               ? run(message.runId, {
-                  chatGptTabId: message.chatGptTabId,
-                  resumeUrl: message.resumeUrl
+                  resumeUrl: message.resumeUrl,
+                  resumeText: message.resumeText
                 })
             : message.type === "CREATE_GOOGLE_DOC"
               ? run(message.runId, {
@@ -2712,34 +2674,6 @@ async function batchUpdateGoogleDoc(token, documentId, requests) {
   return response;
 }
 
-async function getGoogleDocBodyEndIndex(token, documentId) {
-  const response = await fetch(
-    `https://docs.googleapis.com/v1/documents/${documentId}?fields=body(content(endIndex))`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      formatGoogleApiError(errorText, "Could not read the copied Google Doc.")
-    );
-  }
-
-  const document = await response.json();
-  const content = document.body?.content || [];
-  const endIndex = content[content.length - 1]?.endIndex;
-
-  if (typeof endIndex !== "number" || endIndex <= 1) {
-    return 1;
-  }
-
-  return endIndex;
-}
-
 async function batchUpdateGoogleDocWithAuthRetry(token, documentId, requests, runId, errorMessage) {
   let activeToken = token;
   let response = await batchUpdateGoogleDoc(activeToken, documentId, requests);
@@ -2762,76 +2696,359 @@ async function batchUpdateGoogleDocWithAuthRetry(token, documentId, requests, ru
   };
 }
 
-async function replaceGoogleDocBodyWithText(token, documentId, resumeText, runId) {
-  const trimmedText = String(resumeText ?? "").trim();
-  const bodyEndIndex = await getGoogleDocBodyEndIndex(token, documentId);
-  const requests = [];
+async function getGoogleDocWithAuthRetry(token, documentId, runId) {
+  let activeToken = token;
+  let response = await fetch(
+    `https://docs.googleapis.com/v1/documents/${documentId}`,
+    {
+      headers: {
+        Authorization: `Bearer ${activeToken}`
+      }
+    }
+  );
 
-  if (bodyEndIndex > 2) {
+  if (response.status === 401 || response.status === 403) {
+    sendLog(
+      runId,
+      "info",
+      "Google Doc read auth error. Refreshing token and retrying..."
+    );
+    await clearCachedGoogleAccessToken(activeToken);
+    activeToken = await getGoogleAccessToken({ interactive: true });
+    response = await fetch(
+      `https://docs.googleapis.com/v1/documents/${documentId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${activeToken}`
+        }
+      }
+    );
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      formatGoogleApiError(errorText, "Could not read the copied Google Doc.")
+    );
+  }
+
+  return {
+    activeToken,
+    document: await response.json()
+  };
+}
+
+function getFirstGoogleDocTabId(tabs = []) {
+  for (const tab of tabs) {
+    const tabId = tab?.tabProperties?.tabId;
+    if (tabId) {
+      return tabId;
+    }
+
+    const childTabId = getFirstGoogleDocTabId(tab?.childTabs || []);
+    if (childTabId) {
+      return childTabId;
+    }
+  }
+
+  return "";
+}
+
+function createGoogleDocParagraphRecord(structuralElement) {
+  const paragraph = structuralElement?.paragraph;
+  const elements = paragraph?.elements || [];
+  if (!paragraph || elements.length === 0) {
+    return null;
+  }
+
+  // Avoid touching images, equations, page breaks, and other non-text content.
+  if (elements.some((element) => !element.textRun)) {
+    return null;
+  }
+
+  const textElements = elements
+    .map((element) => ({
+      startIndex: element.startIndex,
+      content: element.textRun?.content,
+      textStyle: element.textRun?.textStyle || {}
+    }))
+    .filter(
+      (element) =>
+        Number.isInteger(element.startIndex) &&
+        typeof element.content === "string"
+    );
+  if (textElements.length === 0) {
+    return null;
+  }
+
+  const fullText = textElements.map((element) => element.content).join("");
+  const trailingNewlineLength = fullText.endsWith("\n") ? 1 : 0;
+  const currentText = trailingNewlineLength
+    ? fullText.slice(0, -trailingNewlineLength)
+    : fullText;
+  const startIndex = textElements[0].startIndex;
+  const endIndex = startIndex + currentText.length;
+  const styleRuns = [];
+  let remainingTextLength = currentText.length;
+  let relativeOffset = 0;
+
+  for (const textElement of textElements) {
+    const runLength = Math.min(
+      textElement.content.length,
+      remainingTextLength
+    );
+    if (runLength > 0) {
+      styleRuns.push({
+        startOffset: relativeOffset,
+        endOffset: relativeOffset + runLength,
+        textStyle: textElement.textStyle
+      });
+      relativeOffset += runLength;
+      remainingTextLength -= runLength;
+    }
+  }
+
+  return {
+    startIndex,
+    endIndex,
+    currentText,
+    styleRuns,
+    hasBullet: Boolean(paragraph.bullet)
+  };
+}
+
+function collectGoogleDocTextParagraphs(structuralElements, paragraphs = []) {
+  for (const structuralElement of structuralElements || []) {
+    const paragraph = createGoogleDocParagraphRecord(structuralElement);
+    if (paragraph && paragraph.currentText.trim()) {
+      paragraphs.push(paragraph);
+    }
+
+    for (const tableRow of structuralElement.table?.tableRows || []) {
+      for (const tableCell of tableRow.tableCells || []) {
+        collectGoogleDocTextParagraphs(tableCell.content, paragraphs);
+      }
+    }
+  }
+
+  return paragraphs.sort(
+    (left, right) => left.startIndex - right.startIndex
+  );
+}
+
+function normalizeResumeContextLines(resumeText) {
+  return String(resumeText ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^```(?:[a-z0-9_-]+)?$/i.test(line));
+}
+
+function normalizeResumeLineForParagraph(line, paragraph) {
+  let normalizedLine = String(line || "")
+    .trim()
+    .replace(/^#{1,6}\s+/, "");
+
+  if (paragraph.hasBullet) {
+    normalizedLine = normalizedLine.replace(
+      /^(?:(?:[-*+•◦▪‣])|(?:\d+[.)]))\s+/,
+      ""
+    );
+  }
+
+  const wrappedBoldMatch = normalizedLine.match(/^(\*\*|__)(.+)\1$/);
+  if (wrappedBoldMatch) {
+    normalizedLine = wrappedBoldMatch[2].trim();
+  }
+
+  return normalizedLine;
+}
+
+function getWritableGoogleDocTextStyle(textStyle = {}) {
+  return GOOGLE_DOC_WRITABLE_TEXT_STYLE_FIELDS.reduce((style, field) => {
+    if (
+      Object.prototype.hasOwnProperty.call(textStyle, field) &&
+      textStyle[field] !== undefined
+    ) {
+      style[field] = textStyle[field];
+    }
+    return style;
+  }, {});
+}
+
+function buildMappedGoogleDocTextStyleRequests(
+  paragraph,
+  replacementText,
+  tabId
+) {
+  const replacementLength = replacementText.length;
+  const originalLength = paragraph.currentText.length;
+  if (
+    replacementLength === 0 ||
+    originalLength === 0 ||
+    paragraph.styleRuns.length === 0
+  ) {
+    return [];
+  }
+
+  return paragraph.styleRuns.flatMap((styleRun, index) => {
+    const rangeStart =
+      index === 0
+        ? 0
+        : Math.round(
+            (styleRun.startOffset / originalLength) * replacementLength
+          );
+    const rangeEnd =
+      index === paragraph.styleRuns.length - 1
+        ? replacementLength
+        : Math.round(
+            (styleRun.endOffset / originalLength) * replacementLength
+          );
+    const textStyle = getWritableGoogleDocTextStyle(styleRun.textStyle);
+    const fields = Object.keys(textStyle);
+
+    if (rangeEnd <= rangeStart || fields.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        updateTextStyle: {
+          range: {
+            startIndex: paragraph.startIndex + rangeStart,
+            endIndex: paragraph.startIndex + rangeEnd,
+            ...(tabId ? { tabId } : {})
+          },
+          textStyle,
+          fields: fields.join(",")
+        }
+      }
+    ];
+  });
+}
+
+function buildResumeParagraphUpdateRequests(document, resumeText) {
+  const paragraphs = collectGoogleDocTextParagraphs(
+    document.body?.content
+  );
+  const resumeLines = normalizeResumeContextLines(resumeText);
+  const tabId = getFirstGoogleDocTabId(document.tabs);
+
+  if (paragraphs.length === 0) {
+    throw new Error(
+      "The current copied resume does not contain editable text paragraphs."
+    );
+  }
+  if (resumeLines.length === 0) {
+    throw new Error("Resume context is required.");
+  }
+  if (resumeLines.length > paragraphs.length) {
+    throw new Error(
+      `The submitted resume has ${resumeLines.length} non-empty lines, but the current copied resume has only ${paragraphs.length} styled text paragraphs. Keep the same line order and shorten or combine the extra lines so the existing styles can be retained.`
+    );
+  }
+
+  const requests = [];
+  let changedParagraphCount = 0;
+
+  for (let index = paragraphs.length - 1; index >= 0; index -= 1) {
+    const paragraph = paragraphs[index];
+    const replacementText =
+      index < resumeLines.length
+        ? normalizeResumeLineForParagraph(resumeLines[index], paragraph)
+        : "";
+
+    if (replacementText === paragraph.currentText) {
+      continue;
+    }
+
+    changedParagraphCount += 1;
     requests.push({
       deleteContentRange: {
         range: {
-          startIndex: 1,
-          endIndex: bodyEndIndex - 1
+          startIndex: paragraph.startIndex,
+          endIndex: paragraph.endIndex,
+          ...(tabId ? { tabId } : {})
         }
       }
     });
+
+    if (!replacementText) {
+      continue;
+    }
+
+    requests.push({
+      insertText: {
+        location: {
+          index: paragraph.startIndex,
+          ...(tabId ? { tabId } : {})
+        },
+        text: replacementText
+      }
+    });
+    requests.push(
+      ...buildMappedGoogleDocTextStyleRequests(
+        paragraph,
+        replacementText,
+        tabId
+      )
+    );
   }
 
-  requests.push({
-    insertText: {
-      location: { index: 1 },
-      text: trimmedText
-    }
-  });
+  return {
+    requests,
+    changedParagraphCount,
+    inputParagraphCount: resumeLines.length,
+    templateParagraphCount: paragraphs.length
+  };
+}
+
+async function replaceResumeContextPreservingStyles(
+  token,
+  documentId,
+  resumeText,
+  runId
+) {
+  const trimmedText = String(resumeText ?? "").trim();
+  if (!trimmedText) {
+    throw new Error("Resume context is required.");
+  }
+
+  sendLog(
+    runId,
+    "info",
+    "Reading the current copied resume structure and styles..."
+  );
+  const {
+    activeToken: readToken,
+    document
+  } = await getGoogleDocWithAuthRetry(token, documentId, runId);
+  const {
+    requests,
+    changedParagraphCount,
+    inputParagraphCount,
+    templateParagraphCount
+  } = buildResumeParagraphUpdateRequests(document, trimmedText);
+
+  if (requests.length === 0) {
+    sendLog(runId, "success", "The copied resume already matches the submitted text.");
+    return readToken;
+  }
 
   const { activeToken } = await batchUpdateGoogleDocWithAuthRetry(
-    token,
+    readToken,
     documentId,
     requests,
     runId,
-    "Could not write resume text into Google Doc."
+    "Could not update the current copied resume in Google Docs."
   );
 
-  sendLog(runId, "success", "Resume text written into Google Doc.");
-  return activeToken;
-}
-
-async function insertResumeTextIntoGoogleDoc(token, documentId, resumeText, runId) {
-  const trimmedText = String(resumeText ?? "").trim();
-  if (!trimmedText) {
-    return token;
-  }
-
-  sendLog(runId, "info", "Writing resume text into Google Doc...");
-
-  const { activeToken, data } = await batchUpdateGoogleDocWithAuthRetry(
-    token,
-    documentId,
-    [
-      {
-        replaceAllText: {
-          containsText: {
-            text: "{{RESUME}}",
-            matchCase: true
-          },
-          replaceText: trimmedText
-        }
-      }
-    ],
+  sendLog(
     runId,
-    "Could not insert resume text into Google Doc."
+    "success",
+    `Updated ${changedParagraphCount} of ${templateParagraphCount} styled text paragraphs from ${inputParagraphCount} submitted lines.`
   );
-
-  const occurrencesChanged =
-    data.replies?.[0]?.replaceAllText?.occurrencesChanged ?? 0;
-
-  if (occurrencesChanged > 0) {
-    sendLog(runId, "success", "Resume text inserted using {{RESUME}} placeholder.");
-    return activeToken;
-  }
-
-  return replaceGoogleDocBodyWithText(activeToken, documentId, trimmedText, runId);
+  return activeToken;
 }
 
 async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
@@ -2859,33 +3076,27 @@ async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
   return `https://docs.google.com/document/d/${file.id}/edit`;
 }
 
-async function buildResumeFromChatGpt(runId, options = {}) {
-  const chatGptTabId = Number(options.chatGptTabId);
+async function updateWorkspaceResumeContext(runId, options = {}) {
   const resumeUrl = String(options.resumeUrl || "").trim();
+  const resumeText = String(options.resumeText || "").trim();
   const documentId = parseGoogleDocId(resumeUrl);
 
-  if (!Number.isInteger(chatGptTabId)) {
-    throw new Error("ChatGPT tab is unavailable.");
-  }
   if (!documentId) {
     throw new Error("The workspace resume URL is not a Google Docs document.");
   }
-
-  sendLog(runId, "info", "Reading the latest ChatGPT assistant response...");
-  const resumeText = await getLatestAssistantResponseFromTab(
-    chatGptTabId,
-    runId
-  );
+  if (!resumeText) {
+    throw new Error("Resume context is required.");
+  }
 
   sendLog(runId, "info", "Building the copied resume document...");
   const token = await getGoogleAccessToken();
-  await insertResumeTextIntoGoogleDoc(
+  await replaceResumeContextPreservingStyles(
     token,
     documentId,
     resumeText,
     runId
   );
-  sendLog(runId, "success", "Resume document built from ChatGPT.");
+  sendLog(runId, "success", "Copied resume document updated.");
 
   return {
     url: `https://docs.google.com/document/d/${documentId}/edit`
@@ -2953,7 +3164,12 @@ async function createGoogleDoc(runId, options = {}) {
     throw new Error("Google Drive API did not return a document ID.");
   }
 
-  token = await insertResumeTextIntoGoogleDoc(token, documentId, resumeText, runId);
+  token = await replaceResumeContextPreservingStyles(
+    token,
+    documentId,
+    resumeText,
+    runId
+  );
 
   const url = `https://docs.google.com/document/d/${documentId}/edit`;
 

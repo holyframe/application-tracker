@@ -1607,6 +1607,7 @@ textarea:focus {
 .prompt-resume-content-input,
 .prompt-content-input,
 .job-description-content-input,
+.build-resume-context-input,
 .profile-notes-input {
   min-height: 160px;
   resize: vertical;
@@ -1616,6 +1617,7 @@ textarea:focus {
 .prompt-form-modal .modal-panel,
 .humanize-form-modal .modal-panel,
 .job-description-form-modal .modal-panel,
+.build-resume-context-modal .modal-panel,
 .profile-notes-modal .modal-panel {
   width: min(100%, 800px);
   max-height: min(92vh, 875px);
@@ -1753,6 +1755,7 @@ textarea:focus {
 .prompt-form-modal .prompt-content-input,
 .humanize-form-modal .humanize-content-input,
 .job-description-form-modal .job-description-content-input,
+.build-resume-context-modal .build-resume-context-input,
 .profile-notes-modal .profile-notes-input {
   min-height: 400px;
 }
@@ -1761,6 +1764,7 @@ textarea:focus {
 .prompt-form-modal .config-label,
 .humanize-form-modal .config-label,
 .job-description-form-modal .config-label,
+.build-resume-context-modal .config-label,
 .profile-notes-modal .config-label {
   font-size: var(--text-sm);
 }
