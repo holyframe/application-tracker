@@ -33,7 +33,6 @@ for every remaining profile. Before navigating each target to ChatGPT, the
 extension opens a full-page application workspace in the side panel with two
 custom tabs:
 
-- **Job page** embeds the original job URL.
 - **Profile resume** embeds the copied resume document created from the
   selected profile's configured template. Its Build resume action opens a
   Resume Context dialog and maps the submitted text onto that existing copy,
@@ -41,6 +40,10 @@ custom tabs:
   ChatGPT/Claude URL before navigating the main tab to the job URL. The chat
   URL is never loaded in the sidebar iframe; the next Exchange restores it in
   the main tab.
+- **Job / GPT page** embeds the original job URL.
+
+The Profile resume tab is the initial tab shown for each populated Save App
+workspace.
 
 The Application workspace URL bar is editable. Press Enter or use its Refresh
 icon to validate, save, and reload the URL for the active Job / GPT page or

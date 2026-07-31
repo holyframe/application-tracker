@@ -3908,7 +3908,7 @@ function showSaveWorkspacePreview({
     chatGptTabId,
     chatGptUrl: "",
     storedExchangeUrl: "",
-    activeTab: "job",
+    activeTab: "resume",
     isReady: false,
     isBusy: false,
     batchIndex: Number(batchIndex) || 0,
@@ -3923,7 +3923,7 @@ function showSaveWorkspacePreview({
     resumeTabLabel.textContent = `${currentSaveWorkspace.profileName} resume`;
   }
 
-  setSaveWorkspaceTab("job");
+  setSaveWorkspaceTab("resume");
   renderSaveWorkspaceSidePanelView();
 }
 
