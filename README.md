@@ -30,8 +30,9 @@ modal with two custom tabs:
 - **Profile resume** embeds the copied resume document created from the
   selected profile's configured template. Its Build resume action writes the
   latest ChatGPT assistant response into that copy, Download resume exports it
-  as PDF, and Exchange swaps the main Chrome tab URL with the URL shown by the
-  Job page workspace tab. Repeating Exchange swaps them back.
+  as PDF, and Exchange stores the main ChatGPT/Claude URL before navigating the
+  main tab to the job URL. The chat URL is never loaded in the sidebar iframe;
+  the next Exchange restores it in the main tab.
 
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
 already-grouped job tab and leaves any existing group unchanged. The check

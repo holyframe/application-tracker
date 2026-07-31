@@ -2772,7 +2772,7 @@ async function exchangeSaveWorkspaceUrls() {
   if (
     saveWorkspaceExchangeButton?.disabled ||
     !beginSaveWorkspaceAction(
-      "Exchange clicked. Swapping the main tab and sidebar URLs..."
+      "Exchange clicked. Switching the main tab URL..."
     )
   ) {
     return;
@@ -2783,28 +2783,42 @@ async function exchangeSaveWorkspaceUrls() {
   try {
     const mainTab = await chrome.tabs.get(workspace.chatGptTabId);
     const mainTabUrl = String(mainTab?.url || "").trim();
-    const sidebarJobTabUrl = String(workspace.jobUrl || "").trim();
+    const storedChatUrl = String(workspace.storedExchangeUrl || "").trim();
+    const isRestoringChat = Boolean(storedChatUrl);
+    const nextMainTabUrl = isRestoringChat
+      ? storedChatUrl
+      : String(workspace.jobUrl || "").trim();
 
-    if (!mainTabUrl || !sidebarJobTabUrl) {
-      throw new Error("Could not identify both URLs for Exchange.");
+    if (!mainTabUrl || !nextMainTabUrl) {
+      throw new Error("Could not identify the URL needed for Exchange.");
+    }
+    if (!isRestoringChat && !isChatOrClaudeUrl(mainTabUrl)) {
+      throw new Error(
+        "The main tab is not a ChatGPT or Claude page, so there is no chat URL to store."
+      );
     }
 
     await chrome.tabs.update(workspace.chatGptTabId, {
-      url: sidebarJobTabUrl,
+      url: nextMainTabUrl,
       active: true
     });
 
     if (currentSaveWorkspace === workspace) {
-      workspace.jobUrl = mainTabUrl;
-      workspace.mainTabIsChatGpt = isChatOrClaudeUrl(sidebarJobTabUrl);
-      if (isChatOrClaudeUrl(mainTabUrl)) {
+      workspace.storedExchangeUrl = isRestoringChat ? "" : mainTabUrl;
+      workspace.mainTabIsChatGpt = isChatOrClaudeUrl(nextMainTabUrl);
+      if (!isRestoringChat) {
         workspace.chatGptUrl = mainTabUrl;
       }
       updateSaveWorkspaceActions();
     }
 
-    showStatus("success", sidebarJobTabUrl, "Main tab:");
-    addLog("success", "Main-tab and sidebar Job page URLs exchanged.");
+    showStatus("success", nextMainTabUrl, "Main tab:");
+    addLog(
+      "success",
+      isRestoringChat
+        ? "Stored chat URL restored in the main tab."
+        : "Chat URL stored for the next Exchange; the job URL is now in the main tab."
+    );
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Could not exchange the URLs.");
@@ -3158,6 +3172,7 @@ function showSaveWorkspacePreview({
     resumeUrl: String(resumeUrl).trim(),
     chatGptTabId,
     chatGptUrl: "",
+    storedExchangeUrl: "",
     mainTabIsChatGpt: true,
     activeTab: "job",
     isReady: false,
