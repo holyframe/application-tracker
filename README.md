@@ -23,8 +23,8 @@ save the six-column application record, and schedule a two-minute check
 reminder.
 
 `Save App` uses the original job tab as the ChatGPT tab. Before navigating it
-to ChatGPT, the extension opens an application workspace in the side-panel
-modal with two custom tabs:
+to ChatGPT, the extension opens a full-page application workspace in the side
+panel with two custom tabs:
 
 - **Job page** embeds the original job URL.
 - **Profile resume** embeds the copied resume document created from the
@@ -34,6 +34,10 @@ modal with two custom tabs:
   ChatGPT/Claude URL before navigating the main tab to the job URL. The chat
   URL is never loaded in the sidebar iframe; the next Exchange restores it in
   the main tab.
+
+The Application workspace URL bar is editable. Press Enter or use its Refresh
+icon to validate, save, and reload the URL for the active Job / GPT page or
+Profile resume tab. The adjacent Copy icon copies the current field value.
 
 Build resume maps each non-empty input line to the next existing text paragraph
 in the current copied Google Doc. It retains that document's paragraph
@@ -46,9 +50,15 @@ is currently feature-disabled and remains visible for later re-enabling.
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
 already-grouped job tab and leaves any existing group unchanged. The check
 reminder focuses the resulting ChatGPT tab instead of opening duplicate tabs.
-The workspace modal is bound to that ChatGPT tab. It hides while another tab or
-browser window is active, reopens when its ChatGPT tab becomes active again,
-and is cleared only when that tab or the modal is closed.
+The matching **Home workspace** and **Application workspace** header panels
+always show an Exchange icon for switching between the two views. A compact
+line below each title retains the app's most recent success or error status.
+Before `Save App` runs, and on browser tabs that are not bound to the current
+saved application, the Job page and Profile resume tabs show empty states
+without URLs. Returning to the bound ChatGPT tab restores whichever populated
+side-panel view was last selected. The saved workspace data is cleared when its
+bound ChatGPT tab closes, while the empty Application workspace remains
+available.
 
 `Apply Now` requires an ungrouped job tab and immediately groups the job page,
 resume document, and ChatGPT conversation.

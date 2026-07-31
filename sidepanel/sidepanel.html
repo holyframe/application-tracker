@@ -9,6 +9,36 @@
 
   <body>
     <main class="app">
+      <header
+        id="homeWorkspaceSwitcher"
+        class="workspace-header-panel home-workspace-switcher is-hidden"
+        aria-label="Home workspace"
+        aria-hidden="true"
+      >
+        <h2>Home workspace</h2>
+        <p
+          id="homeWorkspaceLastStatus"
+          class="workspace-header-status"
+          aria-live="polite"
+        >
+          Last status: No application activity yet.
+        </p>
+        <button
+          id="homeWorkspaceExchangeButton"
+          type="button"
+          class="workspace-view-exchange-button"
+          aria-label="Exchange with Application workspace"
+          title="Exchange with Application workspace"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 7h11l-3-3" />
+            <path d="m18 7-3 3" />
+            <path d="M17 17H6l3 3" />
+            <path d="m6 17 3-3" />
+          </svg>
+        </button>
+      </header>
+
       <section class="card job-description-card">
         <div class="card-title-row">
           <span class="prompt-resume-icon" aria-hidden="true">
@@ -643,17 +673,33 @@
       ></button>
 
       <div class="modal-panel">
-        <div class="modal-header">
+        <header class="modal-header workspace-header-panel">
           <h2 id="splitWindowsModalTitle">Open Tab + Sidebar</h2>
+          <p
+            id="applicationWorkspaceLastStatus"
+            class="workspace-header-status"
+            aria-live="polite"
+          >
+            Last status: No application activity yet.
+          </p>
           <button
             id="splitWindowsModalCloseButton"
             type="button"
             class="modal-close-button"
             aria-label="Close"
+            title="Close"
           >
-            ×
+            <span class="split-windows-close-icon" aria-hidden="true">&times;</span>
+            <span class="split-windows-view-exchange-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M7 7h11l-3-3" />
+                <path d="m18 7-3 3" />
+                <path d="M17 17H6l3 3" />
+                <path d="m6 17 3-3" />
+              </svg>
+            </span>
           </button>
-        </div>
+        </header>
 
         <div id="splitWindowsInputView" class="split-windows-input-view">
           <p class="modal-help">
@@ -713,7 +759,7 @@
               role="tab"
               aria-selected="true"
             >
-              <span>Job page</span>
+              <span>Job / GPT page</span>
             </button>
 
             <button
@@ -729,16 +775,74 @@
           </div>
 
           <div class="split-windows-preview-location">
-            <span id="splitWindowsPreviewUrl"></span>
+            <span id="splitWindowsPreviewUrl" class="split-windows-preview-url-text"></span>
+            <input
+              id="applicationWorkspaceUrlInput"
+              class="application-workspace-url-input"
+              type="url"
+              inputmode="url"
+              spellcheck="false"
+              autocomplete="off"
+              aria-label="Application workspace URL"
+              placeholder="Enter a URL"
+            />
+            <div class="application-workspace-url-actions">
+              <button
+                id="applicationWorkspaceRefreshButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Refresh preview using this URL"
+                title="Refresh preview"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 11a8 8 0 1 0-2.34 5.66" />
+                  <path d="M20 4v7h-7" />
+                </svg>
+              </button>
+              <button
+                id="applicationWorkspaceCopyUrlButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Copy URL to clipboard"
+                title="Copy URL"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
+                </svg>
+              </button>
+            </div>
           </div>
 
-          <iframe
-            id="splitWindowsPreviewFrame"
-            class="split-windows-preview-frame"
-            title="Right URL preview"
-            allow="clipboard-read; clipboard-write"
-            referrerpolicy="strict-origin-when-cross-origin"
-          ></iframe>
+          <div class="split-windows-preview-content">
+            <iframe
+              id="splitWindowsPreviewFrame"
+              class="split-windows-preview-frame"
+              title="Right URL preview"
+              allow="clipboard-read; clipboard-write"
+              referrerpolicy="strict-origin-when-cross-origin"
+            ></iframe>
+
+            <div
+              id="splitWindowsPreviewEmptyState"
+              class="split-windows-preview-empty-state is-hidden"
+              role="status"
+            >
+              <span class="split-windows-preview-empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6" />
+                  <path d="M8 13h8" />
+                  <path d="M8 17h5" />
+                </svg>
+              </span>
+              <strong id="splitWindowsPreviewEmptyTitle">No Job / GPT page yet</strong>
+              <span id="splitWindowsPreviewEmptyHelp">
+                Use Save App to add the Job / GPT page and profile resume.
+              </span>
+            </div>
+          </div>
 
           <p class="split-windows-preview-help">
             Preview content is embedded in the side panel. Some job sites may
