@@ -1806,7 +1806,7 @@ textarea:focus {
 
 .split-windows-modal.is-workspace-page .split-windows-preview-location {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 5px;
   border-color: rgba(143, 147, 255, 0.28);
