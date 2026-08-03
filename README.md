@@ -10,7 +10,7 @@ It combines:
 - Google Docs template copying and resume generation
 - ChatGPT prompt submission
 - Google Sheets application tracking
-- Chrome tab grouping, keyboard shortcuts, reminders, and Google Docs PDF downloads
+- Chrome tab grouping, keyboard shortcuts, in-panel check progress, and Google Docs PDF downloads
 
 ## Main workflow
 
@@ -23,9 +23,9 @@ stay visible. Then provide a base GPT prompt and job description.
 
 Both actions normalize the active job URL, copy the relevant profile's
 configured Google Docs resume template, submit the prepared message to ChatGPT,
-save the six-column application record, and schedule a two-minute check
-reminder. `Save App` repeats that process once per checked profile. `Apply Now`
-currently requires exactly one checked profile.
+save the seven-column application record, and start a two-minute in-panel check
+progress bar. `Save App` repeats that process once per checked profile. `Apply
+Now` currently requires exactly one checked profile.
 
 `Save App` creates one ChatGPT workflow per checked profile. It reuses the
 original job tab for the first profile and creates one additional target tab
@@ -57,13 +57,20 @@ without deleting their paragraph formatting. The configured master template is
 never edited, and no placeholder is required.
 
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
-already-grouped job tab and leaves any existing group unchanged. The check
-reminder focuses the final resulting ChatGPT tab instead of opening a duplicate.
-The matching **Home workspace** and **Application workspace** header panels
-always show an Exchange icon for switching between the two views. A compact
-line below each title is the only status display and retains the app's most
-recent success or error. The Home workspace header also provides a left-side
-Settings icon that opens configuration in a modal.
+already-grouped job tab and leaves any existing group unchanged. After either
+application action finishes, the matching **Home workspace** and **Application
+workspace** headers show a two-minute progress bar and a Cancel Process icon.
+All other application actions remain available; only the header Exchange icon
+that switches between Home and Application workspaces is disabled. Completing
+or cancelling the progress clears the checked profiles, selected prompt-resume
+variants, and job description without closing generated tabs or removing saved
+application data. No Chrome notification is created.
+
+Outside check progress, the matching workspace headers show an Exchange icon
+for switching between the two views. A compact line below each title retains
+the app's most recent success or error. The Home workspace header also provides
+a left-side Settings icon that opens configuration in a modal.
+
 Before `Save App` runs, and on browser tabs that are not bound to the current
 saved application, the Job page and Profile resume tabs show empty states
 without URLs. Returning to any ChatGPT tab created by the batch restores that

@@ -15,12 +15,10 @@ const HUMANIZE_PROMPT_SELECTION_STORAGE_KEY = "humanizePromptSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const DEFAULT_HUMANIZE_PROMPT =
   "humanize your answer shortening it as one sentence story telling and using gen y us native style. don't be so streamlined usually can't be expected from human's impromptu";
-const SAVE_CHECK_REMINDER_ALARM_NAME = "save-current-tab-check-reminder";
-const SAVE_CHECK_REMINDER_STORAGE_KEY = "saveCheckReminder";
-const SAVE_CHECK_REMINDER_DELAY_MINUTES = 2;
-const SAVE_CHECK_REMINDER_NOTIFICATION_ID = "application-helper-check-reminder";
-const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
-const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
+const SAVE_POST_PROCESS_ALARM_NAME = "save-current-tab-post-process";
+const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
+const SAVE_POST_PROCESS_DURATION_MINUTES = 2;
+let savePostProcessCleanupPromise = null;
 const PROFILE_SELECTION_VERSION = 3;
 const GOOGLE_DOC_WRITABLE_TEXT_STYLE_FIELDS = Object.freeze([
   "backgroundColor",
@@ -1524,256 +1522,131 @@ async function closeTabsAndReturn(runId, options = {}) {
   };
 }
 
-async function scheduleSaveCheckReminder(
-  {
-    jobTitle = "",
-    jobUrl = "",
-    chatGptUrl = "",
-    chatGptTabId = null,
-    windowId = null,
-    mode = "save",
-    groupId = null,
-    profileCount = 1
-  } = {},
+async function performSavePostProcessCleanup({
+  resetInputs = false,
+  reason = "cleared",
+  runId = ""
+} = {}) {
+  const stored = await chrome.storage.local.get(
+    SAVE_POST_PROCESS_STORAGE_KEY
+  );
+  const state = stored[SAVE_POST_PROCESS_STORAGE_KEY];
+
+  await chrome.alarms.clear(SAVE_POST_PROCESS_ALARM_NAME);
+  await chrome.storage.local.remove(SAVE_POST_PROCESS_STORAGE_KEY);
+
+  if (!state) {
+    return {
+      active: false,
+      completed: false,
+      cancelled: false
+    };
+  }
+
+  if (resetInputs) {
+    await resetApplicationInputsAfterSave();
+  }
+
+  if (runId) {
+    sendLog(
+      runId,
+      "info",
+      reason === "cancelled"
+        ? "Check progress cancelled. Application inputs cleared."
+        : "Check progress completed. Application inputs cleared."
+    );
+  }
+
+  return {
+    active: false,
+    completed: reason === "completed",
+    cancelled: reason === "cancelled"
+  };
+}
+
+async function clearSavePostProcess(options = {}) {
+  if (!savePostProcessCleanupPromise) {
+    savePostProcessCleanupPromise =
+      performSavePostProcessCleanup(options);
+  }
+
+  const cleanupPromise = savePostProcessCleanupPromise;
+  try {
+    return await cleanupPromise;
+  } finally {
+    if (savePostProcessCleanupPromise === cleanupPromise) {
+      savePostProcessCleanupPromise = null;
+    }
+  }
+}
+
+async function scheduleSavePostProcess(
+  { mode = "save", profileCount = 1 } = {},
   runId
 ) {
-  await chrome.storage.local.set({
-    [SAVE_CHECK_REMINDER_STORAGE_KEY]: {
-      jobTitle: String(jobTitle || "Application").trim() || "Application",
-      jobUrl: String(jobUrl || "").trim(),
-      chatGptUrl: String(chatGptUrl || CHATGPT_URL).trim() || CHATGPT_URL,
-      chatGptTabId: typeof chatGptTabId === "number" ? chatGptTabId : null,
-      windowId: typeof windowId === "number" ? windowId : null,
-      mode: mode === "apply" ? "apply" : "save",
-      groupId: typeof groupId === "number" ? groupId : null,
-      profileCount: Math.max(1, Number(profileCount) || 1),
-      scheduledAt: Date.now()
-    }
+  await clearSavePostProcess({
+    resetInputs: false,
+    reason: "replaced"
   });
+  await chrome.alarms.clear("save-current-tab-check-reminder");
+  await chrome.storage.local.remove([
+    "saveCheckReminder",
+    "extensionUiLockedUntilNotification"
+  ]);
 
-  await chrome.alarms.clear(SAVE_CHECK_REMINDER_ALARM_NAME);
-  await chrome.alarms.create(SAVE_CHECK_REMINDER_ALARM_NAME, {
-    delayInMinutes: SAVE_CHECK_REMINDER_DELAY_MINUTES
+  const startedAt = Date.now();
+  const endsAt =
+    startedAt + SAVE_POST_PROCESS_DURATION_MINUTES * 60 * 1000;
+  const state = {
+    runId: String(runId || ""),
+    mode: mode === "apply" ? "apply" : "save",
+    profileCount: Math.max(1, Number(profileCount) || 1),
+    startedAt,
+    endsAt
+  };
+
+  await chrome.storage.local.set({
+    [SAVE_POST_PROCESS_STORAGE_KEY]: state
+  });
+  await chrome.alarms.create(SAVE_POST_PROCESS_ALARM_NAME, {
+    when: endsAt
   });
 
   sendLog(
     runId,
     "info",
-    `Check reminder scheduled in ${SAVE_CHECK_REMINDER_DELAY_MINUTES} minutes.`
+    `Check progress started for ${SAVE_POST_PROCESS_DURATION_MINUTES} minutes. Other application actions remain available.`
   );
+
+  return state;
 }
 
-async function isExtensionUiLockedForNotification() {
-  const stored = await chrome.storage.local.get(EXTENSION_UI_LOCK_STORAGE_KEY);
-  const lock = stored[EXTENSION_UI_LOCK_STORAGE_KEY];
-
-  if (!lock?.locked) {
-    return false;
-  }
-
-  const expiresAt = Number(lock.expiresAt);
-  const lockedAt = Number(lock.lockedAt);
-  const isActive = Number.isFinite(expiresAt)
-    ? expiresAt > Date.now()
-    : Number.isFinite(lockedAt) &&
-      Date.now() - lockedAt < EXTENSION_UI_LOCK_MAX_AGE_MS;
-
-  if (isActive) {
-    return true;
-  }
-
-  await unlockExtensionUi();
-  return false;
-}
-
-async function lockExtensionUiUntilNotification(runId) {
-  const lockedAt = Date.now();
-
-  await chrome.storage.local.set({
-    [EXTENSION_UI_LOCK_STORAGE_KEY]: {
-      locked: true,
-      lockedAt,
-      expiresAt: lockedAt + EXTENSION_UI_LOCK_MAX_AGE_MS
-    }
-  });
-
-  sendLog(
-    runId,
-    "info",
-    "Extension locked until check notification. The application workspace and process logs remain available."
-  );
-}
-
-async function unlockExtensionUi() {
-  await chrome.storage.local.remove(EXTENSION_UI_LOCK_STORAGE_KEY);
-}
-
-async function focusReminderSourceWindow(windowId) {
-  if (typeof windowId !== "number") {
-    return;
-  }
-
-  try {
-    await chrome.windows.update(windowId, { focused: true });
-  } catch (_error) {
-    // Window may have been closed.
-  }
-}
-
-async function focusReminderChatTab(chatGptTabId, chatGptUrl, windowId) {
-  if (typeof chatGptTabId === "number") {
-    try {
-      const tab = await chrome.tabs.get(chatGptTabId);
-      await chrome.tabs.update(chatGptTabId, { active: true });
-      await focusReminderSourceWindow(tab.windowId);
-      return;
-    } catch (_error) {
-      // The original ChatGPT tab may have been closed.
-    }
-  }
-
-  await focusReminderSourceWindow(windowId);
-  await chrome.tabs.create({
-    url: String(chatGptUrl || CHATGPT_URL).trim() || CHATGPT_URL,
-    active: true
+async function completeSavePostProcess(runId = "") {
+  return clearSavePostProcess({
+    resetInputs: true,
+    reason: "completed",
+    runId
   });
 }
 
-async function focusApplicationTabGroup(groupId, windowId) {
-  if (typeof groupId !== "number") {
-    await focusReminderSourceWindow(windowId);
-    return;
-  }
-
-  try {
-    const group = await chrome.tabGroups.get(groupId);
-
-    if (group.collapsed) {
-      await chrome.tabGroups.update(groupId, { collapsed: false });
-    }
-
-    const tabs = await chrome.tabs.query({ groupId });
-    const tabToActivate = tabs.find((tab) => tab.active) || tabs[0];
-
-    if (tabToActivate?.id != null) {
-      await chrome.tabs.update(tabToActivate.id, { active: true });
-
-      if (typeof tabToActivate.windowId === "number") {
-        await chrome.windows.update(tabToActivate.windowId, { focused: true });
-        return;
-      }
-    }
-
-    if (typeof group.windowId === "number") {
-      await chrome.windows.update(group.windowId, { focused: true });
-    }
-  } catch (_error) {
-    await focusReminderSourceWindow(windowId);
-  }
-}
-
-async function showSaveCheckReminderNotification() {
-  const stored = await chrome.storage.local.get(SAVE_CHECK_REMINDER_STORAGE_KEY);
-  const reminder = stored[SAVE_CHECK_REMINDER_STORAGE_KEY] || {};
-  const jobTitle = reminder.jobTitle || "your saved application";
-  const isApplyMode = reminder.mode === "apply";
-  const profileCount = Math.max(1, Number(reminder.profileCount) || 1);
-
-  await chrome.notifications.create(SAVE_CHECK_REMINDER_NOTIFICATION_ID, {
-    type: "basic",
-    iconUrl: "assets/icon128.png",
-    title: "Application Helper",
-    message:
-      profileCount > 1
-        ? `Time to check ${profileCount} ChatGPT conversations for: ${jobTitle}`
-        : `Time to check ChatGPT for: ${jobTitle}`,
-    priority: 2,
-    requireInteraction: false,
-    buttons: [{ title: isApplyMode ? "Close" : "Check" }]
+async function cancelSavePostProcess(runId = "") {
+  return clearSavePostProcess({
+    resetInputs: true,
+    reason: "cancelled",
+    runId
   });
-
-  await resetApplicationInputsAfterSave();
-  await unlockExtensionUi();
-}
-
-async function getSaveCheckReminderState() {
-  const stored = await chrome.storage.local.get(SAVE_CHECK_REMINDER_STORAGE_KEY);
-  return stored[SAVE_CHECK_REMINDER_STORAGE_KEY] || {};
-}
-
-async function dismissSaveCheckReminderNotification(
-  notificationId,
-  { action = "dismiss" } = {}
-) {
-  const reminder = await getSaveCheckReminderState();
-
-  if (action === "focusChat") {
-    await focusReminderChatTab(
-      reminder.chatGptTabId,
-      reminder.chatGptUrl,
-      reminder.windowId
-    );
-  } else if (action === "focusWindow") {
-    await focusReminderSourceWindow(reminder.windowId);
-  } else if (action === "openGroup") {
-    await focusApplicationTabGroup(reminder.groupId, reminder.windowId);
-  }
-
-  await chrome.storage.local.remove(SAVE_CHECK_REMINDER_STORAGE_KEY);
-  await chrome.notifications.clear(notificationId);
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === SAVE_CHECK_REMINDER_ALARM_NAME) {
-    try {
-      await showSaveCheckReminderNotification();
-    } catch (error) {
-      console.error("Could not show save check reminder:", error);
-    }
-    return;
-  }
-});
-
-chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
-  if (notificationId !== SAVE_CHECK_REMINDER_NOTIFICATION_ID) {
-    return;
-  }
-
-  if (buttonIndex !== 0) {
+  if (alarm.name !== SAVE_POST_PROCESS_ALARM_NAME) {
     return;
   }
 
   try {
-    const reminder = await getSaveCheckReminderState();
-    const action =
-      reminder.mode === "apply" ? "dismiss" : "focusChat";
-    await dismissSaveCheckReminderNotification(notificationId, { action });
+    await completeSavePostProcess();
   } catch (error) {
-    console.error("Could not handle save check reminder notification button:", error);
+    console.error("Could not complete save check progress:", error);
   }
-});
-
-chrome.notifications.onClicked.addListener(async (notificationId) => {
-  if (notificationId !== SAVE_CHECK_REMINDER_NOTIFICATION_ID) {
-    return;
-  }
-
-  try {
-    const reminder = await getSaveCheckReminderState();
-    const action =
-      reminder.mode === "apply" ? "openGroup" : "focusChat";
-    await dismissSaveCheckReminderNotification(notificationId, { action });
-  } catch (error) {
-    console.error("Could not handle save check reminder notification click:", error);
-  }
-});
-
-chrome.notifications.onClosed.addListener(async (notificationId) => {
-  if (notificationId !== SAVE_CHECK_REMINDER_NOTIFICATION_ID) {
-    return;
-  }
-
-  await chrome.storage.local.remove(SAVE_CHECK_REMINDER_STORAGE_KEY);
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -1782,7 +1655,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
 
   await chrome.alarms.clear("group-job-gpt-tabs-after-save");
-  await chrome.storage.local.remove("pendingJobGptTabGroup");
+  await chrome.alarms.clear("save-current-tab-check-reminder");
+  await chrome.storage.local.remove([
+    "pendingJobGptTabGroup",
+    "saveCheckReminder",
+    "extensionUiLockedUntilNotification"
+  ]);
 
   const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
   const config = stored[SHEET_CONFIG_STORAGE_KEY] || {};
@@ -1843,16 +1721,6 @@ chrome.commands.onCommand.addListener((command) => {
       return;
     }
 
-    if (await isExtensionUiLockedForNotification()) {
-      sendLog(runId, "error", "Please wait for the check notification before starting another save.");
-      await notifyExtensionPages({
-        type: "HOTKEY_SAVE_FINISHED",
-        runId,
-        ok: false,
-        error: "Please wait for the check notification before starting another save."
-      });
-      return;
-    }
 
     const validation = await validateApplicationInputsForSave({
       groupTabs: action.groupTabs
@@ -2092,7 +1960,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
     CLOSE_TABS_AND_RETURN: closeTabsAndReturn,
     UPDATE_WORKSPACE_RESUME_CONTEXT: updateWorkspaceResumeContext,
-    CREATE_GOOGLE_DOC: createGoogleDoc
+    CREATE_GOOGLE_DOC: createGoogleDoc,
+    CANCEL_SAVE_POST_PROCESS: cancelSavePostProcess
   };
 
   const run = handlers[message.type];
@@ -2265,11 +2134,6 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       : "Starting save process..."
   );
 
-  if (await isExtensionUiLockedForNotification()) {
-    throw new Error(
-      "Please wait for the check notification before starting another save."
-    );
-  }
 
   const validation = await validateApplicationInputsForSave({
     groupTabs: groupTabsInsteadOfClosing
@@ -2287,7 +2151,10 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
     allowGrouped: !groupTabsInsteadOfClosing
   });
 
-  await lockExtensionUiUntilNotification(runId);
+  await clearSavePostProcess({
+    resetInputs: false,
+    reason: "replaced"
+  });
 
   try {
     sendLog(runId, "info", "Checking current active tab...");
@@ -2445,17 +2312,11 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       });
     }
 
-    const reminderResult = results[results.length - 1];
+    const finalResult = results[results.length - 1];
 
-    await scheduleSaveCheckReminder(
+    await scheduleSavePostProcess(
       {
-        jobTitle: tab.title || "",
-        jobUrl: urlForSheet,
-        chatGptUrl: reminderResult.chatGptUrl,
-        chatGptTabId: reminderResult.chatGptTabId,
-        windowId: tab.windowId,
         mode: groupTabsInsteadOfClosing ? "apply" : "save",
-        groupId: applicationGroupId,
         profileCount: selectedProfiles.length
       },
       runId
@@ -2473,18 +2334,17 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
 
     return {
       url: urlForSheet,
-      chatGptUrl: reminderResult.chatGptUrl,
-      chatGptTabId: reminderResult.chatGptTabId,
+      chatGptUrl: finalResult.chatGptUrl,
+      chatGptTabId: finalResult.chatGptTabId,
       jobTitle: tab.title || "Job page",
       jobUrl: tab.url,
-      profileName: reminderResult.profileName,
-      resumeUrl: reminderResult.resumeUrl,
+      profileName: finalResult.profileName,
+      resumeUrl: finalResult.resumeUrl,
       profileCount: selectedProfiles.length,
       results,
       grouped: groupTabsInsteadOfClosing
     };
   } catch (error) {
-    await unlockExtensionUi();
     throw error;
   }
 }

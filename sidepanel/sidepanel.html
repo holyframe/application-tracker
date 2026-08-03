@@ -39,20 +39,50 @@
         >
           Last status: No application activity yet.
         </p>
-        <button
-          id="homeWorkspaceExchangeButton"
-          type="button"
-          class="workspace-view-exchange-button"
-          aria-label="Exchange with Application workspace"
-          title="Exchange with Application workspace"
+        <div class="workspace-header-actions">
+          <button
+            id="homeWorkspaceExchangeButton"
+            type="button"
+            class="workspace-view-exchange-button"
+            aria-label="Exchange with Application workspace"
+            title="Exchange with Application workspace"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 7h11l-3-3" />
+              <path d="m18 7-3 3" />
+              <path d="M17 17H6l3 3" />
+              <path d="m6 17 3-3" />
+            </svg>
+          </button>
+          <button
+            id="homeCancelProcessButton"
+            type="button"
+            class="workspace-cancel-process-button is-hidden"
+            aria-label="Cancel check progress"
+            title="Cancel process"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="m9 9 6 6" />
+              <path d="m15 9-6 6" />
+            </svg>
+          </button>
+        </div>
+        <div
+          id="homeSavePostProcessProgress"
+          class="save-post-process-progress is-hidden"
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 7h11l-3-3" />
-            <path d="m18 7-3 3" />
-            <path d="M17 17H6l3 3" />
-            <path d="m6 17 3-3" />
-          </svg>
-        </button>
+          <div class="save-post-process-progress-label">
+            <span>Check progress</span>
+            <span id="homeSavePostProcessTime">2:00</span>
+          </div>
+          <progress
+            id="homeSavePostProcessBar"
+            max="120000"
+            value="0"
+            aria-label="Time until application inputs reset"
+          ></progress>
+        </div>
       </header>
 
       <section class="card job-description-card">
@@ -191,11 +221,6 @@
             <span>Clear</span>
           </button>
         </div>
-
-        <p id="uiLockNotice" class="ui-lock-notice is-hidden" aria-live="polite">
-          Waiting for the check notification. The current application workspace
-          and process logs remain available.
-        </p>
 
         <div class="logs-shell">
           <div id="emptyLogs" class="empty-logs">
@@ -679,23 +704,53 @@
           >
             Last status: No application activity yet.
           </p>
-          <button
-            id="splitWindowsModalCloseButton"
-            type="button"
-            class="modal-close-button"
-            aria-label="Close"
-            title="Close"
-          >
-            <span class="split-windows-close-icon" aria-hidden="true">&times;</span>
-            <span class="split-windows-view-exchange-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M7 7h11l-3-3" />
-                <path d="m18 7-3 3" />
-                <path d="M17 17H6l3 3" />
-                <path d="m6 17 3-3" />
+          <div class="workspace-header-actions split-windows-header-actions">
+            <button
+              id="splitWindowsModalCloseButton"
+              type="button"
+              class="modal-close-button"
+              aria-label="Close"
+              title="Close"
+            >
+              <span class="split-windows-close-icon" aria-hidden="true">&times;</span>
+              <span class="split-windows-view-exchange-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M7 7h11l-3-3" />
+                  <path d="m18 7-3 3" />
+                  <path d="M17 17H6l3 3" />
+                  <path d="m6 17 3-3" />
+                </svg>
+              </span>
+            </button>
+            <button
+              id="applicationCancelProcessButton"
+              type="button"
+              class="workspace-cancel-process-button is-hidden"
+              aria-label="Cancel check progress"
+              title="Cancel process"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="m9 9 6 6" />
+                <path d="m15 9-6 6" />
               </svg>
-            </span>
-          </button>
+            </button>
+          </div>
+          <div
+            id="applicationSavePostProcessProgress"
+            class="save-post-process-progress is-hidden"
+          >
+            <div class="save-post-process-progress-label">
+              <span>Check progress</span>
+              <span id="applicationSavePostProcessTime">2:00</span>
+            </div>
+            <progress
+              id="applicationSavePostProcessBar"
+              max="120000"
+              value="0"
+              aria-label="Time until application inputs reset"
+            ></progress>
+          </div>
         </header>
 
         <div id="splitWindowsInputView" class="split-windows-input-view">
@@ -790,15 +845,31 @@
             <span id="splitWindowsPreviewUrl" class="split-windows-preview-url-text"></span>
             <div class="application-workspace-url-actions">
               <button
-                id="applicationWorkspaceRefreshButton"
+                id="applicationWorkspaceExchangeUrlButton"
                 type="button"
-                class="workspace-url-icon-button"
-                aria-label="Refresh preview using this URL"
-                title="Refresh preview"
+                class="workspace-url-icon-button is-hidden"
+                aria-label="Exchange main tab and Information page URLs"
+                title="Exchange URLs"
+                disabled
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M20 11a8 8 0 1 0-2.34 5.66" />
-                  <path d="M20 4v7h-7" />
+                  <path d="M7 7h11l-3-3" />
+                  <path d="m18 7-3 3" />
+                  <path d="M17 17H6l3 3" />
+                  <path d="m6 17 3-3" />
+                </svg>
+              </button>
+              <button
+                id="applicationWorkspaceCopyUrlButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Copy URL to clipboard"
+                title="Copy URL"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
                 </svg>
               </button>
             </div>
@@ -814,16 +885,15 @@
             />
             <div class="application-workspace-url-actions">
               <button
-                id="applicationWorkspaceCopyUrlButton"
+                id="applicationWorkspaceRefreshButton"
                 type="button"
                 class="workspace-url-icon-button"
-                aria-label="Copy URL to clipboard"
-                title="Copy URL"
-                disabled
+                aria-label="Refresh preview using this URL"
+                title="Refresh preview"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <rect x="9" y="9" width="11" height="11" rx="2" />
-                  <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
+                  <path d="M20 11a8 8 0 1 0-2.34 5.66" />
+                  <path d="M20 4v7h-7" />
                 </svg>
               </button>
             </div>

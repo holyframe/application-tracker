@@ -80,8 +80,8 @@ input {
   top: 8px;
   z-index: 20;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 30px;
-  grid-template-rows: auto auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
   align-items: center;
   column-gap: 10px;
   row-gap: 3px;
@@ -137,6 +137,66 @@ input {
   display: none;
 }
 
+.workspace-header-actions {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-header-actions .workspace-view-exchange-button,
+.workspace-header-actions .modal-close-button {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.save-post-process-progress {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.save-post-process-progress.is-hidden,
+.workspace-cancel-process-button.is-hidden {
+  display: none;
+}
+
+.save-post-process-progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: rgba(228, 230, 255, 0.78);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.save-post-process-progress progress {
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(228, 230, 255, 0.18);
+}
+
+.save-post-process-progress progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: rgba(228, 230, 255, 0.18);
+}
+
+.save-post-process-progress progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8f93ff 0%, #72e2ad 100%);
+  transition: width 250ms linear;
+}
+
 .workspace-settings-button {
   grid-column: 1;
   grid-row: 1;
@@ -189,9 +249,47 @@ input {
   background: rgba(143, 147, 255, 0.2);
 }
 
-.workspace-view-exchange-button:hover,
-.split-windows-modal.is-workspace-page .modal-close-button:hover {
+.workspace-view-exchange-button:hover:not(:disabled),
+.split-windows-modal.is-workspace-page .modal-close-button:hover:not(:disabled) {
   background: rgba(143, 147, 255, 0.34);
+}
+
+.workspace-view-exchange-button:disabled,
+.split-windows-modal.is-workspace-page .modal-close-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.workspace-cancel-process-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  cursor: pointer;
+  color: #ffd9df;
+  background: rgba(255, 86, 111, 0.2);
+}
+
+.workspace-cancel-process-button:hover:not(:disabled) {
+  background: rgba(255, 86, 111, 0.34);
+}
+
+.workspace-cancel-process-button:focus-visible {
+  outline: 3px solid rgba(255, 146, 163, 0.38);
+  outline-offset: 2px;
+}
+
+.workspace-cancel-process-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.workspace-cancel-process-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .workspace-view-exchange-button:focus-visible,
@@ -1390,22 +1488,6 @@ textarea:focus {
   min-width: 0;
 }
 
-.app.is-ui-locked > :not(.logs-card):not(.home-workspace-switcher) {
-  pointer-events: none;
-  opacity: 0.55;
-  user-select: none;
-}
-
-.ui-lock-notice {
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(84, 87, 255, 0.1);
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 .logs-header {
   display: flex;
   align-items: center;
@@ -1893,6 +1975,10 @@ textarea:focus {
   cursor: pointer;
   color: #f4f5ff;
   background: rgba(143, 147, 255, 0.2);
+}
+
+.workspace-url-icon-button.is-hidden {
+  display: none;
 }
 
 .workspace-url-icon-button:hover:not(:disabled) {

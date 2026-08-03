@@ -9,6 +9,24 @@ const homeWorkspaceSwitcher = document.querySelector("#homeWorkspaceSwitcher");
 const homeWorkspaceExchangeButton = document.querySelector(
   "#homeWorkspaceExchangeButton"
 );
+const homeCancelProcessButton = document.querySelector("#homeCancelProcessButton");
+const applicationCancelProcessButton = document.querySelector(
+  "#applicationCancelProcessButton"
+);
+const homeSavePostProcessProgress = document.querySelector(
+  "#homeSavePostProcessProgress"
+);
+const homeSavePostProcessBar = document.querySelector("#homeSavePostProcessBar");
+const homeSavePostProcessTime = document.querySelector("#homeSavePostProcessTime");
+const applicationSavePostProcessProgress = document.querySelector(
+  "#applicationSavePostProcessProgress"
+);
+const applicationSavePostProcessBar = document.querySelector(
+  "#applicationSavePostProcessBar"
+);
+const applicationSavePostProcessTime = document.querySelector(
+  "#applicationSavePostProcessTime"
+);
 const splitWindowsModalCancelButton = document.querySelector("#splitWindowsModalCancelButton");
 const splitWindowsModalOpenButton = document.querySelector("#splitWindowsModalOpenButton");
 const splitWindowUrlsInput = document.querySelector("#splitWindowUrlsInput");
@@ -26,6 +44,9 @@ const applicationWorkspaceUrlInput = document.querySelector(
 );
 const applicationWorkspaceRefreshButton = document.querySelector(
   "#applicationWorkspaceRefreshButton"
+);
+const applicationWorkspaceExchangeUrlButton = document.querySelector(
+  "#applicationWorkspaceExchangeUrlButton"
 );
 const applicationWorkspaceCopyUrlButton = document.querySelector(
   "#applicationWorkspaceCopyUrlButton"
@@ -160,19 +181,19 @@ const profileNotesModalCloseButton = document.querySelector("#profileNotesModalC
 const profileNotesModalCancelButton = document.querySelector("#profileNotesModalCancelButton");
 const profileNotesModalSubmitButton = document.querySelector("#profileNotesModalSubmitButton");
 const profileNotesInput = document.querySelector("#profileNotesInput");
-const uiLockNotice = document.querySelector("#uiLockNotice");
 const appRoot = document.querySelector(".app");
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
-const EXTENSION_UI_LOCK_STORAGE_KEY = "extensionUiLockedUntilNotification";
-const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
+const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
+const SAVE_POST_PROCESS_DURATION_MS = 2 * 60 * 1000;
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
 const DEFAULT_PROFILE_NAME = "Default";
 
 let activeRunId = null;
-let isExtensionUiLocked = false;
-let extensionUiLockExpiryTimer = null;
+let savePostProcessState = null;
+let savePostProcessTimer = null;
+let isSavePostProcessRequestPending = false;
 let currentSplitWindowDownloadUrl = "";
 let currentSplitWindowPairs = [];
 let currentSplitWindowReturnTabId = null;
@@ -253,9 +274,6 @@ function clearProfileDragState() {
 }
 
 async function reorderProfile(draggedId, targetId) {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   const didMove = moveProfileBeforeTarget(draggedId, targetId);
   if (!didMove) {
@@ -544,9 +562,6 @@ function setProfileNotesModalOpen(isOpen) {
 }
 
 function openProfileNotesModal(profileId) {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   const profile = profileSelectionState.profiles.find((entry) => entry.id === profileId);
   if (!profile) {
@@ -609,9 +624,6 @@ async function submitProfileNotesForm() {
 }
 
 function openAddProfileModal() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   profileFormMode = "add";
   editingProfileId = null;
@@ -620,9 +632,6 @@ function openAddProfileModal() {
 }
 
 function openEditProfileModal(profileId) {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   const profile = profileSelectionState.profiles.find((entry) => entry.id === profileId);
   if (!profile) {
@@ -664,9 +673,6 @@ function mountProfilePromptResumeSection(body) {
 }
 
 async function activateProfilePromptResume(profileId, promptResumeId) {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   if (profileSelectionState.selectedProfileId !== profileId) {
     await selectProfile(profileId);
@@ -789,10 +795,6 @@ function renderProfileList() {
       event.stopPropagation();
     });
     dragHandle.addEventListener("dragstart", (event) => {
-      if (!guardExtensionUiAction()) {
-        event.preventDefault();
-        return;
-      }
 
       draggedProfileId = profile.id;
       item.classList.add("is-dragging");
@@ -823,10 +825,6 @@ function renderProfileList() {
       event.stopPropagation();
     });
     selectionCheckbox.addEventListener("change", async () => {
-      if (!guardExtensionUiAction()) {
-        selectionCheckbox.checked = isSelected;
-        return;
-      }
 
       await toggleProfileSelection(profile.id);
     });
@@ -898,9 +896,6 @@ function renderProfileList() {
     addPromptResumeButton.addEventListener("click", async (event) => {
       event.stopPropagation();
 
-      if (!guardExtensionUiAction()) {
-        return;
-      }
 
       if (profile.id !== profileSelectionState.selectedProfileId) {
         await selectProfile(profile.id);
@@ -925,9 +920,6 @@ function renderProfileList() {
     notesButton.addEventListener("click", async (event) => {
       event.stopPropagation();
 
-      if (!guardExtensionUiAction()) {
-        return;
-      }
 
       if (profile.id !== profileSelectionState.selectedProfileId) {
         await selectProfile(profile.id);
@@ -1086,9 +1078,6 @@ async function loadProfileSelection() {
 }
 
 async function toggleProfileExpand(profileId) {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   const isSelected = profileSelectionState.selectedProfileIds.includes(profileId);
   if (expandedProfileIds.has(profileId)) {
@@ -1116,9 +1105,6 @@ async function toggleProfileExpand(profileId) {
 }
 
 async function selectProfile(profileId) {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   expandedProfileIds.add(profileId);
 
@@ -1141,9 +1127,6 @@ async function selectProfile(profileId) {
 }
 
 async function removeProfile(profileId) {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   if (profileSelectionState.profiles.length <= 1) {
     addLog("error", "At least one profile is required.");
@@ -1317,6 +1300,8 @@ function setSaveButtonsDisabled(disabled) {
 
   updateSaveButtonDisabledState();
   updateMakeResumeButtonDisabledState();
+  updateSaveWorkspaceActions();
+  renderSavePostProcessControls();
   if (splitWindowsModalOpenButton) splitWindowsModalOpenButton.disabled = disabled;
   if (splitWindowsPreviewBackButton) {
     splitWindowsPreviewBackButton.disabled =
@@ -1345,95 +1330,159 @@ function setSaveButtonsDisabled(disabled) {
   if (jobDescriptionFormModalSubmitButton) jobDescriptionFormModalSubmitButton.disabled = disabled;
 }
 
-function closeOpenModalsForUiLock() {
-  setConfigModalOpen(false, { returnFocus: false });
-  setProfileFormModalOpen(false);
-  setProfileNotesModalOpen(false);
-  setSplitWindowsModalOpen(false);
-  setPromptResumeFormModalOpen(false);
-  setPromptFormModalOpen(false);
-  setHumanizeFormModalOpen(false);
-  setJobDescriptionFormModalOpen(false);
+function getSavePostProcessTiming(state = savePostProcessState) {
+  const startedAt = Number(state?.startedAt);
+  const endsAt = Number(state?.endsAt);
+  const hasValidTiming =
+    Number.isFinite(startedAt) &&
+    Number.isFinite(endsAt) &&
+    endsAt > startedAt;
+
+  return {
+    startedAt: hasValidTiming ? startedAt : 0,
+    endsAt: hasValidTiming ? endsAt : 0,
+    durationMs: hasValidTiming
+      ? endsAt - startedAt
+      : SAVE_POST_PROCESS_DURATION_MS
+  };
 }
 
-function applyExtensionUiLockState(locked) {
-  isExtensionUiLocked = locked;
-
-  appRoot?.classList.toggle("is-ui-locked", locked);
-  uiLockNotice?.classList.toggle("is-hidden", !locked);
-
-  if (clearLogsButton) clearLogsButton.disabled = locked;
-  if (configToggleButton) configToggleButton.disabled = locked;
-  if (spreadsheetIdInput) spreadsheetIdInput.disabled = locked;
-  if (sheetNameInput) sheetNameInput.disabled = locked;
-  if (resumeTemplateInput) resumeTemplateInput.disabled = locked;
-
-  if (locked) {
-    closeOpenModalsForUiLock();
-  }
-
-  setSaveButtonsDisabled(locked);
+function isSavePostProcessActive(state = savePostProcessState) {
+  const { endsAt } = getSavePostProcessTiming(state);
+  return endsAt > Date.now();
 }
 
-function guardExtensionUiAction() {
-  if (!isExtensionUiLocked) {
-    return true;
-  }
+function formatSavePostProcessTime(remainingMs) {
+  const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = String(remainingSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
 
-  addLog(
-    "info",
-    "Waiting for check notification. The application workspace and process logs remain available."
+function renderSavePostProcessControls() {
+  const { startedAt, endsAt, durationMs } = getSavePostProcessTiming();
+  const hasState = endsAt > 0;
+  const remainingMs = Math.max(0, endsAt - Date.now());
+  const isCounting = hasState && remainingMs > 0;
+  const elapsedMs = Math.min(durationMs, Math.max(0, Date.now() - startedAt));
+  const timeLabel = formatSavePostProcessTime(remainingMs);
+  const applicationControlsVisible = hasState && !isSplitWindowsDialogOpen;
+  const exchangeDisabled = areActionButtonsDisabled || hasState;
+
+  const progressViews = [
+    {
+      container: homeSavePostProcessProgress,
+      bar: homeSavePostProcessBar,
+      time: homeSavePostProcessTime,
+      visible: hasState
+    },
+    {
+      container: applicationSavePostProcessProgress,
+      bar: applicationSavePostProcessBar,
+      time: applicationSavePostProcessTime,
+      visible: applicationControlsVisible
+    }
+  ];
+
+  progressViews.forEach(({ container, bar, time, visible }) => {
+    container?.classList.toggle("is-hidden", !visible);
+    if (bar) {
+      bar.max = durationMs;
+      bar.value = elapsedMs;
+      bar.setAttribute(
+        "aria-valuetext",
+        isCounting ? `${timeLabel} remaining` : "Complete"
+      );
+    }
+    if (time) {
+      time.textContent = timeLabel;
+    }
+  });
+
+  homeCancelProcessButton?.classList.toggle("is-hidden", !hasState);
+  applicationCancelProcessButton?.classList.toggle(
+    "is-hidden",
+    !applicationControlsVisible
   );
-  return false;
-}
 
-function getExtensionUiLockExpiresAt(lock) {
-  const expiresAt = Number(lock?.expiresAt);
-  if (Number.isFinite(expiresAt)) {
-    return expiresAt;
+  if (homeCancelProcessButton) {
+    homeCancelProcessButton.disabled = isSavePostProcessRequestPending;
+  }
+  if (applicationCancelProcessButton) {
+    applicationCancelProcessButton.disabled = isSavePostProcessRequestPending;
+  }
+  if (homeWorkspaceExchangeButton) {
+    homeWorkspaceExchangeButton.disabled = exchangeDisabled;
+  }
+  if (splitWindowsModalCloseButton) {
+    splitWindowsModalCloseButton.disabled =
+      !isSplitWindowsDialogOpen && exchangeDisabled;
   }
 
-  const lockedAt = Number(lock?.lockedAt);
-  return Number.isFinite(lockedAt)
-    ? lockedAt + EXTENSION_UI_LOCK_MAX_AGE_MS
-    : 0;
 }
 
-function isExtensionUiLockActive(lock) {
-  return Boolean(lock?.locked) && getExtensionUiLockExpiresAt(lock) > Date.now();
-}
-
-function scheduleExtensionUiLockExpiryCheck(lock) {
-  if (extensionUiLockExpiryTimer !== null) {
-    clearTimeout(extensionUiLockExpiryTimer);
-    extensionUiLockExpiryTimer = null;
+function stopSavePostProcessTimer() {
+  if (savePostProcessTimer !== null) {
+    clearInterval(savePostProcessTimer);
+    savePostProcessTimer = null;
   }
+}
 
-  if (!isExtensionUiLockActive(lock)) {
+function setSavePostProcessState(state) {
+  stopSavePostProcessTimer();
+  savePostProcessState = state && typeof state === "object" ? state : null;
+  renderSavePostProcessControls();
+
+  if (isSavePostProcessActive()) {
+    savePostProcessTimer = setInterval(() => {
+      renderSavePostProcessControls();
+      if (!isSavePostProcessActive()) {
+        stopSavePostProcessTimer();
+      }
+    }, 250);
+  }
+}
+
+
+async function cancelSavePostProcess() {
+  if (isSavePostProcessRequestPending || !savePostProcessState) {
     return;
   }
 
-  const delayMs = Math.max(0, getExtensionUiLockExpiresAt(lock) - Date.now());
-  extensionUiLockExpiryTimer = setTimeout(() => {
-    extensionUiLockExpiryTimer = null;
-    loadExtensionUiLockState();
-  }, delayMs + 50);
+  isSavePostProcessRequestPending = true;
+  renderSavePostProcessControls();
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "CANCEL_SAVE_POST_PROCESS",
+      runId: savePostProcessState?.runId || activeRunId
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not cancel check progress.");
+    }
+    setSavePostProcessState(null);
+    addLog(
+      "info",
+      "Check progress cancelled. Generated tabs and saved application data were kept."
+    );
+  } catch (error) {
+    console.error("Could not cancel check progress:", error);
+    addLog("error", error.message || "Could not cancel check progress.");
+  } finally {
+    isSavePostProcessRequestPending = false;
+    renderSavePostProcessControls();
+  }
 }
 
-async function loadExtensionUiLockState() {
+async function loadSavePostProcessState() {
   try {
-    const stored = await chrome.storage.local.get(EXTENSION_UI_LOCK_STORAGE_KEY);
-    const lock = stored[EXTENSION_UI_LOCK_STORAGE_KEY];
-    const isLocked = isExtensionUiLockActive(lock);
-
-    if (lock?.locked && !isLocked) {
-      await chrome.storage.local.remove(EXTENSION_UI_LOCK_STORAGE_KEY);
-    }
-
-    applyExtensionUiLockState(isLocked);
-    scheduleExtensionUiLockExpiryCheck(lock);
+    const stored = await chrome.storage.local.get(
+      SAVE_POST_PROCESS_STORAGE_KEY
+    );
+    setSavePostProcessState(stored[SAVE_POST_PROCESS_STORAGE_KEY]);
   } catch (error) {
-    console.error("Could not load extension UI lock state:", error);
+    console.error("Could not load check progress:", error);
+    setSavePostProcessState(null);
   }
 }
 
@@ -1544,9 +1593,6 @@ function setPromptResumeFormModalOpen(isOpen) {
 }
 
 function openAddPromptResumeModal() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   addLog("info", "Add a Prompt Resume clicked.");
   promptResumeFormMode = "add";
@@ -2582,9 +2628,6 @@ async function loadSheetConfig() {
 }
 
 async function saveSheetConfig() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   addLog("info", "Save configuration clicked.");
 
@@ -2681,7 +2724,7 @@ function beginButtonProcess(startingMessage) {
 }
 
 function finishButtonProcess() {
-  setSaveButtonsDisabled(isExtensionUiLocked);
+  setSaveButtonsDisabled(false);
 }
 
 function updateDeletedRowsState() {
@@ -2812,9 +2855,6 @@ async function validateActiveBrowserTabForAppAction(mode = "save") {
 }
 
 async function runCurrentAppAction(mode = "save") {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   clearStatus();
   clearDeletedRows();
@@ -2835,7 +2875,6 @@ async function runCurrentAppAction(mode = "save") {
 
   activeRunId = createRunId();
 
-  applyExtensionUiLockState(true);
   beginButtonProcess(
     mode === "apply"
       ? "Apply Now clicked. Starting process..."
@@ -2864,7 +2903,6 @@ async function runCurrentAppAction(mode = "save") {
     console.error(error);
     showStatus("error", error.message || "Something went wrong.");
     addLog("error", error.message || "Something went wrong.");
-    applyExtensionUiLockState(false);
   } finally {
     finishButtonProcess();
   }
@@ -2888,7 +2926,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     activeRunId = message.runId;
     clearStatus();
     clearDeletedRows();
-    applyExtensionUiLockState(true);
     beginButtonProcess("Hotkey detected. Starting save process...");
     return;
   }
@@ -2947,7 +2984,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     } else {
       showStatus("error", message.error || "Something went wrong.");
       addLog("error", message.error || "Something went wrong.");
-      applyExtensionUiLockState(false);
     }
 
     finishButtonProcess();
@@ -2966,9 +3002,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function humanizeChat() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   activeRunId = createRunId();
 
@@ -2998,9 +3031,6 @@ async function humanizeChat() {
 }
 
 async function runResumeDownload(documentUrl = "") {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   activeRunId = createRunId();
 
@@ -3255,7 +3285,8 @@ async function downloadSaveWorkspaceResume() {
 
 async function exchangeSaveWorkspaceUrls() {
   if (
-    saveWorkspaceExchangeButton?.disabled ||
+    areActionButtonsDisabled ||
+    !hasActiveSaveWorkspaceForCurrentTab() ||
     !beginSaveWorkspaceAction(
       "Exchange clicked. Switching the main tab URL..."
     )
@@ -3378,6 +3409,7 @@ function renderSaveWorkspaceSidePanelView({ focus = false } = {}) {
     splitWindowsModalCloseButton.setAttribute("aria-label", label);
     splitWindowsModalCloseButton.title = label;
   }
+  renderSavePostProcessControls();
 
   if (isSplitWindowsDialogOpen) {
     splitWindowsModal?.setAttribute("role", "dialog");
@@ -3527,9 +3559,6 @@ async function requireOpenGoogleSheet() {
 }
 
 async function openSplitWindowsModal() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   if (openSplitWindowsButton?.disabled) {
     return;
@@ -3718,6 +3747,22 @@ function appendDroppedUrls(dataTransfer) {
 
 function updateApplicationWorkspaceUrlControls() {
   const hasUrl = Boolean(applicationWorkspaceUrlInput?.value.trim());
+  const hasActiveWorkspace = hasActiveSaveWorkspaceForCurrentTab();
+  const showExchange = !isSplitWindowsDialogOpen;
+  const exchangeDisabled =
+    !showExchange ||
+    !hasActiveWorkspace ||
+    !currentSaveWorkspace?.isReady ||
+    currentSaveWorkspace?.isBusy ||
+    areActionButtonsDisabled;
+
+  if (applicationWorkspaceExchangeUrlButton) {
+    applicationWorkspaceExchangeUrlButton.classList.toggle(
+      "is-hidden",
+      !showExchange
+    );
+    applicationWorkspaceExchangeUrlButton.disabled = exchangeDisabled;
+  }
   if (applicationWorkspaceCopyUrlButton) {
     applicationWorkspaceCopyUrlButton.disabled = !hasUrl;
   }
@@ -4064,7 +4109,8 @@ function updateSaveWorkspaceActions() {
   const actionsDisabled =
     !hasActiveWorkspace ||
     !currentSaveWorkspace?.isReady ||
-    currentSaveWorkspace?.isBusy;
+    currentSaveWorkspace?.isBusy ||
+    areActionButtonsDisabled;
 
   splitWindowsBatchActions?.classList.toggle(
     "is-hidden",
@@ -4084,6 +4130,7 @@ function updateSaveWorkspaceActions() {
   if (saveWorkspaceExchangeButton) {
     saveWorkspaceExchangeButton.disabled = actionsDisabled;
   }
+  updateApplicationWorkspaceUrlControls();
 }
 
 function showSaveWorkspacePreview({
@@ -4240,9 +4287,6 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId) {
 }
 
 async function openSplitWindows() {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   if (splitWindowsModalOpenButton?.disabled) {
     return;
@@ -4361,9 +4405,6 @@ async function closeSplitWindowsAndReturn() {
     return;
   }
 
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   if (splitWindowsPreviewBackButton?.disabled) {
     return;
@@ -4423,6 +4464,11 @@ splitWindowsModalCloseButton?.addEventListener(
 homeWorkspaceExchangeButton?.addEventListener("click", () =>
   exchangeSaveWorkspaceSidePanelView()
 );
+homeCancelProcessButton?.addEventListener("click", cancelSavePostProcess);
+applicationCancelProcessButton?.addEventListener(
+  "click",
+  cancelSavePostProcess
+);
 splitWindowsModalCancelButton?.addEventListener("click", () => setSplitWindowsModalOpen(false));
 splitWindowsModalOpenButton?.addEventListener("click", openSplitWindows);
 splitWindowsPreviewBackButton?.addEventListener("click", closeSplitWindowsAndReturn);
@@ -4440,6 +4486,10 @@ splitWindowsPreviewFrame?.addEventListener(
 applicationWorkspaceRefreshButton?.addEventListener(
   "click",
   refreshApplicationWorkspacePreview
+);
+applicationWorkspaceExchangeUrlButton?.addEventListener(
+  "click",
+  exchangeSaveWorkspaceUrls
 );
 applicationWorkspaceCopyUrlButton?.addEventListener(
   "click",
@@ -4524,9 +4574,6 @@ profileNotesModalCancelButton?.addEventListener("click", () => setProfileNotesMo
 profileNotesModalSubmitButton?.addEventListener("click", submitProfileNotesForm);
 
 configToggleButton?.addEventListener("click", () => {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   setConfigModalOpen(true);
 });
@@ -4627,9 +4674,6 @@ document.addEventListener("keydown", (event) => {
 });
 
 clearLogsButton?.addEventListener("click", () => {
-  if (!guardExtensionUiAction()) {
-    return;
-  }
 
   clearLogs();
   addLog("info", "Process logs cleared.");
@@ -4708,16 +4752,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     }
   }
 
-  if (changes[EXTENSION_UI_LOCK_STORAGE_KEY]) {
-    const lock = changes[EXTENSION_UI_LOCK_STORAGE_KEY].newValue;
-    const isLocked = isExtensionUiLockActive(lock);
-
-    applyExtensionUiLockState(isLocked);
-    scheduleExtensionUiLockExpiryCheck(lock);
-
-    if (lock?.locked && !isLocked) {
-      chrome.storage.local.remove(EXTENSION_UI_LOCK_STORAGE_KEY).catch(() => {});
-    }
+  if (changes[SAVE_POST_PROCESS_STORAGE_KEY]) {
+    setSavePostProcessState(
+      changes[SAVE_POST_PROCESS_STORAGE_KEY].newValue
+    );
   }
 });
 
@@ -4729,6 +4767,6 @@ loadSheetConfig();
 loadPromptSelection();
 loadHumanizePromptSelection();
 loadJobDescriptionSelection();
-loadExtensionUiLockState().finally(() => {
+loadSavePostProcessState().finally(() => {
   refreshMakeResumeButtonAvailability();
 });
