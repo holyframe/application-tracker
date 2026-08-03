@@ -1752,9 +1752,13 @@ textarea:focus {
 
 .split-windows-preview-view {
   display: grid;
-  grid-template-rows: auto auto minmax(240px, 1fr) auto auto;
+  grid-template-rows: auto auto minmax(240px, 1fr) auto auto auto;
   gap: 8px;
   min-height: 0;
+}
+
+.split-windows-preview-view.has-profile-note {
+  grid-template-rows: auto auto auto minmax(240px, 1fr) auto auto;
 }
 
 .split-windows-preview-tabs {
@@ -1839,11 +1843,6 @@ textarea:focus {
 }
 
 .split-windows-modal.is-workspace-page .split-windows-preview-url-text {
-  display: none;
-}
-
-.split-windows-modal.is-workspace-page.is-profile-info-preview
-  .split-windows-preview-location {
   display: none;
 }
 
@@ -1953,20 +1952,6 @@ textarea:focus {
   display: none;
 }
 
-.split-windows-preview-empty-state.is-profile-info {
-  place-content: start;
-  justify-items: start;
-  overflow: auto;
-  padding: 22px;
-  text-align: left;
-}
-
-.split-windows-preview-empty-state.is-profile-info > span:last-child {
-  max-width: none;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .split-windows-preview-empty-state strong {
   color: var(--text);
   font-size: 13px;
@@ -1986,6 +1971,36 @@ textarea:focus {
   border-radius: 12px;
   background: rgba(84, 87, 255, 0.12);
   color: var(--primary);
+}
+
+.application-workspace-profile-note {
+  display: grid;
+  gap: 5px;
+  max-height: 140px;
+  overflow: auto;
+  border: 1px solid rgba(84, 87, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(84, 87, 255, 0.06);
+}
+
+.application-workspace-profile-note.is-hidden {
+  display: none;
+}
+
+.application-workspace-profile-note strong {
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.application-workspace-profile-note p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .split-windows-preview-help {

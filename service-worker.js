@@ -38,6 +38,15 @@ const GOOGLE_DOC_WRITABLE_TEXT_STYLE_FIELDS = Object.freeze([
 const APPLICATION_SHEET_HEADERS = Object.freeze([
   "ISO timestamp",
   "Job-page title",
+  "Profile name",
+  "ChatGPT conversation URL",
+  "Normalized job URL",
+  "Copied resume Google Doc URL",
+  "Apply Now"
+]);
+const LEGACY_APPLICATION_SHEET_HEADERS = Object.freeze([
+  "ISO timestamp",
+  "Job-page title",
   "ChatGPT conversation URL",
   "Job URL",
   "Copied resume-document URL",
@@ -88,6 +97,7 @@ function formatSheetRange(sheetName, cellRange) {
 function buildApplicationSheetRow({
   timestamp,
   jobTitle,
+  profileName,
   jobUrl,
   chatGptUrl,
   resumeUrl,
@@ -96,6 +106,7 @@ function buildApplicationSheetRow({
   return [
     String(timestamp || ""),
     String(jobTitle || ""),
+    String(profileName || ""),
     String(chatGptUrl || ""),
     String(jobUrl || ""),
     String(resumeUrl || ""),
@@ -103,13 +114,21 @@ function buildApplicationSheetRow({
   ];
 }
 
-function hasApplicationSheetHeaders(row) {
+function hasSheetHeaders(row, headers) {
   return (
     Array.isArray(row) &&
-    APPLICATION_SHEET_HEADERS.every(
+    headers.every(
       (header, index) => String(row[index] ?? "").trim() === header
     )
   );
+}
+
+function hasApplicationSheetHeaders(row) {
+  return hasSheetHeaders(row, APPLICATION_SHEET_HEADERS);
+}
+
+function hasLegacyApplicationSheetHeaders(row) {
+  return hasSheetHeaders(row, LEGACY_APPLICATION_SHEET_HEADERS);
 }
 
 function createUniqueSheetId(sheets = []) {
@@ -2370,6 +2389,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       const row = buildApplicationSheetRow({
         timestamp: new Date().toISOString(),
         jobTitle: tab.title,
+        profileName,
         jobUrl: urlForSheet,
         chatGptUrl,
         resumeUrl,
@@ -2504,7 +2524,17 @@ async function ensureSheetExists(
   );
 
   if (sheet?.properties?.sheetId != null) {
-    return sheet.properties.sheetId;
+    const sheetId = sheet.properties.sheetId;
+    if (options.initializeApplicationSheet === true) {
+      await ensureApplicationSheetSchema(
+        token,
+        spreadsheetId,
+        sheetTitle,
+        sheetId,
+        runId
+      );
+    }
+    return sheetId;
   }
 
   if (runId) {
@@ -2565,9 +2595,117 @@ async function ensureSheetExists(
   return createdSheetId;
 }
 
+async function ensureApplicationSheetSchema(
+  token,
+  spreadsheetId,
+  sheetName,
+  sheetId,
+  runId
+) {
+  const headerRange = encodeURIComponent(formatSheetRange(sheetName, "A1:G1"));
+  const headerUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
+    `/values/${headerRange}`;
+  const headerResponse = await fetch(headerUrl, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!headerResponse.ok) {
+    const errorText = await headerResponse.text();
+    throw new Error(`Google Sheets API error: ${errorText}`);
+  }
+
+  const headerData = await headerResponse.json();
+  const header = headerData.values?.[0] ?? [];
+
+  if (hasApplicationSheetHeaders(header)) {
+    return;
+  }
+
+  const isExactLegacySchema = hasLegacyApplicationSheetHeaders(header);
+  const hasHeaderValues = header.some((cell) => String(cell ?? "").trim());
+  const shouldInsertProfileColumn =
+    isExactLegacySchema ||
+    (hasHeaderValues && header.length <= LEGACY_APPLICATION_SHEET_HEADERS.length);
+
+  const requests = [];
+  let existingRowCount = 0;
+
+  if (shouldInsertProfileColumn) {
+    const existingValues = await readSheetValues(token, runId, {
+      spreadsheetId,
+      sheetName
+    });
+    existingRowCount = Math.max(0, existingValues.length - 1);
+    requests.push({
+      insertDimension: {
+        range: {
+          sheetId,
+          dimension: "COLUMNS",
+          startIndex: 2,
+          endIndex: 3
+        },
+        inheritFromBefore: false
+      }
+    });
+  }
+
+  requests.push(...buildApplicationSheetInitializationRequests(sheetId));
+
+  if (shouldInsertProfileColumn && existingRowCount > 0) {
+    requests.push({
+      repeatCell: {
+        range: {
+          sheetId,
+          startRowIndex: 1,
+          endRowIndex: existingRowCount + 1,
+          startColumnIndex: 2,
+          endColumnIndex: 3
+        },
+        cell: {
+          userEnteredValue: {
+            stringValue: sheetName
+          }
+        },
+        fields: "userEnteredValue"
+      }
+    });
+  }
+
+  const batchUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+  const response = await fetch(batchUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ requests })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Sheets batchUpdate error: ${errorText}`);
+  }
+
+  if (runId) {
+    sendLog(
+      runId,
+      "success",
+      shouldInsertProfileColumn
+        ? `Migrated sheet tab "${sheetName}" to the seven-column layout.`
+        : hasHeaderValues
+          ? `Normalized application headers in sheet tab "${sheetName}".`
+          : `Initialized sheet tab "${sheetName}" with application headers.`
+    );
+  }
+}
+
 async function readSheetValues(token, runId, sheetConfig) {
   const { spreadsheetId, sheetName } = sheetConfig;
-  const range = encodeURIComponent(formatSheetRange(sheetName, "A:F"));
+  const range = encodeURIComponent(formatSheetRange(sheetName, "A:G"));
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`;
 
   sendLog(runId, "info", `Reading rows from ${sheetName}...`);
@@ -2665,7 +2803,7 @@ async function removeDuplicateUrlsFromSheet(runId) {
 
   for (let i = firstDataRowIndex; i < values.length; i++) {
     const row = values[i];
-    const urlKey = normalizeUrlKeyForDedupe(row[3]);
+    const urlKey = normalizeUrlKeyForDedupe(row[4]);
 
     if (!urlKey) {
       continue;
@@ -2684,10 +2822,11 @@ async function removeDuplicateUrlsFromSheet(runId) {
       rowNumber: rowIndex + 1,
       timestamp: row[0] || "",
       title: row[1] || "",
-      chatGptUrl: row[2] || "",
-      url: row[3] || "",
-      resumeUrl: row[4] || "",
-      applyNow: row[5] || ""
+      profileName: row[2] || "",
+      chatGptUrl: row[3] || "",
+      url: row[4] || "",
+      resumeUrl: row[5] || "",
+      applyNow: row[6] || ""
     };
   });
 

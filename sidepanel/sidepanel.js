@@ -40,6 +40,15 @@ const splitWindowsPreviewEmptyTitle = document.querySelector(
 const splitWindowsPreviewEmptyHelp = document.querySelector(
   "#splitWindowsPreviewEmptyHelp"
 );
+const applicationWorkspaceProfileNote = document.querySelector(
+  "#applicationWorkspaceProfileNote"
+);
+const applicationWorkspaceProfileNoteTitle = document.querySelector(
+  "#applicationWorkspaceProfileNoteTitle"
+);
+const applicationWorkspaceProfileNoteText = document.querySelector(
+  "#applicationWorkspaceProfileNoteText"
+);
 const splitWindowsPreviewHelp = document.querySelector(
   ".split-windows-preview-help"
 );
@@ -385,6 +394,20 @@ function getSelectedProfile() {
     ) ||
     profileSelectionState.profiles[0] ||
     null
+  );
+}
+
+function getProfileByName(profileName) {
+  const normalizedName = String(profileName || "").trim().toLocaleLowerCase();
+  if (!normalizedName) {
+    return null;
+  }
+
+  return (
+    profileSelectionState.profiles.find(
+      (profile) =>
+        String(profile?.name || "").trim().toLocaleLowerCase() === normalizedName
+    ) || null
   );
 }
 
@@ -3103,7 +3126,9 @@ function openBuildResumeContextModal() {
 
 function beginSaveWorkspaceAction(message) {
   if (
-    currentSplitWindowSessionType !== "save-workspace" ||
+    !["save-workspace", "make-resume"].includes(
+      currentSplitWindowSessionType
+    ) ||
     !currentSaveWorkspace?.isReady ||
     currentSaveWorkspace.isBusy
   ) {
@@ -3239,20 +3264,28 @@ async function exchangeSaveWorkspaceUrls() {
   }
 
   const workspace = currentSaveWorkspace;
+  const isImportedWorkspace = currentSplitWindowSessionType === "make-resume";
 
   try {
     const mainTab = await chrome.tabs.get(workspace.chatGptTabId);
     const mainTabUrl = String(mainTab?.url || "").trim();
+    const informationUrl = String(workspace.jobUrl || "").trim();
     const storedChatUrl = String(workspace.storedExchangeUrl || "").trim();
-    const isRestoringChat = Boolean(storedChatUrl);
-    const nextMainTabUrl = isRestoringChat
-      ? storedChatUrl
-      : String(workspace.jobUrl || "").trim();
+    const isRestoringChat = !isImportedWorkspace && Boolean(storedChatUrl);
+    const nextMainTabUrl = isImportedWorkspace
+      ? informationUrl
+      : isRestoringChat
+        ? storedChatUrl
+        : informationUrl;
 
     if (!mainTabUrl || !nextMainTabUrl) {
       throw new Error("Could not identify the URL needed for Exchange.");
     }
-    if (!isRestoringChat && !isChatOrClaudeUrl(mainTabUrl)) {
+    if (
+      !isImportedWorkspace &&
+      !isRestoringChat &&
+      !isChatOrClaudeUrl(mainTabUrl)
+    ) {
       throw new Error(
         "The main tab is not a ChatGPT or Claude page, so there is no chat URL to store."
       );
@@ -3264,19 +3297,33 @@ async function exchangeSaveWorkspaceUrls() {
     });
 
     if (currentSaveWorkspace === workspace) {
-      workspace.storedExchangeUrl = isRestoringChat ? "" : mainTabUrl;
-      if (!isRestoringChat) {
-        workspace.chatGptUrl = mainTabUrl;
+      if (isImportedWorkspace) {
+        workspace.jobUrl = mainTabUrl;
+        if (isChatOrClaudeUrl(mainTabUrl)) {
+          workspace.chatGptUrl = mainTabUrl;
+        } else if (isChatOrClaudeUrl(nextMainTabUrl)) {
+          workspace.chatGptUrl = nextMainTabUrl;
+        }
+        setSaveWorkspaceTab(workspace.activeTab, {
+          forceReload: workspace.activeTab === "job"
+        });
+      } else {
+        workspace.storedExchangeUrl = isRestoringChat ? "" : mainTabUrl;
+        if (!isRestoringChat) {
+          workspace.chatGptUrl = mainTabUrl;
+        }
+        updateSaveWorkspaceActions();
       }
-      updateSaveWorkspaceActions();
     }
 
     showStatus("success", nextMainTabUrl, "Main tab:");
     addLog(
       "success",
-      isRestoringChat
-        ? "Stored chat URL restored in the main tab."
-        : "Chat URL stored for the next Exchange; the job URL is now in the main tab."
+      isImportedWorkspace
+        ? "Main tab and Information page URLs exchanged."
+        : isRestoringChat
+          ? "Stored chat URL restored in the main tab."
+          : "Chat URL stored for the next Exchange; the job URL is now in the main tab."
     );
   } catch (error) {
     console.error(error);
@@ -3418,7 +3465,7 @@ function resetSplitWindowsSession() {
     splitWindowsJobTabButton.setAttribute("aria-selected", "true");
     splitWindowsJobTabButton.tabIndex = 0;
     const label = splitWindowsJobTabButton.querySelector("span");
-    if (label) label.textContent = "Job / GPT page";
+    if (label) label.textContent = "Information page";
   }
 
   if (splitWindowsResumeTabButton) {
@@ -3531,75 +3578,87 @@ function normalizeSplitWindowUrl(value, label) {
   return parsed.href;
 }
 
+function unwrapMarkdownEmphasis(value) {
+  const raw = String(value || "").trim();
+  const wrappedMatch = raw.match(/^(\*\*|__)([\s\S]+)\1$/);
+  return wrappedMatch ? wrappedMatch[2].trim() : raw;
+}
+
+function parseSplitWindowUrlField(value, label) {
+  const raw = String(value || "").trim();
+  const markdownLinkMatch = raw.match(
+    /\]\(\s*(https?:\/\/[\s\S]+)\s*\)\s*$/i
+  );
+  const candidate = markdownLinkMatch
+    ? markdownLinkMatch[1].trim()
+    : unwrapMarkdownEmphasis(raw);
+
+  return normalizeSplitWindowUrl(candidate.replace(/\\_/g, "_"), label);
+}
+
 function parseSplitWindowUrls(value) {
   const raw = String(value || "").trim();
   if (!raw) {
-    throw new Error("Drop or paste URLs before continuing.");
+    throw new Error("Drop or paste application details before continuing.");
   }
 
-  const candidates = raw
+  const rows = raw
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"))
-    .flatMap((line) => {
-      const detectedHttpUrls = line.match(/https?:\/\/[^\s<>"']+/gi);
-      return detectedHttpUrls?.length ? detectedHttpUrls : [line];
-    });
-  const normalizedUrls = [];
-  let ignoredUrlCount = 0;
+    .filter(
+      (line) =>
+        line && !line.startsWith("#") && !/^[-=_]{3,}$/.test(line)
+    );
 
-  candidates.forEach((candidate, index) => {
-    try {
-      const url = normalizeSplitWindowUrl(candidate, `URL ${index + 1}`);
-      normalizedUrls.push(url);
-    } catch (_error) {
-      // Ignore dropped text that is not a web URL.
-      ignoredUrlCount += 1;
+  const pairs = rows.map((row, index) => {
+    const entryNumber = index + 1;
+    const fields = row.split(/\t+/).map((field) => field.trim());
+    if (fields.length !== 4) {
+      throw new Error(
+        `Entry ${entryNumber} must be one line with exactly four tab-separated fields in Profile name, Chat, Job, Google Doc order.`
+      );
     }
-  });
 
-  if (normalizedUrls.length < 3) {
-    throw new Error(
-      "Add at least one ChatGPT or Claude URL, one job URL, and one Google Docs URL."
+    const profileName = unwrapMarkdownEmphasis(
+      fields[0].replace(/^[-+]\s+/, "")
     );
-  }
+    if (!profileName) {
+      throw new Error(`Entry ${entryNumber}'s profile name is required.`);
+    }
 
-  if (normalizedUrls.length % 3 !== 0) {
-    throw new Error(
-      "Each entry must contain exactly three URLs in Chat, Job, Google Doc order."
+    const chatUrl = parseSplitWindowUrlField(
+      fields[1],
+      `Entry ${entryNumber} Chat`
     );
-  }
-
-  const pairs = [];
-  for (let index = 0; index < normalizedUrls.length; index += 3) {
-    const entryNumber = index / 3 + 1;
-    const chatUrl = normalizedUrls[index];
-    const jobUrl = normalizedUrls[index + 1];
-    const resumeUrl = normalizedUrls[index + 2];
+    const jobUrl = parseSplitWindowUrlField(
+      fields[2],
+      `Entry ${entryNumber} Job`
+    );
+    const resumeUrl = parseSplitWindowUrlField(
+      fields[3],
+      `Entry ${entryNumber} Google Doc`
+    );
 
     if (!isChatOrClaudeUrl(chatUrl)) {
       throw new Error(
-        `Entry ${entryNumber} must start with a ChatGPT or Claude URL.`
+        `Entry ${entryNumber}'s second field must be a ChatGPT or Claude URL.`
       );
     }
     if (isChatOrClaudeUrl(jobUrl) || isGoogleDocsUrl(jobUrl)) {
       throw new Error(
-        `Entry ${entryNumber}'s second URL must be the job page.`
+        `Entry ${entryNumber}'s third field must be the job page URL.`
       );
     }
     if (!isGoogleDocsUrl(resumeUrl)) {
       throw new Error(
-        `Entry ${entryNumber} must end with a Google Docs document URL.`
+        `Entry ${entryNumber}'s fourth field must be a Google Docs document URL.`
       );
     }
 
-    pairs.push({ chatUrl, jobUrl, resumeUrl });
-  }
+    return { profileName, chatUrl, jobUrl, resumeUrl };
+  });
 
-  return {
-    pairs,
-    ignoredUrlCount
-  };
+  return { pairs };
 }
 
 function isChatOrClaudeUrl(url = "") {
@@ -3675,18 +3734,24 @@ function setApplicationWorkspaceUrlInputValue(value) {
 function setSplitWindowsPreview(rightUrl, options = {}) {
   const url = String(rightUrl || "").trim();
   const isPreviewing = Boolean(url);
+  const unavailableTitle = String(options.unavailableTitle || "").trim();
+  const isUnavailable = isPreviewing && Boolean(unavailableTitle);
 
   currentSplitWindowDownloadUrl = String(
     options.downloadUrl === undefined ? url : options.downloadUrl
   ).trim();
   splitWindowsModal?.classList.toggle("is-previewing", isPreviewing);
   splitWindowsInputView?.classList.toggle("is-hidden", isPreviewing);
-  splitWindowsModal?.classList.remove("is-profile-info-preview");
   splitWindowsPreviewView?.classList.toggle("is-hidden", !isPreviewing);
-  splitWindowsPreviewEmptyState?.classList.add("is-hidden");
-  splitWindowsPreviewHelp?.classList.remove("is-hidden");
+  splitWindowsPreviewEmptyState?.classList.toggle("is-hidden", !isUnavailable);
+  splitWindowsPreviewHelp?.classList.toggle("is-hidden", !isPreviewing);
 
-  splitWindowsPreviewEmptyState?.classList.remove("is-profile-info");
+  if (splitWindowsPreviewHelp) {
+    splitWindowsPreviewHelp.textContent = String(
+      options.helpText ||
+        "Preview content is embedded in the side panel. Some sites may block embedded previews."
+    );
+  }
   if (splitWindowsModalTitle) {
     splitWindowsModalTitle.textContent = isPreviewing
       ? String(options.title || "Right URL")
@@ -3700,8 +3765,11 @@ function setSplitWindowsPreview(rightUrl, options = {}) {
   setApplicationWorkspaceUrlInputValue(url);
 
   if (splitWindowsPreviewFrame) {
-    const nextFrameUrl = isPreviewing ? url : "about:blank";
-    splitWindowsPreviewFrame.classList.toggle("is-hidden", !isPreviewing);
+    const nextFrameUrl = isPreviewing && !isUnavailable ? url : "about:blank";
+    splitWindowsPreviewFrame.classList.toggle(
+      "is-hidden",
+      !isPreviewing || isUnavailable
+    );
     if (
       options.forceReload ||
       splitWindowsPreviewFrame.getAttribute("src") !== nextFrameUrl
@@ -3712,24 +3780,33 @@ function setSplitWindowsPreview(rightUrl, options = {}) {
       options.frameTitle || "Sidebar URL preview"
     );
   }
+
+  if (isUnavailable) {
+    if (splitWindowsPreviewEmptyTitle) {
+      splitWindowsPreviewEmptyTitle.textContent = unavailableTitle;
+    }
+    if (splitWindowsPreviewEmptyHelp) {
+      splitWindowsPreviewEmptyHelp.textContent = String(
+        options.unavailableHelp || "This page cannot be shown in the side panel."
+      );
+    }
+  }
 }
 
 function setEmptyApplicationWorkspacePreview(activeTab) {
   const isResume = activeTab === "resume";
   const emptyTitle = isResume
     ? "No profile resume yet"
-    : "No Job / GPT page yet";
+    : "No Information page yet";
   const emptyHelp = isResume
     ? "Use Save App to create the selected profile's resume copy."
-    : "Use Save App to add the current Job / GPT page.";
+    : "Use Save App to add the current Information page.";
 
   currentSplitWindowDownloadUrl = "";
   splitWindowsModal?.classList.add("is-previewing");
-  splitWindowsModal?.classList.remove("is-profile-info-preview");
   splitWindowsInputView?.classList.add("is-hidden");
   splitWindowsPreviewView?.classList.remove("is-hidden");
   splitWindowsPreviewHelp?.classList.add("is-hidden");
-  splitWindowsPreviewEmptyState?.classList.remove("is-profile-info");
 
   if (splitWindowsModalTitle) {
     splitWindowsModalTitle.textContent = "Application workspace";
@@ -3754,6 +3831,39 @@ function setEmptyApplicationWorkspacePreview(activeTab) {
   splitWindowsPreviewEmptyState?.classList.remove("is-hidden");
 }
 
+
+function renderApplicationWorkspaceProfileNote(workspace, activeTab) {
+  const shouldShow =
+    currentSplitWindowSessionType === "make-resume" &&
+    Boolean(workspace) &&
+    activeTab === "job";
+  splitWindowsPreviewView?.classList.toggle(
+    "has-profile-note",
+    shouldShow
+  );
+
+  applicationWorkspaceProfileNote?.classList.toggle("is-hidden", !shouldShow);
+  if (!shouldShow) {
+    return;
+  }
+
+  const profileName = String(workspace.profileName || DEFAULT_PROFILE_NAME).trim();
+  const savedProfile = getProfileByName(profileName);
+  const profileNotes = String(
+    savedProfile?.notes ?? workspace.profileNotes ?? ""
+  ).trim();
+  const profileWasFound = Boolean(savedProfile) || workspace.profileFound !== false;
+  if (applicationWorkspaceProfileNoteTitle) {
+    applicationWorkspaceProfileNoteTitle.textContent = `Profile note - ${profileName}`;
+  }
+  if (applicationWorkspaceProfileNoteText) {
+    applicationWorkspaceProfileNoteText.textContent =
+      profileNotes ||
+      (!profileWasFound
+        ? "No saved profile matched this name."
+        : "No notes have been saved for this profile.");
+  }
+}
 function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
   const isResume = activeTab === "resume";
   const normalizedTab = isResume ? "resume" : "job";
@@ -3774,8 +3884,7 @@ function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
     splitWindowsJobTabButton.tabIndex = isResume ? -1 : 0;
     const label = splitWindowsJobTabButton.querySelector("span");
     if (label) {
-      label.textContent = hasActiveWorkspace && currentSaveWorkspace.showProfileInfo
-        ? "Profile info" : "Job / GPT page";
+      label.textContent = "Information page";
     }
   }
 
@@ -3796,26 +3905,35 @@ function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
       : "Profile resume";
   }
 
-  if (hasActiveWorkspace && !isResume && currentSaveWorkspace.showProfileInfo) {
-    showMakeResumeProfileInfo(currentSaveWorkspace);
-  } else if (hasActiveWorkspace) {
-    setSplitWindowsPreview(
-      isResume ? currentSaveWorkspace.resumeUrl : currentSaveWorkspace.jobUrl,
-      {
-        title: "Application workspace",
-        frameTitle: isResume
-          ? `${currentSaveWorkspace.profileName} resume`
-          : currentSaveWorkspace.jobTitle,
-        downloadUrl: currentSaveWorkspace.resumeUrl,
-        forceReload
-      }
-    );
+  if (hasActiveWorkspace) {
+    const previewUrl = isResume
+      ? currentSaveWorkspace.resumeUrl
+      : currentSaveWorkspace.jobUrl;
+    const isConversationPreview = !isResume && isChatOrClaudeUrl(previewUrl);
+
+    setSplitWindowsPreview(previewUrl, {
+      title: "Application workspace",
+      frameTitle: isResume
+        ? `${currentSaveWorkspace.profileName} resume`
+        : currentSaveWorkspace.jobTitle,
+      downloadUrl: currentSaveWorkspace.resumeUrl,
+      forceReload,
+      unavailableTitle: isConversationPreview
+        ? "Conversation preview unavailable"
+        : "",
+      unavailableHelp: isConversationPreview
+        ? "ChatGPT and Claude conversations cannot be displayed inside the extension. Use Exchange to open this conversation in the main tab."
+        : "",
+      helpText: isResume
+        ? "The profile resume is embedded in the side panel."
+        : "If this page is blank, the website blocks embedded viewing. Use Exchange to open it in the main tab."
+    });
   } else {
     const emptyWorkspaceUrl = currentEmptyWorkspaceUrls[normalizedTab];
     if (emptyWorkspaceUrl) {
       setSplitWindowsPreview(emptyWorkspaceUrl, {
         title: "Application workspace",
-        frameTitle: isResume ? "Profile resume" : "Job / GPT page",
+        frameTitle: isResume ? "Profile resume" : "Information page",
         downloadUrl: currentEmptyWorkspaceUrls.resume,
         forceReload
       });
@@ -3824,9 +3942,40 @@ function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
     }
   }
 
+  renderApplicationWorkspaceProfileNote(
+    hasActiveWorkspace ? currentSaveWorkspace : null,
+    normalizedTab
+  );
+
   updateSaveWorkspaceActions();
 }
 
+
+function showBlockedInformationPagePreview() {
+  if (
+    !hasActiveSaveWorkspaceForCurrentTab() ||
+    currentSaveWorkspace.activeTab !== "job"
+  ) {
+    return;
+  }
+
+  const previewUrl = String(currentSaveWorkspace.jobUrl || "").trim();
+  if (!previewUrl || isChatOrClaudeUrl(previewUrl)) {
+    return;
+  }
+
+  setSplitWindowsPreview(previewUrl, {
+    title: "Application workspace",
+    frameTitle: currentSaveWorkspace.jobTitle,
+    downloadUrl: currentSaveWorkspace.resumeUrl,
+    unavailableTitle: "Information page preview unavailable",
+    unavailableHelp:
+      "This website did not allow its page to load inside the extension. Use Exchange to open it in the main tab.",
+    helpText:
+      "The website blocked embedded viewing. Use Exchange to open it in the main tab."
+  });
+  renderApplicationWorkspaceProfileNote(currentSaveWorkspace, "job");
+}
 function getActiveApplicationWorkspaceTab() {
   return hasActiveSaveWorkspaceForCurrentTab()
     ? currentSaveWorkspace.activeTab
@@ -3862,7 +4011,7 @@ function refreshApplicationWorkspacePreview() {
       "success",
       activeTab === "resume"
         ? "Profile resume URL cleared."
-        : "Job / GPT page URL cleared.",
+        : "Information page URL cleared.",
       "Cleared:"
     );
     return;
@@ -3945,10 +4094,10 @@ function showSaveWorkspacePreview({
   jobUrl = "",
   profileName = DEFAULT_PROFILE_NAME,
   resumeUrl = "",
+  profileNotes = "",
+  profileFound = true,
   chatGptTabId = null,
   chatGptUrl = "",
-  profileNotes = "",
-  showProfileInfo = false,
   isReady = false,
   sessionType = "save-workspace"
 } = {}) {
@@ -3976,12 +4125,13 @@ function showSaveWorkspacePreview({
     jobUrl: String(jobUrl).trim(),
     profileName:
       String(profileName || DEFAULT_PROFILE_NAME).trim() || DEFAULT_PROFILE_NAME,
-    profileNotes: String(profileNotes || "").trim(),
-    showProfileInfo: Boolean(showProfileInfo),
     resumeUrl: String(resumeUrl).trim(),
+    profileNotes: String(profileNotes || "").trim(),
+    profileFound: profileFound !== false,
     chatGptTabId,
     chatGptUrl: normalizedChatGptUrl,
-    storedExchangeUrl: showProfileInfo ? normalizedChatGptUrl : "",
+    storedExchangeUrl:
+      normalizedSessionType === "make-resume" ? normalizedChatGptUrl : "",
     activeTab: "resume",
     isReady: Boolean(isReady),
     isBusy: false,
@@ -4041,45 +4191,6 @@ function syncSaveWorkspaceVisibilityForTab(tabId) {
   return true;
 }
 
-function showMakeResumeProfileInfo(pair) {
-  const profileName =
-    String(pair?.profileName || DEFAULT_PROFILE_NAME).trim() ||
-    DEFAULT_PROFILE_NAME;
-  const profileNotes =
-    String(pair?.profileNotes || "").trim() ||
-    "No notes have been saved for this profile.";
-
-  currentSplitWindowDownloadUrl = String(pair?.resumeUrl || "").trim();
-  splitWindowsModal?.classList.add("is-previewing");
-  splitWindowsModal?.classList.add("is-profile-info-preview");
-  splitWindowsInputView?.classList.add("is-hidden");
-  splitWindowsPreviewView?.classList.remove("is-hidden");
-  splitWindowsPreviewHelp?.classList.add("is-hidden");
-
-  if (splitWindowsModalTitle) {
-    splitWindowsModalTitle.textContent = "Application workspace";
-  }
-  if (splitWindowsPreviewUrl) {
-    splitWindowsPreviewUrl.textContent = `Profile info - ${profileName}`;
-    splitWindowsPreviewUrl.title = profileName;
-  }
-  setApplicationWorkspaceUrlInputValue("");
-
-  if (splitWindowsPreviewFrame) {
-    splitWindowsPreviewFrame.classList.add("is-hidden");
-    if (splitWindowsPreviewFrame.getAttribute("src") !== "about:blank") {
-      splitWindowsPreviewFrame.src = "about:blank";
-    }
-  }
-  if (splitWindowsPreviewEmptyTitle) {
-    splitWindowsPreviewEmptyTitle.textContent = profileName;
-  }
-  if (splitWindowsPreviewEmptyHelp) {
-    splitWindowsPreviewEmptyHelp.textContent = profileNotes;
-  }
-  splitWindowsPreviewEmptyState?.classList.add("is-profile-info");
-  splitWindowsPreviewEmptyState?.classList.remove("is-hidden");
-}
 
 function setApplicationWorkspaceTab(activeTab) {
   return setSaveWorkspaceTab(activeTab);
@@ -4112,14 +4223,14 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId) {
       batchStart: index === 0,
       batchIndex: index,
       batchCount: openedPairs.length,
-      jobTitle: `Job page ${index + 1}`,
-      jobUrl: pair.jobUrl,
+      jobTitle: `Information page ${index + 1}`,
+      jobUrl: pair.chatUrl,
       profileName: pair.profileName,
       profileNotes: pair.profileNotes,
+      profileFound: pair.profileFound,
       resumeUrl: pair.resumeUrl,
       chatGptTabId: pair.tabId,
       chatGptUrl: pair.chatUrl,
-      showProfileInfo: true,
       isReady: true,
       sessionType: "make-resume"
     });
@@ -4142,7 +4253,7 @@ async function openSplitWindows() {
     batch = parseSplitWindowUrls(splitWindowUrlsInput?.value);
   } catch (error) {
     const message =
-      error.message || "Add valid Chat, Job, and Google Docs URL triples.";
+      error.message || "Add valid Profile, Chat, Job, and Google Doc entries.";
     showStatus("error", message);
     addLog("error", message);
     splitWindowUrlsInput?.focus();
@@ -4153,11 +4264,6 @@ async function openSplitWindows() {
   clearStatus();
   clearDeletedRows();
   beginButtonProcess("Make a resume clicked. Checking for an open Google Sheet...");
-  const activeProfile = getSelectedProfile();
-  const profileName =
-    String(activeProfile?.name || DEFAULT_PROFILE_NAME).trim() ||
-    DEFAULT_PROFILE_NAME;
-  const profileNotes = String(activeProfile?.notes || "").trim();
 
   const openedPairs = [];
   let returnTabId = null;
@@ -4172,6 +4278,19 @@ async function openSplitWindows() {
     );
 
     for (const [index, pair] of batch.pairs.entries()) {
+      const savedProfile = getProfileByName(pair.profileName);
+      const profileName = String(
+        savedProfile?.name || pair.profileName || DEFAULT_PROFILE_NAME
+      ).trim();
+      const profileNotes = String(savedProfile?.notes || "").trim();
+      const profileFound = Boolean(savedProfile);
+
+      if (!profileFound) {
+        addLog(
+          "info",
+          `No saved profile matched "${pair.profileName}"; no profile note will be shown.`
+        );
+      }
       addLog(
         "info",
         `Opening job ${index + 1} of ${batch.pairs.length}: ${pair.jobUrl}`
@@ -4189,6 +4308,7 @@ async function openSplitWindows() {
         resumeUrl: pair.resumeUrl,
         profileName,
         profileNotes,
+        profileFound,
         activeTab: "resume"
       });
     }
@@ -4218,14 +4338,6 @@ async function openSplitWindows() {
         : "Job tabs opened; the sidebar dialog was closed before previewing the resumes."
     );
 
-    if (batch.ignoredUrlCount > 0) {
-      addLog(
-        "info",
-        `Ignored ${batch.ignoredUrlCount} item${
-          batch.ignoredUrlCount === 1 ? "" : "s"
-        }.`
-      );
-    }
   } catch (error) {
     if (
       openedPairs.length > 0 &&
@@ -4320,6 +4432,10 @@ splitWindowsJobTabButton?.addEventListener("click", () =>
 );
 splitWindowsResumeTabButton?.addEventListener("click", () =>
   setApplicationWorkspaceTab("resume")
+);
+splitWindowsPreviewFrame?.addEventListener(
+  "error",
+  showBlockedInformationPagePreview
 );
 applicationWorkspaceRefreshButton?.addEventListener(
   "click",

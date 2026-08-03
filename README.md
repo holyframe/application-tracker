@@ -40,13 +40,13 @@ custom tabs:
   ChatGPT/Claude URL before navigating the main tab to the job URL. The chat
   URL is never loaded in the sidebar iframe; the next Exchange restores it in
   the main tab.
-- **Job / GPT page** embeds the original job URL.
+- **Information page** embeds the original job URL.
 
 The Profile resume tab is the initial tab shown for each populated Save App
 workspace.
 
 The Application workspace URL bar is editable. Press Enter or use its Refresh
-icon to validate, save, and reload the URL for the active Job / GPT page or
+icon to validate, save, and reload the URL for the active Information page or
 Profile resume tab. The adjacent Copy icon copies the current field value.
 
 Build resume maps each non-empty input line to the next existing text paragraph
@@ -77,36 +77,43 @@ resume document, and ChatGPT conversation.
 ## Google Sheet columns
 
 Each profile uses its own sheet tab. Missing profile tabs are created
-automatically. The extension appends six columns:
+automatically. The extension appends seven columns:
 
 | Column | Value |
 | --- | --- |
 | A | ISO timestamp |
 | B | Job-page title |
-| C | ChatGPT conversation URL |
-| D | Normalized job URL |
-| E | Copied resume-document URL |
-| F | `Yes` for Apply Now; otherwise blank |
+| C | Profile name, exactly as stored in the app |
+| D | ChatGPT conversation URL |
+| E | Normalized job URL |
+| F | Copied resume-document URL |
+| G | `Yes` for Apply Now; otherwise blank |
 
 When a profile tab is created, these column labels are written to row 1 before
 the first application is appended. The header row is bold, and cells in columns
-A–F use the Google Sheets `CLIP` wrap strategy.
+A–G use the Google Sheets `CLIP` wrap strategy.
+Existing six-column profile tabs are upgraded automatically: column C is
+inserted, existing rows receive that tab's profile name, and the previous
+columns C-F shift to D-G.
 
 ## Other actions
 
 - **Humanize** sends the configured Humanize prompt to the active or most
   recently used ChatGPT conversation.
-- **Make a resume** accepts multiple dragged or pasted URLs in one textarea. It
-  reads strict ChatGPT/Claude, job-page, and Google Docs URL triples. It opens
-  every job URL in a new tab and registers each tab in the same full-page
-  Application workspace used by Save App. Profile resume embeds the paired
-  Google Doc and provides the same Build resume, Download resume, and Exchange
-  actions. Profile info replaces Job / GPT page for imported records and shows
-  the currently active local profile and its saved notes. The chat URL is never
-  loaded in the sidebar; it is retained only so an explicit Exchange can open
-  it in the main tab and switch back to the job page. Switching among imported
-  job tabs restores each tab's workspace. This action is available only while
-  the current tab is a Google Sheets spreadsheet.
+- **Make a resume** accepts one application per line, with four tab-separated
+  fields in Profile name, ChatGPT/Claude, job-page, and Google Docs order. URL
+  fields can be plain URLs or Markdown links such as `[**URL**](URL)`. It opens
+  every job URL in a new main tab and registers each tab in the same full-page
+  Application workspace used by Save App. The profile name labels the paired
+  Google Docs resume and retrieves that profile's locally saved note.
+- The imported Information page initially holds the ChatGPT or Claude URL. The
+  URL remains visible, while the body explains that conversations cannot be
+  embedded. Exchange swaps the main-tab URL with the Information-page URL, so
+  the conversation opens in the main tab and the job page moves into the
+  sidebar. Embeddable job pages display normally; blocked pages show an
+  explanation, and the profile note remains above the URL panel.
+  Switching among imported job tabs restores each tab's workspace. Make Resume
+  is available only while the current tab is a Google Sheets spreadsheet.
 - Profile notes are stored locally for reference and are not sent to ChatGPT or
   written to the Google Sheet.
 

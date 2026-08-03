@@ -700,23 +700,25 @@
 
         <div id="splitWindowsInputView" class="split-windows-input-view">
           <p class="modal-help">
-            Drop or paste URL triples below in Chat, Job, Google Doc order.
-            Job URLs open as tabs; each Google Doc becomes that tab's resume
-            workspace. Chat URLs are kept for Exchange, never sidebar previews.
+            Paste one application per line using four tab-separated fields in
+            Profile name, Chat, Job, Google Doc order. URL fields may be plain
+            URLs or Markdown links such as [**URL**](URL). Job URLs open in the
+            main tabs, while Information pages start with the Chat URLs for
+            Exchange. Matching saved profile notes appear above the URL panel.
           </p>
 
           <div class="modal-form">
             <div class="config-field">
               <label class="config-label" for="splitWindowUrlsInput">
-                Chat, Job, and Google Docs URLs
+                Tab-separated Profile, Chat, Job, and Google Doc rows
               </label>
               <textarea
                 id="splitWindowUrlsInput"
                 class="split-window-urls-input"
-                inputmode="url"
+                inputmode="text"
                 spellcheck="false"
                 rows="6"
-                placeholder="https://chatgpt.com/c/...&#10;https://example.com/job/...&#10;https://docs.google.com/document/d/...&#10;&#10;https://claude.ai/chat/...&#10;https://example.com/job/...&#10;https://docs.google.com/document/d/..."
+                placeholder="**Eddie Ramos**&#9;[**https://chatgpt.com/c/...**](https://chatgpt.com/c/...)&#9;[**https://example.com/job/...**](https://example.com/job/...)&#9;[**https://docs.google.com/document/d/.../edit**](https://docs.google.com/document/d/.../edit)"
               ></textarea>
             </div>
           </div>
@@ -768,9 +770,21 @@
               role="tab"
               aria-selected="true"
             >
-              <span>Job / GPT page</span>
+              <span>Information page</span>
             </button>
           </div>
+
+          <section
+            id="applicationWorkspaceProfileNote"
+            class="application-workspace-profile-note is-hidden"
+            data-placement="above-url-panel"
+            aria-live="polite"
+          >
+            <strong id="applicationWorkspaceProfileNoteTitle">Profile note</strong>
+            <p id="applicationWorkspaceProfileNoteText">
+              No saved profile note.
+            </p>
+          </section>
 
           <div class="split-windows-preview-location">
             <span id="splitWindowsPreviewUrl" class="split-windows-preview-url-text"></span>
@@ -837,12 +851,13 @@
                   <path d="M8 17h5" />
                 </svg>
               </span>
-              <strong id="splitWindowsPreviewEmptyTitle">No Job / GPT page yet</strong>
+              <strong id="splitWindowsPreviewEmptyTitle">No Information page yet</strong>
               <span id="splitWindowsPreviewEmptyHelp">
-                Use Save App to add the Job / GPT page and profile resume.
+                Use Save App to add the Information page and profile resume.
               </span>
             </div>
           </div>
+
 
           <p class="split-windows-preview-help">
             Preview content is embedded in the side panel. Some job sites may
