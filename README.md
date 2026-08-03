@@ -54,8 +54,7 @@ in the current copied Google Doc. It retains that document's paragraph
 structure, headings, bullets, tables, and existing text-style pattern. Blank
 input lines are ignored, and unused existing text paragraphs are cleared
 without deleting their paragraph formatting. The configured master template is
-never edited, and no placeholder is required. The Build resume workspace button
-is currently feature-disabled and remains visible for later re-enabling.
+never edited, and no placeholder is required.
 
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
 already-grouped job tab and leaves any existing group unchanged. The check
@@ -99,14 +98,15 @@ A–F use the Google Sheets `CLIP` wrap strategy.
   recently used ChatGPT conversation.
 - **Make a resume** accepts multiple dragged or pasted URLs in one textarea. It
   reads strict ChatGPT/Claude, job-page, and Google Docs URL triples. It opens
-  every job URL in a new tab and gives each tab an Application workspace whose
-  Profile resume tab embeds the paired Google Doc. The chat URL is validated
-  but is never opened or embedded. The workspace's Profile info tab shows the
-  currently active local profile and its saved notes. Its Back button closes
-  all job tabs created by the batch and returns to the previous tab, while
-  Download Resume exports the current workspace's Google Doc as PDF. This
-  action is available only while the current tab is a Google Sheets
-  spreadsheet.
+  every job URL in a new tab and registers each tab in the same full-page
+  Application workspace used by Save App. Profile resume embeds the paired
+  Google Doc and provides the same Build resume, Download resume, and Exchange
+  actions. Profile info replaces Job / GPT page for imported records and shows
+  the currently active local profile and its saved notes. The chat URL is never
+  loaded in the sidebar; it is retained only so an explicit Exchange can open
+  it in the main tab and switch back to the job page. Switching among imported
+  job tabs restores each tab's workspace. This action is available only while
+  the current tab is a Google Sheets spreadsheet.
 - Profile notes are stored locally for reference and are not sent to ChatGPT or
   written to the Google Sheet.
 

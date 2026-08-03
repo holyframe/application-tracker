@@ -160,7 +160,6 @@ const EXTENSION_UI_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
 const DEFAULT_PROFILE_NAME = "Default";
-const IS_BUILD_RESUME_ENABLED = false;
 
 let activeRunId = null;
 let isExtensionUiLocked = false;
@@ -168,7 +167,6 @@ let extensionUiLockExpiryTimer = null;
 let currentSplitWindowDownloadUrl = "";
 let currentSplitWindowPairs = [];
 let currentSplitWindowReturnTabId = null;
-let currentSplitWindowPairIndex = -1;
 let currentSplitWindowSessionType = "make-resume";
 let currentSaveWorkspace = null;
 const saveWorkspacesByTabId = new Map();
@@ -3093,9 +3091,8 @@ function setBuildResumeContextModalOpen(isOpen, { returnFocus = true } = {}) {
 
 function openBuildResumeContextModal() {
   if (
-    !IS_BUILD_RESUME_ENABLED ||
     saveWorkspaceBuildButton?.disabled ||
-    currentSplitWindowSessionType !== "save-workspace" ||
+    !hasActiveSaveWorkspaceForCurrentTab() ||
     !currentSaveWorkspace?.isReady
   ) {
     return;
@@ -3294,7 +3291,7 @@ async function exchangeSaveWorkspaceUrls() {
 
 function hasSaveWorkspaceSession() {
   return (
-    currentSplitWindowSessionType === "save-workspace" &&
+    ["save-workspace", "make-resume"].includes(currentSplitWindowSessionType) &&
     saveWorkspacesByTabId.size > 0
   );
 }
@@ -3409,7 +3406,6 @@ function resetSplitWindowsSession() {
   currentSplitWindowDownloadUrl = "";
   currentSplitWindowPairs = [];
   currentSplitWindowReturnTabId = null;
-  currentSplitWindowPairIndex = -1;
   currentSplitWindowSessionType = "make-resume";
   currentSaveWorkspace = null;
   saveWorkspacesByTabId.clear();
@@ -3685,6 +3681,7 @@ function setSplitWindowsPreview(rightUrl, options = {}) {
   ).trim();
   splitWindowsModal?.classList.toggle("is-previewing", isPreviewing);
   splitWindowsInputView?.classList.toggle("is-hidden", isPreviewing);
+  splitWindowsModal?.classList.remove("is-profile-info-preview");
   splitWindowsPreviewView?.classList.toggle("is-hidden", !isPreviewing);
   splitWindowsPreviewEmptyState?.classList.add("is-hidden");
   splitWindowsPreviewHelp?.classList.remove("is-hidden");
@@ -3728,6 +3725,7 @@ function setEmptyApplicationWorkspacePreview(activeTab) {
 
   currentSplitWindowDownloadUrl = "";
   splitWindowsModal?.classList.add("is-previewing");
+  splitWindowsModal?.classList.remove("is-profile-info-preview");
   splitWindowsInputView?.classList.add("is-hidden");
   splitWindowsPreviewView?.classList.remove("is-hidden");
   splitWindowsPreviewHelp?.classList.add("is-hidden");
@@ -3774,6 +3772,11 @@ function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
   );
   if (splitWindowsJobTabButton) {
     splitWindowsJobTabButton.tabIndex = isResume ? -1 : 0;
+    const label = splitWindowsJobTabButton.querySelector("span");
+    if (label) {
+      label.textContent = hasActiveWorkspace && currentSaveWorkspace.showProfileInfo
+        ? "Profile info" : "Job / GPT page";
+    }
   }
 
   splitWindowsResumeTabButton?.classList.toggle("is-active", isResume);
@@ -3793,7 +3796,9 @@ function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
       : "Profile resume";
   }
 
-  if (hasActiveWorkspace) {
+  if (hasActiveWorkspace && !isResume && currentSaveWorkspace.showProfileInfo) {
+    showMakeResumeProfileInfo(currentSaveWorkspace);
+  } else if (hasActiveWorkspace) {
     setSplitWindowsPreview(
       isResume ? currentSaveWorkspace.resumeUrl : currentSaveWorkspace.jobUrl,
       {
@@ -3919,11 +3924,10 @@ function updateSaveWorkspaceActions() {
   saveWorkspaceActions?.classList.toggle("is-hidden", !showWorkspaceActions);
 
   if (saveWorkspaceBuildButton) {
-    saveWorkspaceBuildButton.disabled =
-      !IS_BUILD_RESUME_ENABLED || actionsDisabled;
-    saveWorkspaceBuildButton.title = IS_BUILD_RESUME_ENABLED
-      ? ""
-      : "Build resume is temporarily disabled.";
+    saveWorkspaceBuildButton.disabled = actionsDisabled;
+    saveWorkspaceBuildButton.title = actionsDisabled
+      ? "Build resume requires a ready Application workspace."
+      : "";
   }
   if (saveWorkspaceDownloadButton) {
     saveWorkspaceDownloadButton.disabled = actionsDisabled;
@@ -3941,13 +3945,21 @@ function showSaveWorkspacePreview({
   jobUrl = "",
   profileName = DEFAULT_PROFILE_NAME,
   resumeUrl = "",
-  chatGptTabId = null
+  chatGptTabId = null,
+  chatGptUrl = "",
+  profileNotes = "",
+  showProfileInfo = false,
+  isReady = false,
+  sessionType = "save-workspace"
 } = {}) {
   if (!jobUrl || !resumeUrl || !Number.isInteger(chatGptTabId)) {
     return;
   }
 
-  if (batchStart || currentSplitWindowSessionType !== "save-workspace") {
+  const normalizedSessionType =
+    sessionType === "make-resume" ? "make-resume" : "save-workspace";
+
+  if (batchStart || currentSplitWindowSessionType !== normalizedSessionType) {
     setBuildResumeContextModalOpen(false, { returnFocus: false });
     saveWorkspacesByTabId.clear();
     currentSaveWorkspace = null;
@@ -3956,19 +3968,22 @@ function showSaveWorkspacePreview({
   }
 
   isSplitWindowsDialogOpen = false;
-  currentSplitWindowSessionType = "save-workspace";
+  currentSplitWindowSessionType = normalizedSessionType;
   isSaveWorkspaceBoundTabActive = true;
+  const normalizedChatGptUrl = String(chatGptUrl || "").trim();
   const workspace = {
     jobTitle: String(jobTitle || "Job page").trim() || "Job page",
     jobUrl: String(jobUrl).trim(),
     profileName:
       String(profileName || DEFAULT_PROFILE_NAME).trim() || DEFAULT_PROFILE_NAME,
+    profileNotes: String(profileNotes || "").trim(),
+    showProfileInfo: Boolean(showProfileInfo),
     resumeUrl: String(resumeUrl).trim(),
     chatGptTabId,
-    chatGptUrl: "",
-    storedExchangeUrl: "",
+    chatGptUrl: normalizedChatGptUrl,
+    storedExchangeUrl: showProfileInfo ? normalizedChatGptUrl : "",
     activeTab: "resume",
-    isReady: false,
+    isReady: Boolean(isReady),
     isBusy: false,
     batchIndex: Number(batchIndex) || 0,
     batchCount: Math.max(1, Number(batchCount) || 1)
@@ -4008,10 +4023,7 @@ function markSaveWorkspaceReady({
 }
 
 function syncSaveWorkspaceVisibilityForTab(tabId) {
-  if (
-    currentSplitWindowSessionType !== "save-workspace" ||
-    saveWorkspacesByTabId.size === 0
-  ) {
+  if (!hasSaveWorkspaceSession()) {
     return false;
   }
 
@@ -4029,10 +4041,6 @@ function syncSaveWorkspaceVisibilityForTab(tabId) {
   return true;
 }
 
-function getCurrentMakeResumePair() {
-  return currentSplitWindowPairs[currentSplitWindowPairIndex] || null;
-}
-
 function showMakeResumeProfileInfo(pair) {
   const profileName =
     String(pair?.profileName || DEFAULT_PROFILE_NAME).trim() ||
@@ -4043,6 +4051,7 @@ function showMakeResumeProfileInfo(pair) {
 
   currentSplitWindowDownloadUrl = String(pair?.resumeUrl || "").trim();
   splitWindowsModal?.classList.add("is-previewing");
+  splitWindowsModal?.classList.add("is-profile-info-preview");
   splitWindowsInputView?.classList.add("is-hidden");
   splitWindowsPreviewView?.classList.remove("is-hidden");
   splitWindowsPreviewHelp?.classList.add("is-hidden");
@@ -4072,69 +4081,8 @@ function showMakeResumeProfileInfo(pair) {
   splitWindowsPreviewEmptyState?.classList.remove("is-hidden");
 }
 
-function setMakeResumeWorkspaceTab(activeTab) {
-  const pair = getCurrentMakeResumePair();
-  if (!pair) {
-    return false;
-  }
-
-  const isResume = activeTab === "resume";
-  pair.activeTab = isResume ? "resume" : "profile";
-
-  splitWindowsResumeTabButton?.classList.toggle("is-active", isResume);
-  splitWindowsResumeTabButton?.setAttribute("aria-selected", String(isResume));
-  if (splitWindowsResumeTabButton) {
-    splitWindowsResumeTabButton.tabIndex = isResume ? 0 : -1;
-    const label = splitWindowsResumeTabButton.querySelector("span");
-    if (label) label.textContent = `${pair.profileName} resume`;
-  }
-
-  splitWindowsJobTabButton?.classList.toggle("is-active", !isResume);
-  splitWindowsJobTabButton?.setAttribute("aria-selected", String(!isResume));
-  if (splitWindowsJobTabButton) {
-    splitWindowsJobTabButton.tabIndex = isResume ? -1 : 0;
-    const label = splitWindowsJobTabButton.querySelector("span");
-    if (label) label.textContent = "Profile info";
-  }
-
-  splitWindowsPreviewTabs?.classList.remove("is-hidden");
-  if (isResume) {
-    setSplitWindowsPreview(pair.resumeUrl, {
-      title: "Application workspace",
-      frameTitle: `${pair.profileName} resume`,
-      downloadUrl: pair.resumeUrl
-    });
-  } else {
-    showMakeResumeProfileInfo(pair);
-  }
-
-  return true;
-}
-
 function setApplicationWorkspaceTab(activeTab) {
-  if (
-    currentSplitWindowSessionType === "make-resume" &&
-    isSplitWindowsDialogOpen &&
-    currentSplitWindowPairIndex >= 0
-  ) {
-    return setMakeResumeWorkspaceTab(activeTab);
-  }
-
   return setSaveWorkspaceTab(activeTab);
-}
-
-function showSplitWindowPairForTab(tabId) {
-  const pairIndex = currentSplitWindowPairs.findIndex(
-    (pair) => pair.tabId === tabId
-  );
-  if (pairIndex < 0 || splitWindowsModal?.classList.contains("is-hidden")) {
-    return false;
-  }
-
-  currentSplitWindowPairIndex = pairIndex;
-  return setMakeResumeWorkspaceTab(
-    currentSplitWindowPairs[pairIndex].activeTab || "resume"
-  );
 }
 
 async function requestOpenUrlInNewTab(url) {
@@ -4149,6 +4097,35 @@ async function requestOpenUrlInNewTab(url) {
   }
 
   return response;
+}
+
+function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId) {
+  if (!Array.isArray(openedPairs) || openedPairs.length === 0) {
+    return false;
+  }
+
+  currentSplitWindowPairs = openedPairs;
+  currentSplitWindowReturnTabId = returnTabId;
+
+  openedPairs.forEach((pair, index) => {
+    showSaveWorkspacePreview({
+      batchStart: index === 0,
+      batchIndex: index,
+      batchCount: openedPairs.length,
+      jobTitle: `Job page ${index + 1}`,
+      jobUrl: pair.jobUrl,
+      profileName: pair.profileName,
+      profileNotes: pair.profileNotes,
+      resumeUrl: pair.resumeUrl,
+      chatGptTabId: pair.tabId,
+      chatGptUrl: pair.chatUrl,
+      showProfileInfo: true,
+      isReady: true,
+      sessionType: "make-resume"
+    });
+  });
+
+  return true;
 }
 
 async function openSplitWindows() {
@@ -4216,16 +4193,14 @@ async function openSplitWindows() {
       });
     }
 
-    const isModalStillOpen = !splitWindowsModal?.classList.contains("is-hidden");
-    if (isModalStillOpen) {
-      currentSplitWindowPairs = openedPairs;
-      currentSplitWindowReturnTabId = returnTabId;
-      showSplitWindowPairForTab(openedPairs.at(-1)?.tabId);
-    }
+    const didOpenApplicationWorkspace =
+      isSplitWindowsDialogOpen &&
+      !splitWindowsModal?.classList.contains("is-hidden") &&
+      showMakeResumeApplicationWorkspaces(openedPairs, returnTabId);
 
     showStatus(
       "success",
-      isModalStillOpen
+      didOpenApplicationWorkspace
         ? `Opened ${openedPairs.length} job tab${
             openedPairs.length === 1 ? "" : "s"
           }. Switch among them to load each Application workspace.`
@@ -4236,7 +4211,7 @@ async function openSplitWindows() {
     );
     addLog(
       "success",
-      isModalStillOpen
+      didOpenApplicationWorkspace
         ? `${openedPairs.length} job/resume workspace${
             openedPairs.length === 1 ? "" : "s"
           } opened successfully.`
@@ -4254,11 +4229,10 @@ async function openSplitWindows() {
   } catch (error) {
     if (
       openedPairs.length > 0 &&
+      isSplitWindowsDialogOpen &&
       !splitWindowsModal?.classList.contains("is-hidden")
     ) {
-      currentSplitWindowPairs = openedPairs;
-      currentSplitWindowReturnTabId = returnTabId;
-      showSplitWindowPairForTab(openedPairs.at(-1)?.tabId);
+      showMakeResumeApplicationWorkspaces(openedPairs, returnTabId);
     }
 
     console.error(error);
@@ -4270,7 +4244,7 @@ async function openSplitWindows() {
 }
 
 async function closeSplitWindowsAndReturn() {
-  if (currentSplitWindowSessionType === "save-workspace") {
+  if (hasSaveWorkspaceSession() && !isSplitWindowsDialogOpen) {
     setSaveWorkspaceSidePanelView("home");
     return;
   }
@@ -4547,17 +4521,11 @@ clearLogsButton?.addEventListener("click", () => {
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
   refreshMakeResumeButtonAvailability();
-  if (syncSaveWorkspaceVisibilityForTab(activeInfo.tabId)) {
-    return;
-  }
-  showSplitWindowPairForTab(activeInfo.tabId);
+  syncSaveWorkspaceVisibilityForTab(activeInfo.tabId);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (
-    currentSplitWindowSessionType !== "save-workspace" ||
-    !saveWorkspacesByTabId.has(tabId)
-  ) {
+  if (!hasSaveWorkspaceSession() || !saveWorkspacesByTabId.has(tabId)) {
     return;
   }
 

@@ -1842,6 +1842,11 @@ textarea:focus {
   display: none;
 }
 
+.split-windows-modal.is-workspace-page.is-profile-info-preview
+  .split-windows-preview-location {
+  display: none;
+}
+
 .split-windows-modal.is-workspace-page .application-workspace-url-input {
   display: block;
   width: 100%;
