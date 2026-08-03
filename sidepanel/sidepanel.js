@@ -168,6 +168,7 @@ let extensionUiLockExpiryTimer = null;
 let currentSplitWindowDownloadUrl = "";
 let currentSplitWindowPairs = [];
 let currentSplitWindowReturnTabId = null;
+let currentSplitWindowPairIndex = -1;
 let currentSplitWindowSessionType = "make-resume";
 let currentSaveWorkspace = null;
 const saveWorkspacesByTabId = new Map();
@@ -356,23 +357,9 @@ function normalizeProfileSelectionState(selection) {
       ? selection.selectedProfileId
       : profiles[0].id;
 
-  const requestedProfileIds =
-    hasCurrentSelectionVersion &&
-    Array.isArray(selection?.selectedProfileIds)
-      ? selection.selectedProfileIds
-      : [];
-  const validProfileIds = new Set(profiles.map((entry) => entry.id));
-  const selectedIds = new Set(
-    requestedProfileIds.map(String).filter((id) => validProfileIds.has(id))
-  );
-  profiles.forEach((profile) => {
-    if (profile.selectedPromptResumeId) {
-      selectedIds.add(profile.id);
-    }
-  });
   const selectedProfileIds = profiles
-    .map((profile) => profile.id)
-    .filter((id) => selectedIds.has(id));
+    .filter((profile) => Boolean(profile.selectedPromptResumeId))
+    .map((profile) => profile.id);
 
   return {
     profiles,
@@ -380,6 +367,17 @@ function normalizeProfileSelectionState(selection) {
     selectedProfileIds,
     selectionVersion: PROFILE_SELECTION_VERSION
   };
+}
+
+function getProfileSelectionStateSignature(selection) {
+  return JSON.stringify(normalizeProfileSelectionState(selection));
+}
+
+function isCurrentProfileSelectionState(selection) {
+  return (
+    getProfileSelectionStateSignature(selection) ===
+    getProfileSelectionStateSignature(profileSelectionState)
+  );
 }
 
 function getSelectedProfile() {
@@ -422,17 +420,22 @@ function applyPromptResumeStateToSelectedProfile(
     selectedPromptResumeId
   });
 
+  const profiles = profileSelectionState.profiles.map((entry) =>
+    entry.id === selectedProfile.id
+      ? {
+          ...entry,
+          promptResumes: resumes.promptResumes,
+          selectedPromptResumeId: resumes.selectedPromptResumeId
+        }
+      : entry
+  );
+
   profileSelectionState = {
     ...profileSelectionState,
-    profiles: profileSelectionState.profiles.map((entry) =>
-      entry.id === selectedProfile.id
-        ? {
-            ...entry,
-            promptResumes: resumes.promptResumes,
-            selectedPromptResumeId: resumes.selectedPromptResumeId
-          }
-        : entry
-    )
+    profiles,
+    selectedProfileIds: profiles
+      .filter((profile) => Boolean(profile.selectedPromptResumeId))
+      .map((profile) => profile.id)
   };
 }
 
@@ -780,10 +783,15 @@ function renderProfileList() {
     });
 
     const selectionCheckbox = document.createElement("input");
+    const hasSelectedPromptResume = Boolean(profile.selectedPromptResumeId);
     selectionCheckbox.type = "checkbox";
     selectionCheckbox.className = "profile-selection-checkbox";
     selectionCheckbox.checked = isSelected;
-    selectionCheckbox.disabled = areActionButtonsDisabled;
+    selectionCheckbox.dataset.hasSelectedPromptResume = String(
+      hasSelectedPromptResume
+    );
+    selectionCheckbox.disabled =
+      areActionButtonsDisabled || !hasSelectedPromptResume;
     selectionCheckbox.setAttribute(
       "aria-label",
       `${isSelected ? "Remove" : "Add"} ${profile.name} ${
@@ -995,6 +1003,11 @@ async function toggleProfileSelection(profileId) {
 
   const selectedIds = new Set(profileSelectionState.selectedProfileIds);
   const willSelect = !selectedIds.has(profileId);
+  if (willSelect && !profile.selectedPromptResumeId) {
+    renderProfileList();
+    return;
+  }
+
   if (willSelect) {
     selectedIds.add(profileId);
     profileSelectionState.selectedProfileId = profileId;
@@ -1217,6 +1230,22 @@ function isGoogleSheetsDocumentUrl(url = "") {
   }
 }
 
+function updateSaveButtonDisabledState() {
+  if (!saveButton) {
+    return;
+  }
+
+  const isDisabled = areActionButtonsDisabled || isCurrentTabGoogleSheet;
+  saveButton.disabled = isDisabled;
+  saveButton.setAttribute("aria-disabled", String(isDisabled));
+
+  if (isCurrentTabGoogleSheet) {
+    saveButton.title = "Save App is unavailable while the current tab is a Google Sheet.";
+  } else {
+    saveButton.removeAttribute("title");
+  }
+}
+
 function updateMakeResumeButtonDisabledState() {
   if (!openSplitWindowsButton) {
     return;
@@ -1259,14 +1288,13 @@ async function refreshMakeResumeButtonAvailability() {
   }
 
   updateMakeResumeButtonDisabledState();
+  updateSaveButtonDisabledState();
 }
 
 function setSaveButtonsDisabled(disabled) {
   areActionButtonsDisabled = Boolean(disabled);
 
-  if (applyNowButton) applyNowButton.disabled = disabled;
-  if (saveButton) saveButton.disabled = disabled;
-  if (humanizeButton) humanizeButton.disabled = disabled;
+  updateSaveButtonDisabledState();
   updateMakeResumeButtonDisabledState();
   if (splitWindowsModalOpenButton) splitWindowsModalOpenButton.disabled = disabled;
   if (splitWindowsPreviewBackButton) {
@@ -1283,7 +1311,10 @@ function setSaveButtonsDisabled(disabled) {
       ".profile-add-prompt-resume, .profile-notes, .profile-selection-checkbox"
     )
     .forEach((control) => {
-      control.disabled = disabled;
+      const isUnavailableProfileCheckbox =
+        control.classList.contains("profile-selection-checkbox") &&
+        control.dataset.hasSelectedPromptResume !== "true";
+      control.disabled = disabled || isUnavailableProfileCheckbox;
     });
   if (profileFormModalSubmitButton) profileFormModalSubmitButton.disabled = disabled;
   if (profileNotesModalSubmitButton) profileNotesModalSubmitButton.disabled = disabled;
@@ -1752,6 +1783,7 @@ async function loadPromptResumeSelection() {
       promptResumeSelectionState.selectedPromptResumeId
     );
     renderPromptResumeList();
+    renderProfileList();
   } catch (error) {
     console.error(error);
     const message = error.message || "Could not load prompt resumes.";
@@ -1781,6 +1813,7 @@ async function persistPromptResumeSelection(successMessage) {
     promptResumeSelectionState.selectedPromptResumeId
   );
   renderPromptResumeList();
+  renderProfileList();
 
   if (successMessage) {
     addLog("success", successMessage);
@@ -1937,6 +1970,7 @@ async function submitPromptResumeForm() {
 
     setPromptResumeFormModalOpen(false);
     renderPromptResumeList();
+    renderProfileList();
     const successMessage = isEdit ? `"${label}" updated.` : `"${label}" added.`;
     addLog("success", successMessage);
   } catch (error) {
@@ -3375,6 +3409,7 @@ function resetSplitWindowsSession() {
   currentSplitWindowDownloadUrl = "";
   currentSplitWindowPairs = [];
   currentSplitWindowReturnTabId = null;
+  currentSplitWindowPairIndex = -1;
   currentSplitWindowSessionType = "make-resume";
   currentSaveWorkspace = null;
   saveWorkspacesByTabId.clear();
@@ -3386,6 +3421,8 @@ function resetSplitWindowsSession() {
     splitWindowsJobTabButton.classList.add("is-active");
     splitWindowsJobTabButton.setAttribute("aria-selected", "true");
     splitWindowsJobTabButton.tabIndex = 0;
+    const label = splitWindowsJobTabButton.querySelector("span");
+    if (label) label.textContent = "Job / GPT page";
   }
 
   if (splitWindowsResumeTabButton) {
@@ -3513,39 +3550,59 @@ function parseSplitWindowUrls(value) {
       return detectedHttpUrls?.length ? detectedHttpUrls : [line];
     });
   const normalizedUrls = [];
-  const seenUrls = new Set();
+  let ignoredUrlCount = 0;
 
   candidates.forEach((candidate, index) => {
     try {
       const url = normalizeSplitWindowUrl(candidate, `URL ${index + 1}`);
-      if (!seenUrls.has(url)) {
-        seenUrls.add(url);
-        normalizedUrls.push(url);
-      }
+      normalizedUrls.push(url);
     } catch (_error) {
       // Ignore dropped text that is not a web URL.
+      ignoredUrlCount += 1;
     }
   });
 
-  const chatUrls = normalizedUrls.filter(isChatOrClaudeUrl);
-  const googleDocUrls = normalizedUrls.filter(isGoogleDocsUrl);
-  const pairCount = Math.min(chatUrls.length, googleDocUrls.length);
-
-  if (pairCount === 0) {
+  if (normalizedUrls.length < 3) {
     throw new Error(
-      "Add at least one ChatGPT or Claude URL and one Google Docs URL."
+      "Add at least one ChatGPT or Claude URL, one job URL, and one Google Docs URL."
     );
   }
 
+  if (normalizedUrls.length % 3 !== 0) {
+    throw new Error(
+      "Each entry must contain exactly three URLs in Chat, Job, Google Doc order."
+    );
+  }
+
+  const pairs = [];
+  for (let index = 0; index < normalizedUrls.length; index += 3) {
+    const entryNumber = index / 3 + 1;
+    const chatUrl = normalizedUrls[index];
+    const jobUrl = normalizedUrls[index + 1];
+    const resumeUrl = normalizedUrls[index + 2];
+
+    if (!isChatOrClaudeUrl(chatUrl)) {
+      throw new Error(
+        `Entry ${entryNumber} must start with a ChatGPT or Claude URL.`
+      );
+    }
+    if (isChatOrClaudeUrl(jobUrl) || isGoogleDocsUrl(jobUrl)) {
+      throw new Error(
+        `Entry ${entryNumber}'s second URL must be the job page.`
+      );
+    }
+    if (!isGoogleDocsUrl(resumeUrl)) {
+      throw new Error(
+        `Entry ${entryNumber} must end with a Google Docs document URL.`
+      );
+    }
+
+    pairs.push({ chatUrl, jobUrl, resumeUrl });
+  }
+
   return {
-    pairs: Array.from({ length: pairCount }, (_unused, index) => ({
-      leftUrl: chatUrls[index],
-      rightUrl: googleDocUrls[index]
-    })),
-    ignoredUrlCount:
-      normalizedUrls.length - chatUrls.length - googleDocUrls.length,
-    unmatchedChatCount: chatUrls.length - pairCount,
-    unmatchedGoogleDocCount: googleDocUrls.length - pairCount
+    pairs,
+    ignoredUrlCount
   };
 }
 
@@ -3632,6 +3689,7 @@ function setSplitWindowsPreview(rightUrl, options = {}) {
   splitWindowsPreviewEmptyState?.classList.add("is-hidden");
   splitWindowsPreviewHelp?.classList.remove("is-hidden");
 
+  splitWindowsPreviewEmptyState?.classList.remove("is-profile-info");
   if (splitWindowsModalTitle) {
     splitWindowsModalTitle.textContent = isPreviewing
       ? String(options.title || "Right URL")
@@ -3673,6 +3731,7 @@ function setEmptyApplicationWorkspacePreview(activeTab) {
   splitWindowsInputView?.classList.add("is-hidden");
   splitWindowsPreviewView?.classList.remove("is-hidden");
   splitWindowsPreviewHelp?.classList.add("is-hidden");
+  splitWindowsPreviewEmptyState?.classList.remove("is-profile-info");
 
   if (splitWindowsModalTitle) {
     splitWindowsModalTitle.textContent = "Application workspace";
@@ -3970,6 +4029,100 @@ function syncSaveWorkspaceVisibilityForTab(tabId) {
   return true;
 }
 
+function getCurrentMakeResumePair() {
+  return currentSplitWindowPairs[currentSplitWindowPairIndex] || null;
+}
+
+function showMakeResumeProfileInfo(pair) {
+  const profileName =
+    String(pair?.profileName || DEFAULT_PROFILE_NAME).trim() ||
+    DEFAULT_PROFILE_NAME;
+  const profileNotes =
+    String(pair?.profileNotes || "").trim() ||
+    "No notes have been saved for this profile.";
+
+  currentSplitWindowDownloadUrl = String(pair?.resumeUrl || "").trim();
+  splitWindowsModal?.classList.add("is-previewing");
+  splitWindowsInputView?.classList.add("is-hidden");
+  splitWindowsPreviewView?.classList.remove("is-hidden");
+  splitWindowsPreviewHelp?.classList.add("is-hidden");
+
+  if (splitWindowsModalTitle) {
+    splitWindowsModalTitle.textContent = "Application workspace";
+  }
+  if (splitWindowsPreviewUrl) {
+    splitWindowsPreviewUrl.textContent = `Profile info - ${profileName}`;
+    splitWindowsPreviewUrl.title = profileName;
+  }
+  setApplicationWorkspaceUrlInputValue("");
+
+  if (splitWindowsPreviewFrame) {
+    splitWindowsPreviewFrame.classList.add("is-hidden");
+    if (splitWindowsPreviewFrame.getAttribute("src") !== "about:blank") {
+      splitWindowsPreviewFrame.src = "about:blank";
+    }
+  }
+  if (splitWindowsPreviewEmptyTitle) {
+    splitWindowsPreviewEmptyTitle.textContent = profileName;
+  }
+  if (splitWindowsPreviewEmptyHelp) {
+    splitWindowsPreviewEmptyHelp.textContent = profileNotes;
+  }
+  splitWindowsPreviewEmptyState?.classList.add("is-profile-info");
+  splitWindowsPreviewEmptyState?.classList.remove("is-hidden");
+}
+
+function setMakeResumeWorkspaceTab(activeTab) {
+  const pair = getCurrentMakeResumePair();
+  if (!pair) {
+    return false;
+  }
+
+  const isResume = activeTab === "resume";
+  pair.activeTab = isResume ? "resume" : "profile";
+
+  splitWindowsResumeTabButton?.classList.toggle("is-active", isResume);
+  splitWindowsResumeTabButton?.setAttribute("aria-selected", String(isResume));
+  if (splitWindowsResumeTabButton) {
+    splitWindowsResumeTabButton.tabIndex = isResume ? 0 : -1;
+    const label = splitWindowsResumeTabButton.querySelector("span");
+    if (label) label.textContent = `${pair.profileName} resume`;
+  }
+
+  splitWindowsJobTabButton?.classList.toggle("is-active", !isResume);
+  splitWindowsJobTabButton?.setAttribute("aria-selected", String(!isResume));
+  if (splitWindowsJobTabButton) {
+    splitWindowsJobTabButton.tabIndex = isResume ? -1 : 0;
+    const label = splitWindowsJobTabButton.querySelector("span");
+    if (label) label.textContent = "Profile info";
+  }
+
+  splitWindowsPreviewTabs?.classList.remove("is-hidden");
+  if (isResume) {
+    setSplitWindowsPreview(pair.resumeUrl, {
+      title: "Application workspace",
+      frameTitle: `${pair.profileName} resume`,
+      downloadUrl: pair.resumeUrl
+    });
+  } else {
+    showMakeResumeProfileInfo(pair);
+  }
+
+  return true;
+}
+
+function setApplicationWorkspaceTab(activeTab) {
+  if (
+    currentSplitWindowSessionType === "make-resume" &&
+    isSplitWindowsDialogOpen &&
+    currentSplitWindowPairIndex >= 0
+  ) {
+    return setMakeResumeWorkspaceTab(activeTab);
+  }
+
+  return setSaveWorkspaceTab(activeTab);
+}
+
 function showSplitWindowPairForTab(tabId) {
   const pairIndex = currentSplitWindowPairs.findIndex(
     (pair) => pair.tabId === tabId
@@ -3978,13 +4131,10 @@ function showSplitWindowPairForTab(tabId) {
     return false;
   }
 
-  setSplitWindowsPreview(currentSplitWindowPairs[pairIndex].rightUrl);
-  if (splitWindowsModalTitle) {
-    splitWindowsModalTitle.textContent =
-      `Resume ${pairIndex + 1} of ${currentSplitWindowPairs.length}`;
-  }
-
-  return true;
+  currentSplitWindowPairIndex = pairIndex;
+  return setMakeResumeWorkspaceTab(
+    currentSplitWindowPairs[pairIndex].activeTab || "resume"
+  );
 }
 
 async function requestOpenUrlInNewTab(url) {
@@ -4014,7 +4164,8 @@ async function openSplitWindows() {
   try {
     batch = parseSplitWindowUrls(splitWindowUrlsInput?.value);
   } catch (error) {
-    const message = error.message || "Add valid ChatGPT, Claude, and Google Docs URLs.";
+    const message =
+      error.message || "Add valid Chat, Job, and Google Docs URL triples.";
     showStatus("error", message);
     addLog("error", message);
     splitWindowUrlsInput?.focus();
@@ -4025,6 +4176,11 @@ async function openSplitWindows() {
   clearStatus();
   clearDeletedRows();
   beginButtonProcess("Make a resume clicked. Checking for an open Google Sheet...");
+  const activeProfile = getSelectedProfile();
+  const profileName =
+    String(activeProfile?.name || DEFAULT_PROFILE_NAME).trim() ||
+    DEFAULT_PROFILE_NAME;
+  const profileNotes = String(activeProfile?.notes || "").trim();
 
   const openedPairs = [];
   let returnTabId = null;
@@ -4033,7 +4189,7 @@ async function openSplitWindows() {
     await requireOpenGoogleSheet();
     addLog(
       "info",
-      `Google Sheet found. Opening ${batch.pairs.length} chat/resume pair${
+      `Google Sheet found. Opening ${batch.pairs.length} job/resume workspace${
         batch.pairs.length === 1 ? "" : "s"
       }...`
     );
@@ -4041,9 +4197,9 @@ async function openSplitWindows() {
     for (const [index, pair] of batch.pairs.entries()) {
       addLog(
         "info",
-        `Opening ${index + 1} of ${batch.pairs.length}: ${pair.leftUrl}`
+        `Opening job ${index + 1} of ${batch.pairs.length}: ${pair.jobUrl}`
       );
-      const response = await requestOpenUrlInNewTab(pair.leftUrl);
+      const response = await requestOpenUrlInNewTab(pair.jobUrl);
 
       if (returnTabId === null && Number.isInteger(response.returnTabId)) {
         returnTabId = response.returnTabId;
@@ -4051,8 +4207,12 @@ async function openSplitWindows() {
 
       openedPairs.push({
         tabId: response.tabId,
-        leftUrl: pair.leftUrl,
-        rightUrl: pair.rightUrl
+        chatUrl: pair.chatUrl,
+        jobUrl: pair.jobUrl,
+        resumeUrl: pair.resumeUrl,
+        profileName,
+        profileNotes,
+        activeTab: "resume"
       });
     }
 
@@ -4066,10 +4226,10 @@ async function openSplitWindows() {
     showStatus(
       "success",
       isModalStillOpen
-        ? `Opened ${openedPairs.length} chat tab${
+        ? `Opened ${openedPairs.length} job tab${
             openedPairs.length === 1 ? "" : "s"
-          }. Switch among them to load each paired Google Doc in the sidebar.`
-        : `Opened ${openedPairs.length} chat tab${
+          }. Switch among them to load each Application workspace.`
+        : `Opened ${openedPairs.length} job tab${
             openedPairs.length === 1 ? "" : "s"
           }.`,
       "Opened:"
@@ -4077,21 +4237,17 @@ async function openSplitWindows() {
     addLog(
       "success",
       isModalStillOpen
-        ? `${openedPairs.length} chat/resume pair${
+        ? `${openedPairs.length} job/resume workspace${
             openedPairs.length === 1 ? "" : "s"
           } opened successfully.`
-        : "Chat tabs opened; the sidebar dialog was closed before previewing the resumes."
+        : "Job tabs opened; the sidebar dialog was closed before previewing the resumes."
     );
 
-    const unmatchedCount =
-      batch.unmatchedChatCount +
-      batch.unmatchedGoogleDocCount +
-      batch.ignoredUrlCount;
-    if (unmatchedCount > 0) {
+    if (batch.ignoredUrlCount > 0) {
       addLog(
         "info",
-        `Ignored ${unmatchedCount} unrelated or unmatched URL${
-          unmatchedCount === 1 ? "" : "s"
+        `Ignored ${batch.ignoredUrlCount} item${
+          batch.ignoredUrlCount === 1 ? "" : "s"
         }.`
       );
     }
@@ -4186,10 +4342,10 @@ splitWindowsModalOpenButton?.addEventListener("click", openSplitWindows);
 splitWindowsPreviewBackButton?.addEventListener("click", closeSplitWindowsAndReturn);
 splitWindowsPreviewDownloadButton?.addEventListener("click", downloadSplitWindowResume);
 splitWindowsJobTabButton?.addEventListener("click", () =>
-  setSaveWorkspaceTab("job")
+  setApplicationWorkspaceTab("profile")
 );
 splitWindowsResumeTabButton?.addEventListener("click", () =>
-  setSaveWorkspaceTab("resume")
+  setApplicationWorkspaceTab("resume")
 );
 applicationWorkspaceRefreshButton?.addEventListener(
   "click",
@@ -4454,9 +4610,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     changes[JOB_DESCRIPTION_SELECTION_STORAGE_KEY]
   ) {
     if (changes[PROFILE_SELECTION_STORAGE_KEY]) {
-      loadProfileSelection().catch((error) => {
-        console.error("Could not refresh profiles:", error);
-      });
+      const changedSelection = changes[PROFILE_SELECTION_STORAGE_KEY].newValue;
+
+      if (!isCurrentProfileSelectionState(changedSelection)) {
+        loadProfileSelection().catch((error) => {
+          console.error("Could not refresh profiles:", error);
+        });
+      }
     } else {
       refreshApplicationInputsAfterSave().catch((error) => {
         console.error("Could not refresh application inputs:", error);

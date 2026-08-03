@@ -412,23 +412,9 @@ function normalizeProfileSelectionState(selection) {
       ? selection.selectedProfileId
       : profiles[0].id;
 
-  const requestedProfileIds =
-    hasCurrentSelectionVersion &&
-    Array.isArray(selection?.selectedProfileIds)
-      ? selection.selectedProfileIds
-      : [];
-  const validProfileIds = new Set(profiles.map((entry) => entry.id));
-  const selectedIds = new Set(
-    requestedProfileIds.map(String).filter((id) => validProfileIds.has(id))
-  );
-  profiles.forEach((profile) => {
-    if (profile.selectedPromptResumeId) {
-      selectedIds.add(profile.id);
-    }
-  });
   const selectedProfileIds = profiles
-    .map((profile) => profile.id)
-    .filter((id) => selectedIds.has(id));
+    .filter((profile) => Boolean(profile.selectedPromptResumeId))
+    .map((profile) => profile.id);
 
   return {
     profiles,

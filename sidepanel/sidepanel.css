@@ -348,6 +348,17 @@ h1 {
   container-type: inline-size;
 }
 
+.prompt-resume-selection-card {
+  container-name: application-actions-panel;
+  container-type: inline-size;
+}
+
+.application-actions-grid {
+  display: grid;
+  gap: var(--section-gap);
+  min-width: 0;
+}
+
 .profile-selection-help {
   margin: -2px 0 0;
   color: var(--muted);
@@ -378,6 +389,20 @@ h1 {
 
   .profile-list-empty {
     grid-column: 1 / -1;
+  }
+}
+
+@container application-actions-panel (min-width: 620px) {
+  .application-actions-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 8px;
+  }
+
+  .prompt-resume-selection-card .application-duplicate-section {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
   }
 }
 
@@ -689,11 +714,10 @@ h1 {
 
 .application-action-buttons {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
-.application-action-buttons .apply-now-button,
 .application-action-buttons .primary-button {
   width: 100%;
 }
@@ -973,13 +997,12 @@ h1 {
 
 .sheet-duplicate-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
-.sheet-duplicate-actions .warning-button,
 .sheet-duplicate-actions .split-windows-button {
-  width: auto;
+  width: 100%;
   min-width: 0;
 }
 
@@ -1923,6 +1946,20 @@ textarea:focus {
 
 .split-windows-preview-empty-state.is-hidden {
   display: none;
+}
+
+.split-windows-preview-empty-state.is-profile-info {
+  place-content: start;
+  justify-items: start;
+  overflow: auto;
+  padding: 22px;
+  text-align: left;
+}
+
+.split-windows-preview-empty-state.is-profile-info > span:last-child {
+  max-width: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .split-windows-preview-empty-state strong {

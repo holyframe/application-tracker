@@ -98,7 +98,7 @@
         </div>
 
         <p class="profile-selection-help">
-          All choices start clear. Choosing a resume checks and opens its profile automatically.
+          A profile is checked only after you choose a resume. Unchecking it clears the resume choice.
         </p>
 
         <ul id="profileList" class="profile-list" aria-label="Profiles"></ul>
@@ -113,59 +113,40 @@
       </section>
 
       <section class="card prompt-resume-selection-card">
-        <div class="application-save-section">
-          <div class="application-action-buttons">
-            <button id="saveButton" type="button" class="primary-button">
-              <span class="button-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 16V8" />
-                  <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
-                  <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
-                </svg>
-              </span>
-              <span>Save App</span>
-            </button>
-
-            <button id="applyNowButton" type="button" class="apply-now-button">
-              <span class="button-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M5 12h14" />
-                  <path d="m13 6 6 6-6 6" />
-                </svg>
-              </span>
-              <span>Apply Now</span>
-            </button>
+        <div class="application-actions-grid">
+          <div class="application-save-section">
+            <div class="application-action-buttons">
+              <button id="saveButton" type="button" class="primary-button">
+                <span class="button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 16V8" />
+                    <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
+                    <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
+                  </svg>
+                </span>
+                <span>Save App</span>
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div class="application-duplicate-section">
-          <div class="sheet-duplicate-actions">
-            <button
-              id="openSplitWindowsButton"
-              type="button"
-              class="split-windows-button"
-              disabled
-              title="Make a resume is available only when the current tab is a Google Sheet."
-            >
-              <span class="button-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <rect x="3" y="5" width="8" height="14" rx="1.5" />
-                  <rect x="13" y="5" width="8" height="14" rx="1.5" />
-                </svg>
-              </span>
-              <span>Make a resume</span>
-            </button>
-
-            <button id="humanizeButton" type="button" class="warning-button">
-              <span class="button-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                </svg>
-              </span>
-              <span>Humanize</span>
-            </button>
-
+          <div class="application-duplicate-section">
+            <div class="sheet-duplicate-actions">
+              <button
+                id="openSplitWindowsButton"
+                type="button"
+                class="split-windows-button"
+                disabled
+                title="Make a resume is available only when the current tab is a Google Sheet."
+              >
+                <span class="button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <rect x="3" y="5" width="8" height="14" rx="1.5" />
+                    <rect x="13" y="5" width="8" height="14" rx="1.5" />
+                  </svg>
+                </span>
+                <span>Make a resume</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -719,14 +700,15 @@
 
         <div id="splitWindowsInputView" class="split-windows-input-view">
           <p class="modal-help">
-            Drop or paste multiple URLs below. ChatGPT and Claude URLs open as
-            tabs; Google Docs URLs are paired with them in the same order.
+            Drop or paste URL triples below in Chat, Job, Google Doc order.
+            Job URLs open as tabs; each Google Doc becomes that tab's resume
+            workspace. The chat URL is used only to validate the triple.
           </p>
 
           <div class="modal-form">
             <div class="config-field">
               <label class="config-label" for="splitWindowUrlsInput">
-                Chat and Google Docs URLs
+                Chat, Job, and Google Docs URLs
               </label>
               <textarea
                 id="splitWindowUrlsInput"
@@ -734,7 +716,7 @@
                 inputmode="url"
                 spellcheck="false"
                 rows="6"
-                placeholder="https://chatgpt.com/c/...&#10;https://docs.google.com/document/d/...&#10;https://claude.ai/chat/...&#10;https://docs.google.com/document/d/..."
+                placeholder="https://chatgpt.com/c/...&#10;https://example.com/job/...&#10;https://docs.google.com/document/d/...&#10;&#10;https://claude.ai/chat/...&#10;https://example.com/job/...&#10;https://docs.google.com/document/d/..."
               ></textarea>
             </div>
           </div>
