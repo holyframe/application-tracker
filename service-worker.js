@@ -273,6 +273,24 @@ function sanitizeDownloadFilename(name) {
   return cleaned || "document";
 }
 
+function buildResumeDownloadTitle(profileName = "") {
+  const raw = String(profileName || "").trim();
+  if (!raw) {
+    return "Resume";
+  }
+
+  const parts = sanitizeDownloadFilename(raw)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (parts.length === 0) {
+    return "Resume";
+  }
+
+  return `${parts.join("_")}_Resume`;
+}
+
 function normalizeHttpUrl(value, label = "Web") {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -1661,7 +1679,7 @@ async function sendHumanizePromptToChatGpt(runId) {
 
 async function downloadGoogleDocUrlAsPdf(
   runId,
-  { documentUrl = "", documentTitle = "resume" } = {}
+  { documentUrl = "", documentTitle = "", profileName = "" } = {}
 ) {
   const normalizedDocumentUrl = String(documentUrl || "").trim();
   if (!isGoogleDocsDocumentUrl(normalizedDocumentUrl)) {
@@ -1673,7 +1691,9 @@ async function downloadGoogleDocUrlAsPdf(
     throw new Error("Could not find a Google Docs document ID in the resume URL.");
   }
 
-  const filename = `${sanitizeDownloadFilename(documentTitle)}.pdf`;
+  const resolvedTitle =
+    String(documentTitle || "").trim() || buildResumeDownloadTitle(profileName);
+  const filename = `${sanitizeDownloadFilename(resolvedTitle)}.pdf`;
   const exportUrl = `https://docs.google.com/document/d/${documentId}/export?format=pdf`;
 
   sendLog(runId, "info", `Downloading Google Doc as PDF: ${filename}`);
@@ -1731,7 +1751,8 @@ async function downloadResumeAsPdf(runId, options = {}) {
   if (String(options.documentUrl || "").trim()) {
     return downloadGoogleDocUrlAsPdf(runId, {
       documentUrl: options.documentUrl,
-      documentTitle: "resume"
+      documentTitle: options.documentTitle,
+      profileName: options.profileName
     });
   }
 
@@ -2384,7 +2405,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
       : message.type === "DOWNLOAD_RESUME_PDF"
         ? run(message.runId, {
-            documentUrl: message.documentUrl
+            documentUrl: message.documentUrl,
+            documentTitle: message.documentTitle,
+            profileName: message.profileName
           })
         : message.type === "OPEN_URL_IN_NEW_TAB"
           ? run(message.runId, {

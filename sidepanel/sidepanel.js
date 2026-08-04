@@ -3164,7 +3164,7 @@ async function humanizeChat() {
   }
 }
 
-async function runResumeDownload(documentUrl = "") {
+async function runResumeDownload(documentUrl = "", profileName = "") {
 
   activeRunId = createRunId();
 
@@ -3180,7 +3180,8 @@ async function runResumeDownload(documentUrl = "") {
     const response = await chrome.runtime.sendMessage({
       type: "DOWNLOAD_RESUME_PDF",
       runId: activeRunId,
-      documentUrl
+      documentUrl,
+      profileName
     });
 
     if (!response?.ok) {
@@ -3206,7 +3207,10 @@ async function downloadSplitWindowResume() {
     return;
   }
 
-  await runResumeDownload(currentSplitWindowDownloadUrl);
+  await runResumeDownload(
+    currentSplitWindowDownloadUrl,
+    currentSaveWorkspace?.profileName || ""
+  );
 }
 
 function showBuildResumeContextStatus(type, message) {
@@ -3394,7 +3398,8 @@ async function downloadSaveWorkspaceResume() {
     const response = await chrome.runtime.sendMessage({
       type: "DOWNLOAD_RESUME_PDF",
       runId: activeRunId || createRunId(),
-      documentUrl: workspace.resumeUrl
+      documentUrl: workspace.resumeUrl,
+      profileName: workspace.profileName
     });
 
     if (!response?.ok) {
