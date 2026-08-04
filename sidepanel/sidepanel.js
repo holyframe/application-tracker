@@ -205,13 +205,390 @@ let currentEmptyWorkspaceUrls = {
   job: "",
   resume: ""
 };
-let isSaveWorkspaceBoundTabActive = false;
 let isSplitWindowsDialogOpen = false;
 let areActionButtonsDisabled = false;
 let isCurrentTabGoogleSheet = false;
 let makeResumeAvailabilityRequestId = 0;
 let isMakeResumeOpening = false;
 let isBuildResumeContextModalOpen = false;
+let logEntries = [];
+let deletedRowEntries = [];
+let headerStatusState = null;
+let splitWindowsDraft = "";
+let buildResumeContextDraft = "";
+let openManagedModalId = "";
+let managedModalDrafts = {};
+
+// The side panel is a single document shared by every tab in its window, so each
+// tab's status lives in tabStateById and the module-level variables above act as
+// the register file for whichever tab is currently active.
+const MAX_TAB_LOG_ENTRIES = 400;
+const tabStateById = new Map();
+const runTabIdsByRunId = new Map();
+let activeTabId = null;
+let panelWindowId = null;
+
+function createTabState() {
+  return {
+    runId: null,
+    logs: [],
+    deletedRows: [],
+    headerStatus: null,
+    savePostProcessState: null,
+    isSavePostProcessRequestPending: false,
+    areActionButtonsDisabled: false,
+    splitWindowDownloadUrl: "",
+    splitWindowPairs: [],
+    splitWindowReturnTabId: null,
+    splitWindowSessionType: "make-resume",
+    saveWorkspaceSidePanelView: "workspace",
+    defaultSidePanelView: "home",
+    emptyWorkspaceTab: "job",
+    emptyWorkspaceUrls: { job: "", resume: "" },
+    isSplitWindowsDialogOpen: false,
+    isBuildResumeContextModalOpen: false,
+    isMakeResumeOpening: false,
+    splitWindowsDraft: "",
+    buildResumeContextDraft: "",
+    openManagedModalId: "",
+    managedModalDrafts: {},
+    profileFormMode: "add",
+    editingProfileId: null,
+    notesProfileId: null,
+    promptResumeFormMode: "add",
+    editingPromptResumeId: null
+  };
+}
+
+function getTabState(tabId) {
+  if (!Number.isInteger(tabId)) {
+    return null;
+  }
+
+  let state = tabStateById.get(tabId);
+  if (!state) {
+    state = createTabState();
+    tabStateById.set(tabId, state);
+  }
+
+  return state;
+}
+
+function captureActiveTabState() {
+  const state = getTabState(activeTabId);
+  if (!state) return;
+
+  state.runId = activeRunId;
+  state.logs = logEntries;
+  state.deletedRows = deletedRowEntries;
+  state.headerStatus = headerStatusState;
+  state.savePostProcessState = savePostProcessState;
+  state.isSavePostProcessRequestPending = isSavePostProcessRequestPending;
+  state.areActionButtonsDisabled = areActionButtonsDisabled;
+  state.splitWindowDownloadUrl = currentSplitWindowDownloadUrl;
+  state.splitWindowPairs = currentSplitWindowPairs;
+  state.splitWindowReturnTabId = currentSplitWindowReturnTabId;
+  state.splitWindowSessionType = currentSplitWindowSessionType;
+  state.saveWorkspaceSidePanelView = currentSaveWorkspaceSidePanelView;
+  state.defaultSidePanelView = currentDefaultSidePanelView;
+  state.emptyWorkspaceTab = currentEmptyWorkspaceTab;
+  state.emptyWorkspaceUrls = currentEmptyWorkspaceUrls;
+  state.isSplitWindowsDialogOpen = isSplitWindowsDialogOpen;
+  state.isBuildResumeContextModalOpen = isBuildResumeContextModalOpen;
+  state.isMakeResumeOpening = isMakeResumeOpening;
+  state.splitWindowsDraft = splitWindowUrlsInput?.value ?? splitWindowsDraft;
+  state.buildResumeContextDraft =
+    buildResumeContextInput?.value ?? buildResumeContextDraft;
+  state.openManagedModalId = readOpenManagedModalId();
+  state.managedModalDrafts = readManagedModalDrafts(state.openManagedModalId);
+  state.profileFormMode = profileFormMode;
+  state.editingProfileId = editingProfileId;
+  state.notesProfileId = notesProfileId;
+  state.promptResumeFormMode = promptResumeFormMode;
+  state.editingPromptResumeId = editingPromptResumeId;
+}
+
+function loadTabStateIntoRegisters(tabId) {
+  const state = getTabState(tabId) || createTabState();
+
+  activeRunId = state.runId;
+  logEntries = state.logs;
+  deletedRowEntries = state.deletedRows;
+  headerStatusState = state.headerStatus;
+  savePostProcessState = state.savePostProcessState;
+  isSavePostProcessRequestPending = state.isSavePostProcessRequestPending;
+  areActionButtonsDisabled = state.areActionButtonsDisabled;
+  currentSplitWindowDownloadUrl = state.splitWindowDownloadUrl;
+  currentSplitWindowPairs = state.splitWindowPairs;
+  currentSplitWindowReturnTabId = state.splitWindowReturnTabId;
+  currentSplitWindowSessionType = state.splitWindowSessionType;
+  currentSaveWorkspaceSidePanelView = state.saveWorkspaceSidePanelView;
+  currentDefaultSidePanelView = state.defaultSidePanelView;
+  currentEmptyWorkspaceTab = state.emptyWorkspaceTab;
+  currentEmptyWorkspaceUrls = state.emptyWorkspaceUrls;
+  isSplitWindowsDialogOpen = state.isSplitWindowsDialogOpen;
+  isBuildResumeContextModalOpen = state.isBuildResumeContextModalOpen;
+  isMakeResumeOpening = state.isMakeResumeOpening;
+  splitWindowsDraft = state.splitWindowsDraft;
+  buildResumeContextDraft = state.buildResumeContextDraft;
+  openManagedModalId = state.openManagedModalId;
+  managedModalDrafts = state.managedModalDrafts;
+  profileFormMode = state.profileFormMode;
+  editingProfileId = state.editingProfileId;
+  notesProfileId = state.notesProfileId;
+  promptResumeFormMode = state.promptResumeFormMode;
+  editingPromptResumeId = state.editingPromptResumeId;
+}
+
+function switchActiveTab(tabId) {
+  if (!Number.isInteger(tabId) || tabId === activeTabId) {
+    return false;
+  }
+
+  captureActiveTabState();
+  activeTabId = tabId;
+  loadTabStateIntoRegisters(activeTabId);
+  renderActiveTabState();
+  return true;
+}
+
+function forgetTabState(tabId) {
+  tabStateById.delete(tabId);
+  runTabIdsByRunId.forEach((tabIds, runId) => {
+    tabIds.delete(tabId);
+    if (tabIds.size === 0) {
+      runTabIdsByRunId.delete(runId);
+    }
+  });
+}
+
+// A run starts on one tab but can adopt the tabs it opens (for example the
+// ChatGPT tab created for a profile), and every adopted tab mirrors its status.
+function registerRunTab(runId, tabId = activeTabId) {
+  if (!runId || !Number.isInteger(tabId)) {
+    return runId;
+  }
+
+  let tabIds = runTabIdsByRunId.get(runId);
+  if (!tabIds) {
+    tabIds = new Set();
+    runTabIdsByRunId.set(runId, tabIds);
+  }
+  tabIds.add(tabId);
+
+  return runId;
+}
+
+// Resolves which tabs a service worker message applies to. Messages carry the
+// owning tab id when the service worker knows it; otherwise fall back to the
+// run registry the side panel built when it started the run.
+function resolveRunTabIds(message) {
+  const tabIds = new Set();
+
+  if (Number.isInteger(message?.ownerTabId)) {
+    tabIds.add(message.ownerTabId);
+  }
+
+  runTabIdsByRunId.get(message?.runId)?.forEach((tabId) => tabIds.add(tabId));
+
+  if (
+    tabIds.size === 0 &&
+    message?.runId &&
+    message.runId === activeRunId &&
+    Number.isInteger(activeTabId)
+  ) {
+    tabIds.add(activeTabId);
+  }
+
+  return [...tabIds];
+}
+
+function setRunIdForTab(tabId, runId) {
+  if (!isActiveTab(tabId)) {
+    const state = getTabState(tabId);
+    if (state) {
+      state.runId = runId;
+    }
+    return runId;
+  }
+
+  activeRunId = runId;
+  return runId;
+}
+
+// Starts a run owned by the tab the user is looking at and returns that tab id
+// so async handlers keep reporting to it even if the user switches tabs.
+function beginRunForActiveTab() {
+  const ownerTabId = activeTabId;
+  const runId = createRunId();
+
+  registerRunTab(runId, ownerTabId);
+  setRunIdForTab(ownerTabId, runId);
+
+  return { ownerTabId, runId };
+}
+
+function renderActiveTabState() {
+  syncCurrentSaveWorkspace();
+  renderLogEntries();
+  renderDeletedRowEntries();
+  renderHeaderStatus();
+  restoreManagedModalState();
+  if (isSplitWindowsDialogOpen) {
+    // Another tab may have left the shared region showing a workspace preview.
+    setSplitWindowsPreview("");
+    splitWindowsPreviewTabs?.classList.add("is-hidden");
+  }
+  if (splitWindowUrlsInput) splitWindowUrlsInput.value = splitWindowsDraft;
+  if (buildResumeContextInput) {
+    buildResumeContextInput.value = buildResumeContextDraft;
+  }
+  setSaveButtonsDisabled(areActionButtonsDisabled);
+  renderSaveWorkspaceSidePanelView();
+}
+
+async function initActiveTabTracking() {
+  try {
+    const currentWindow = await chrome.windows.getCurrent();
+    panelWindowId = Number.isInteger(currentWindow?.id) ? currentWindow.id : null;
+
+    const [tab] = await chrome.tabs.query(
+      panelWindowId === null
+        ? { active: true, lastFocusedWindow: true }
+        : { active: true, windowId: panelWindowId }
+    );
+
+    if (Number.isInteger(tab?.id)) {
+      activeTabId = tab.id;
+      captureActiveTabState();
+    }
+  } catch (error) {
+    console.error("Could not determine the active tab for the side panel:", error);
+  }
+}
+
+// Modals share one DOM node across every tab, so opening one is recorded against
+// the active tab and replayed when that tab comes back into focus.
+function getManagedModals() {
+  return [
+    {
+      // Sheet configuration is global app data rather than per-tab work, so only
+      // the open state is tracked; the inputs keep whatever is loaded.
+      id: "config",
+      element: configModal,
+      setOpen: (isOpen) => setConfigModalOpen(isOpen, { returnFocus: false }),
+      fields: []
+    },
+    {
+      id: "profileForm",
+      element: profileFormModal,
+      setOpen: setProfileFormModalOpen,
+      fields: [profileNameInput, resumeTemplateInput]
+    },
+    {
+      id: "profileNotes",
+      element: profileNotesModal,
+      setOpen: setProfileNotesModalOpen,
+      fields: [profileNotesInput]
+    },
+    {
+      id: "promptResumeForm",
+      element: promptResumeFormModal,
+      setOpen: setPromptResumeFormModalOpen,
+      fields: [promptResumeLabelInput, promptResumeContentInput]
+    },
+    {
+      id: "promptForm",
+      element: promptFormModal,
+      setOpen: setPromptFormModalOpen,
+      fields: [promptContentInput]
+    },
+    {
+      id: "humanizeForm",
+      element: humanizeFormModal,
+      setOpen: setHumanizeFormModalOpen,
+      fields: [humanizeContentInput]
+    },
+    {
+      id: "jobDescriptionForm",
+      element: jobDescriptionFormModal,
+      setOpen: setJobDescriptionFormModalOpen,
+      fields: [jobDescriptionContentInput]
+    }
+  ];
+}
+
+function readOpenManagedModalId() {
+  const openModal = getManagedModals().find(
+    (modal) => modal.element && !modal.element.classList.contains("is-hidden")
+  );
+
+  return openModal ? openModal.id : "";
+}
+
+function readManagedModalDrafts(modalId) {
+  const modal = getManagedModals().find((entry) => entry.id === modalId);
+  if (!modal) {
+    return {};
+  }
+
+  const drafts = {};
+  modal.fields.forEach((field) => {
+    if (field?.id) {
+      drafts[field.id] = field.value;
+    }
+  });
+
+  return drafts;
+}
+
+function restoreManagedModalState() {
+  const targetModalId = openManagedModalId;
+  const drafts = managedModalDrafts || {};
+  const preservedProfileFormMode = profileFormMode;
+  const preservedEditingProfileId = editingProfileId;
+  const preservedNotesProfileId = notesProfileId;
+  const preservedPromptResumeFormMode = promptResumeFormMode;
+  const preservedEditingPromptResumeId = editingPromptResumeId;
+
+  getManagedModals().forEach((modal) => {
+    if (!modal.element) return;
+
+    const isOpen = !modal.element.classList.contains("is-hidden");
+    const shouldOpen = modal.id === targetModalId;
+    if (isOpen !== shouldOpen) {
+      modal.setOpen(shouldOpen);
+    }
+  });
+
+  // Closing a modal resets its companion form mode, so put the active tab's
+  // values back after the DOM has settled.
+  profileFormMode = preservedProfileFormMode;
+  editingProfileId = preservedEditingProfileId;
+  notesProfileId = preservedNotesProfileId;
+  promptResumeFormMode = preservedPromptResumeFormMode;
+  editingPromptResumeId = preservedEditingPromptResumeId;
+
+  getManagedModals()
+    .find((modal) => modal.id === targetModalId)
+    ?.fields.forEach((field) => {
+      if (field?.id && Object.prototype.hasOwnProperty.call(drafts, field.id)) {
+        field.value = drafts[field.id];
+      }
+    });
+}
+
+function syncCurrentSaveWorkspace() {
+  currentSaveWorkspace = Number.isInteger(activeTabId)
+    ? saveWorkspacesByTabId.get(activeTabId) || null
+    : null;
+
+  if (currentSaveWorkspace?.sessionType) {
+    currentSplitWindowSessionType = currentSaveWorkspace.sessionType;
+  }
+
+  return currentSaveWorkspace;
+}
 
 function createRunId() {
   if (crypto.randomUUID) {
@@ -1319,10 +1696,12 @@ async function refreshMakeResumeButtonAvailability() {
   const requestId = ++makeResumeAvailabilityRequestId;
 
   try {
-    const [tab] = await chrome.tabs.query({
-      active: true,
-      lastFocusedWindow: true
-    });
+    const [tab] = Number.isInteger(activeTabId)
+      ? [await chrome.tabs.get(activeTabId)]
+      : await chrome.tabs.query({
+          active: true,
+          lastFocusedWindow: true
+        });
 
     if (requestId !== makeResumeAvailabilityRequestId) {
       return;
@@ -1382,6 +1761,18 @@ function setSaveButtonsDisabled(disabled) {
   if (jobDescriptionFormModalSubmitButton) jobDescriptionFormModalSubmitButton.disabled = disabled;
 }
 
+function setSaveButtonsDisabledForTab(tabId, disabled) {
+  if (!isActiveTab(tabId)) {
+    const state = getTabState(tabId);
+    if (state) {
+      state.areActionButtonsDisabled = Boolean(disabled);
+    }
+    return;
+  }
+
+  setSaveButtonsDisabled(disabled);
+}
+
 function isSavePostProcessActive(state = savePostProcessState) {
   return Boolean(state && typeof state === "object" && state.runId);
 }
@@ -1431,39 +1822,95 @@ function renderSavePostProcessControls() {
 
 }
 
-function setSavePostProcessState(state) {
-  savePostProcessState = state && typeof state === "object" ? state : null;
+function setSavePostProcessStateForTab(tabId, state) {
+  const normalized = state && typeof state === "object" ? state : null;
+
+  if (!isActiveTab(tabId)) {
+    const tabState = getTabState(tabId);
+    if (tabState) {
+      tabState.savePostProcessState = normalized;
+    }
+    return;
+  }
+
+  savePostProcessState = normalized;
   renderSavePostProcessControls();
 }
 
+// The service worker stores one save-progress record per owning tab, so spread
+// the stored map back across the per-tab states.
+function applySavePostProcessStates(statesByTabId) {
+  const map =
+    statesByTabId && typeof statesByTabId === "object" ? statesByTabId : {};
+  const presentTabIds = new Set();
+
+  Object.entries(map).forEach(([key, value]) => {
+    const tabId = Number(key);
+    if (!Number.isInteger(tabId)) {
+      return;
+    }
+
+    presentTabIds.add(tabId);
+    setSavePostProcessStateForTab(tabId, value);
+  });
+
+  tabStateById.forEach((_state, tabId) => {
+    if (!presentTabIds.has(tabId)) {
+      setSavePostProcessStateForTab(tabId, null);
+    }
+  });
+
+  if (Number.isInteger(activeTabId) && !presentTabIds.has(activeTabId)) {
+    setSavePostProcessStateForTab(activeTabId, null);
+  }
+}
+
+function setSavePostProcessRequestPendingForTab(tabId, isPending) {
+  if (!isActiveTab(tabId)) {
+    const state = getTabState(tabId);
+    if (state) {
+      state.isSavePostProcessRequestPending = Boolean(isPending);
+    }
+    return;
+  }
+
+  isSavePostProcessRequestPending = Boolean(isPending);
+  renderSavePostProcessControls();
+}
 
 async function cancelSavePostProcess() {
   if (isSavePostProcessRequestPending || !savePostProcessState) {
     return;
   }
 
-  isSavePostProcessRequestPending = true;
-  renderSavePostProcessControls();
+  const ownerTabId = activeTabId;
+  const runId = savePostProcessState?.runId || activeRunId;
+  setSavePostProcessRequestPendingForTab(ownerTabId, true);
 
   try {
     const response = await chrome.runtime.sendMessage({
       type: "CANCEL_SAVE_POST_PROCESS",
-      runId: savePostProcessState?.runId || activeRunId
+      runId,
+      ownerTabId
     });
     if (!response?.ok) {
       throw new Error(response?.error || "Could not cancel the save process.");
     }
-    setSavePostProcessState(null);
-    addLog(
+    setSavePostProcessStateForTab(ownerTabId, null);
+    addLogForTab(
+      ownerTabId,
       "info",
       "Save process cancelled. Any completed tabs and saved application data were kept."
     );
   } catch (error) {
     console.error("Could not cancel the save process:", error);
-    addLog("error", error.message || "Could not cancel the save process.");
+    addLogForTab(
+      ownerTabId,
+      "error",
+      error.message || "Could not cancel the save process."
+    );
   } finally {
-    isSavePostProcessRequestPending = false;
-    renderSavePostProcessControls();
+    setSavePostProcessRequestPendingForTab(ownerTabId, false);
   }
 }
 
@@ -1472,10 +1919,10 @@ async function loadSavePostProcessState() {
     const stored = await chrome.storage.local.get(
       SAVE_POST_PROCESS_STORAGE_KEY
     );
-    setSavePostProcessState(stored[SAVE_POST_PROCESS_STORAGE_KEY]);
+    applySavePostProcessStates(stored[SAVE_POST_PROCESS_STORAGE_KEY]);
   } catch (error) {
     console.error("Could not load save progress:", error);
-    setSavePostProcessState(null);
+    applySavePostProcessStates(null);
   }
 }
 
@@ -2777,13 +3224,21 @@ async function importAppDataFromFile(file) {
   }
 }
 
-function updateWorkspaceHeaderStatus(type, message, titleText) {
-  const label =
-    type === "error"
-      ? "Error"
-      : String(titleText || "Saved").replace(/:\s*$/, "");
-  const detail = String(message || "").trim();
-  const displayText = `Last status: ${label}${detail ? ` — ${detail}` : ""}`;
+function isActiveTab(tabId) {
+  return !Number.isInteger(tabId) || tabId === activeTabId;
+}
+
+function renderHeaderStatus() {
+  const displayText = headerStatusState
+    ? (() => {
+        const label =
+          headerStatusState.type === "error"
+            ? "Error"
+            : String(headerStatusState.titleText || "Saved").replace(/:\s*$/, "");
+        const detail = String(headerStatusState.message || "").trim();
+        return `Last status: ${label}${detail ? ` — ${detail}` : ""}`;
+      })()
+    : "";
 
   workspaceHeaderStatuses.forEach((statusElement) => {
     const statusText = statusElement.querySelector(
@@ -2795,12 +3250,30 @@ function updateWorkspaceHeaderStatus(type, message, titleText) {
       statusElement.textContent = displayText;
     }
     statusElement.title = displayText;
-    statusElement.classList.toggle("is-error", type === "error");
+    statusElement.classList.toggle(
+      "is-error",
+      headerStatusState?.type === "error"
+    );
   });
 }
 
+function showStatusForTab(tabId, type, message, titleText) {
+  const status = { type, message, titleText };
+
+  if (isActiveTab(tabId)) {
+    headerStatusState = status;
+    renderHeaderStatus();
+    return;
+  }
+
+  const state = getTabState(tabId);
+  if (state) {
+    state.headerStatus = status;
+  }
+}
+
 function showStatus(type, message, titleText) {
-  updateWorkspaceHeaderStatus(type, message, titleText);
+  showStatusForTab(activeTabId, type, message, titleText);
 }
 
 function clearStatus() {}
@@ -2814,44 +3287,102 @@ function updateLogsState() {
   emptyLogs.classList.toggle("is-hidden", hasItems);
 }
 
-function addLog(level, message, timestamp = new Date().toLocaleTimeString()) {
-  if (!logsList) {
-    console.log(`[${level}] ${message}`);
-    return;
-  }
-
+function createLogListItem({ level, message, timestamp }) {
   const item = document.createElement("li");
   item.className = `log-item log-${level}`;
 
   item.innerHTML = `
-    <span class="log-time">${timestamp}</span>
-    <span class="log-level">${level.toUpperCase()}</span>
+    <span class="log-time"></span>
+    <span class="log-level"></span>
     <span class="log-message"></span>
   `;
 
+  item.querySelector(".log-time").textContent = timestamp;
+  item.querySelector(".log-level").textContent = String(level).toUpperCase();
   item.querySelector(".log-message").textContent = message;
-  logsList.appendChild(item);
+
+  return item;
+}
+
+function renderLogEntries() {
+  if (!logsList) return;
+
+  logsList.innerHTML = "";
+  logEntries.forEach((entry) => {
+    logsList.appendChild(createLogListItem(entry));
+  });
 
   updateLogsState();
   logsList.scrollTop = logsList.scrollHeight;
 }
 
-function clearLogs() {
-  if (!logsList) return;
-  logsList.innerHTML = "";
+function addLogForTab(
+  tabId,
+  level,
+  message,
+  timestamp = new Date().toLocaleTimeString()
+) {
+  const entry = { level, message, timestamp };
+
+  if (!isActiveTab(tabId)) {
+    const state = getTabState(tabId);
+    if (state) {
+      state.logs.push(entry);
+      if (state.logs.length > MAX_TAB_LOG_ENTRIES) {
+        state.logs.splice(0, state.logs.length - MAX_TAB_LOG_ENTRIES);
+      }
+    }
+    return;
+  }
+
+  logEntries.push(entry);
+  if (logEntries.length > MAX_TAB_LOG_ENTRIES) {
+    logEntries.splice(0, logEntries.length - MAX_TAB_LOG_ENTRIES);
+    renderLogEntries();
+    return;
+  }
+
+  if (!logsList) {
+    console.log(`[${level}] ${message}`);
+    return;
+  }
+
+  logsList.appendChild(createLogListItem(entry));
   updateLogsState();
+  logsList.scrollTop = logsList.scrollHeight;
 }
 
-function beginButtonProcess(startingMessage) {
-  clearLogs();
-  setSaveButtonsDisabled(true);
+function addLog(level, message, timestamp = new Date().toLocaleTimeString()) {
+  addLogForTab(activeTabId, level, message, timestamp);
+}
+
+function clearLogsForTab(tabId) {
+  if (!isActiveTab(tabId)) {
+    const state = getTabState(tabId);
+    if (state) {
+      state.logs = [];
+    }
+    return;
+  }
+
+  logEntries = [];
+  renderLogEntries();
+}
+
+function clearLogs() {
+  clearLogsForTab(activeTabId);
+}
+
+function beginButtonProcessForTab(tabId, startingMessage) {
+  clearLogsForTab(tabId);
+  setSaveButtonsDisabledForTab(tabId, true);
   if (startingMessage) {
-    addLog("info", startingMessage);
+    addLogForTab(tabId, "info", startingMessage);
   }
 }
 
-function finishButtonProcess() {
-  setSaveButtonsDisabled(false);
+function finishButtonProcessForTab(tabId) {
+  setSaveButtonsDisabledForTab(tabId, false);
 }
 
 function updateDeletedRowsState() {
@@ -2862,18 +3393,12 @@ function updateDeletedRowsState() {
   emptyDeletedRows.classList.toggle("is-hidden", hasItems);
 }
 
-function clearDeletedRows() {
-  if (!deletedRowsList) return;
-  deletedRowsList.innerHTML = "";
-  updateDeletedRowsState();
-}
-
-function renderDeletedRows(deletedRows = []) {
+function renderDeletedRowEntries() {
   if (!deletedRowsList) return;
 
   deletedRowsList.innerHTML = "";
 
-  deletedRows.forEach((row) => {
+  deletedRowEntries.forEach((row) => {
     const item = document.createElement("li");
     item.className = "deleted-row-item";
 
@@ -2884,6 +3409,23 @@ function renderDeletedRows(deletedRows = []) {
   });
 
   updateDeletedRowsState();
+}
+
+function clearDeletedRowsForTab(tabId) {
+  if (!isActiveTab(tabId)) {
+    const state = getTabState(tabId);
+    if (state) {
+      state.deletedRows = [];
+    }
+    return;
+  }
+
+  deletedRowEntries = [];
+  renderDeletedRowEntries();
+}
+
+function clearDeletedRows() {
+  clearDeletedRowsForTab(activeTabId);
 }
 
 async function refreshApplicationInputsAfterSave() {
@@ -3000,9 +3542,10 @@ async function runCurrentAppAction(mode = "save") {
     return;
   }
 
-  activeRunId = createRunId();
+  const { ownerTabId, runId } = beginRunForActiveTab();
 
-  beginButtonProcess(
+  beginButtonProcessForTab(
+    ownerTabId,
     mode === "apply"
       ? "Apply Now clicked. Starting process..."
       : "Save App clicked. Starting process..."
@@ -3011,7 +3554,8 @@ async function runCurrentAppAction(mode = "save") {
   try {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_CURRENT_TAB_URL_TO_SHEET",
-      runId: activeRunId,
+      runId,
+      ownerTabId,
       mode
     });
 
@@ -3021,8 +3565,9 @@ async function runCurrentAppAction(mode = "save") {
       throw error;
     }
 
-    showStatus("success", response.url);
-    addLog(
+    showStatusForTab(ownerTabId, "success", response.url);
+    addLogForTab(
+      ownerTabId,
       "success",
       mode === "apply"
         ? "Application tabs grouped successfully."
@@ -3030,15 +3575,23 @@ async function runCurrentAppAction(mode = "save") {
     );
   } catch (error) {
     if (error.cancelled) {
-      showStatus("info", "Save process cancelled.", "Status:");
-      addLog("info", "Save process ended by Cancel Process.");
+      showStatusForTab(ownerTabId, "info", "Save process cancelled.", "Status:");
+      addLogForTab(ownerTabId, "info", "Save process ended by Cancel Process.");
     } else {
       console.error(error);
-      showStatus("error", error.message || "Something went wrong.");
-      addLog("error", error.message || "Something went wrong.");
+      showStatusForTab(
+        ownerTabId,
+        "error",
+        error.message || "Something went wrong."
+      );
+      addLogForTab(
+        ownerTabId,
+        "error",
+        error.message || "Something went wrong."
+      );
     }
   } finally {
-    finishButtonProcess();
+    finishButtonProcessForTab(ownerTabId);
   }
 }
 
@@ -3057,10 +3610,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "HOTKEY_SAVE_STARTED") {
-    activeRunId = message.runId;
-    clearStatus();
-    clearDeletedRows();
-    beginButtonProcess("Hotkey detected. Starting save process...");
+    const ownerTabId = Number.isInteger(message.ownerTabId)
+      ? message.ownerTabId
+      : activeTabId;
+    registerRunTab(message.runId, ownerTabId);
+    setRunIdForTab(ownerTabId, message.runId);
+    clearDeletedRowsForTab(ownerTabId);
+    beginButtonProcessForTab(
+      ownerTabId,
+      "Hotkey detected. Starting save process..."
+    );
     return;
   }
 
@@ -3068,17 +3627,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     refreshApplicationInputsAfterSave().catch((error) => {
       console.error("Could not refresh application inputs:", error);
     });
-    addLog("info", message.message || "Application inputs cleared.");
+    const inputsResetTabIds = resolveRunTabIds(message);
+    const resetMessage = message.message || "Application inputs cleared.";
+    if (inputsResetTabIds.length === 0) {
+      addLog("info", resetMessage);
+    } else {
+      inputsResetTabIds.forEach((tabId) => {
+        addLogForTab(tabId, "info", resetMessage);
+      });
+    }
     return;
   }
 
   if (message.type === "SHOW_SAVE_WORKSPACE") {
-    if (message.runId !== activeRunId) {
+    const targetTabIds = resolveRunTabIds(message);
+    if (targetTabIds.length === 0) {
       return;
     }
 
+    registerRunTab(message.runId, message.chatGptTabId);
     showSaveWorkspacePreview({
-      batchStart: message.batchStart,
+      runId: message.runId,
       batchIndex: message.batchIndex,
       batchCount: message.batchCount,
       jobTitle: message.jobTitle,
@@ -3087,7 +3656,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       resumeUrl: message.resumeUrl,
       chatGptTabId: message.chatGptTabId
     });
-    addLog(
+    addLogForTab(
+      message.chatGptTabId,
       "success",
       "Job page and selected-profile resume opened in the sidebar workspace."
     );
@@ -3095,7 +3665,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "SAVE_WORKSPACE_READY") {
-    if (message.runId !== activeRunId) {
+    if (resolveRunTabIds(message).length === 0) {
       return;
     }
 
@@ -3103,24 +3673,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       chatGptUrl: message.chatGptUrl,
       chatGptTabId: message.chatGptTabId
     });
-    addLog("success", "Application workspace actions are ready.");
+    addLogForTab(
+      message.chatGptTabId,
+      "success",
+      "Application workspace actions are ready."
+    );
     return;
   }
 
   if (message.type === "HOTKEY_SAVE_FINISHED") {
-    if (message.runId !== activeRunId) {
+    const finishedTabIds = resolveRunTabIds(message);
+    if (finishedTabIds.length === 0) {
       return;
     }
 
-    if (message.ok) {
-      showStatus("success", message.url || "", "Saved:");
-      addLog("success", "Process completed successfully.");
-    } else {
-      showStatus("error", message.error || "Something went wrong.");
-      addLog("error", message.error || "Something went wrong.");
-    }
+    finishedTabIds.forEach((tabId) => {
+      if (message.ok) {
+        showStatusForTab(tabId, "success", message.url || "", "Saved:");
+        addLogForTab(tabId, "success", "Process completed successfully.");
+      } else {
+        showStatusForTab(
+          tabId,
+          "error",
+          message.error || "Something went wrong."
+        );
+        addLogForTab(
+          tabId,
+          "error",
+          message.error || "Something went wrong."
+        );
+      }
 
-    finishButtonProcess();
+      finishButtonProcessForTab(tabId);
+    });
     return;
   }
 
@@ -3128,49 +3713,61 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
 
-  if (message.runId !== activeRunId) {
-    return;
-  }
-
-  addLog(message.level, message.message, message.timestamp);
+  resolveRunTabIds(message).forEach((tabId) => {
+    addLogForTab(tabId, message.level, message.message, message.timestamp);
+  });
 });
 
 async function humanizeChat() {
 
-  activeRunId = createRunId();
+  const { ownerTabId, runId } = beginRunForActiveTab();
 
   clearStatus();
-  clearDeletedRows();
-  beginButtonProcess("Humanize clicked. Looking for a ChatGPT conversation...");
+  clearDeletedRowsForTab(ownerTabId);
+  beginButtonProcessForTab(
+    ownerTabId,
+    "Humanize clicked. Looking for a ChatGPT conversation..."
+  );
 
   try {
     const response = await chrome.runtime.sendMessage({
       type: "HUMANIZE_CHATGPT",
-      runId: activeRunId
+      runId,
+      ownerTabId
     });
 
     if (!response?.ok) {
       throw new Error(response?.error || "Could not send the Humanize prompt.");
     }
 
-    showStatus("success", response.url || "Prompt sent to ChatGPT.", "Sent:");
-    addLog("success", "Humanize prompt sent to ChatGPT.");
+    showStatusForTab(
+      ownerTabId,
+      "success",
+      response.url || "Prompt sent to ChatGPT.",
+      "Sent:"
+    );
+    addLogForTab(ownerTabId, "success", "Humanize prompt sent to ChatGPT.");
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
+    showStatusForTab(
+      ownerTabId,
+      "error",
+      error.message || "Something went wrong."
+    );
+    addLogForTab(ownerTabId, "error", error.message || "Something went wrong.");
   } finally {
-    finishButtonProcess();
+    finishButtonProcessForTab(ownerTabId);
   }
 }
 
 async function runResumeDownload(documentUrl = "", profileName = "") {
 
-  activeRunId = createRunId();
+  const { ownerTabId, runId } = beginRunForActiveTab();
 
   clearStatus();
-  clearDeletedRows();
-  beginButtonProcess(
+  clearDeletedRowsForTab(ownerTabId);
+  beginButtonProcessForTab(
+    ownerTabId,
     documentUrl
       ? "Download Resume clicked. Checking the right-side Google Docs URL..."
       : "Download Resume clicked. Checking Google Docs tab..."
@@ -3179,7 +3776,8 @@ async function runResumeDownload(documentUrl = "", profileName = "") {
   try {
     const response = await chrome.runtime.sendMessage({
       type: "DOWNLOAD_RESUME_PDF",
-      runId: activeRunId,
+      runId,
+      ownerTabId,
       documentUrl,
       profileName
     });
@@ -3188,17 +3786,27 @@ async function runResumeDownload(documentUrl = "", profileName = "") {
       throw new Error(response?.error || "Could not download the resume PDF.");
     }
 
-    showStatus("success", response.filename || "document.pdf", "Downloaded:");
-    addLog(
+    showStatusForTab(
+      ownerTabId,
+      "success",
+      response.filename || "document.pdf",
+      "Downloaded:"
+    );
+    addLogForTab(
+      ownerTabId,
       "success",
       `Resume PDF download started: ${response.filename || "document.pdf"}`
     );
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
+    showStatusForTab(
+      ownerTabId,
+      "error",
+      error.message || "Something went wrong."
+    );
+    addLogForTab(ownerTabId, "error", error.message || "Something went wrong.");
   } finally {
-    finishButtonProcess();
+    finishButtonProcessForTab(ownerTabId);
   }
 }
 
@@ -3270,6 +3878,7 @@ function setBuildResumeContextModalOpen(isOpen, { returnFocus = true } = {}) {
 
   clearBuildResumeContextStatus();
   setBuildResumeContextModalBusy(false);
+  buildResumeContextDraft = "";
   if (buildResumeContextInput) buildResumeContextInput.value = "";
   if (
     returnFocus &&
@@ -3278,6 +3887,21 @@ function setBuildResumeContextModalOpen(isOpen, { returnFocus = true } = {}) {
   ) {
     saveWorkspaceBuildButton?.focus();
   }
+}
+
+function setBuildResumeContextModalOpenForTab(tabId, isOpen, options = {}) {
+  if (!isActiveTab(tabId)) {
+    const state = getTabState(tabId);
+    if (state) {
+      state.isBuildResumeContextModalOpen = Boolean(isOpen);
+      if (!isOpen) {
+        state.buildResumeContextDraft = "";
+      }
+    }
+    return;
+  }
+
+  setBuildResumeContextModalOpen(isOpen, options);
 }
 
 function openBuildResumeContextModal() {
@@ -3292,32 +3916,32 @@ function openBuildResumeContextModal() {
   setBuildResumeContextModalOpen(true);
 }
 
+// Returns the workspace the action is bound to so async handlers keep reporting
+// to its tab even after the user switches away.
 function beginSaveWorkspaceAction(message) {
-  if (
-    !["save-workspace", "make-resume"].includes(
-      currentSplitWindowSessionType
-    ) ||
-    !currentSaveWorkspace?.isReady ||
-    currentSaveWorkspace.isBusy
-  ) {
-    return false;
+  const workspace = currentSaveWorkspace;
+
+  if (!workspace?.isReady || workspace.isBusy) {
+    return null;
   }
 
-  currentSaveWorkspace.isBusy = true;
+  workspace.isBusy = true;
   updateSaveWorkspaceActions();
   clearStatus();
-  clearDeletedRows();
-  addLog("info", message);
-  return true;
+  clearDeletedRowsForTab(workspace.chatGptTabId);
+  addLogForTab(workspace.chatGptTabId, "info", message);
+  return workspace;
 }
 
-function finishSaveWorkspaceAction() {
-  if (!currentSaveWorkspace) {
+function finishSaveWorkspaceAction(workspace = currentSaveWorkspace) {
+  if (!workspace) {
     return;
   }
 
-  currentSaveWorkspace.isBusy = false;
-  updateSaveWorkspaceActions();
+  workspace.isBusy = false;
+  if (currentSaveWorkspace === workspace) {
+    updateSaveWorkspaceActions();
+  }
 }
 
 async function submitBuildResumeContext() {
@@ -3331,15 +3955,14 @@ async function submitBuildResumeContext() {
     return;
   }
 
-  if (
-    !beginSaveWorkspaceAction(
-      "Build resume confirmed. Updating the copied Google Docs resume..."
-    )
-  ) {
+  const workspace = beginSaveWorkspaceAction(
+    "Build resume confirmed. Updating the copied Google Docs resume..."
+  );
+  if (!workspace) {
     return;
   }
 
-  const workspace = currentSaveWorkspace;
+  const ownerTabId = workspace.chatGptTabId;
   setBuildResumeContextModalBusy(true);
   let response;
   let didBuildResume = false;
@@ -3347,7 +3970,8 @@ async function submitBuildResumeContext() {
   try {
     response = await chrome.runtime.sendMessage({
       type: "UPDATE_WORKSPACE_RESUME_CONTEXT",
-      runId: activeRunId || createRunId(),
+      runId: registerRunTab(activeRunId || createRunId(), ownerTabId),
+      ownerTabId,
       resumeUrl: workspace.resumeUrl,
       resumeText
     });
@@ -3359,45 +3983,62 @@ async function submitBuildResumeContext() {
     didBuildResume = true;
   } catch (error) {
     console.error(error);
-    showBuildResumeContextStatus(
+    if (isActiveTab(ownerTabId)) {
+      showBuildResumeContextStatus(
+        "error",
+        error.message || "Could not build the resume."
+      );
+    }
+    addLogForTab(
+      ownerTabId,
       "error",
       error.message || "Could not build the resume."
     );
-    addLog("error", error.message || "Could not build the resume.");
   } finally {
-    if (currentSaveWorkspace === workspace) {
-      finishSaveWorkspaceAction();
-    }
+    finishSaveWorkspaceAction(workspace);
     setBuildResumeContextModalBusy(false);
   }
 
-  if (!didBuildResume || currentSaveWorkspace !== workspace) {
+  if (!didBuildResume) {
     return;
   }
 
-  setBuildResumeContextModalOpen(false);
-  setSaveWorkspaceTab("resume");
-  showStatus("success", response.url || workspace.resumeUrl, "Built:");
-  addLog(
+  setBuildResumeContextModalOpenForTab(ownerTabId, false);
+  if (currentSaveWorkspace === workspace) {
+    setSaveWorkspaceTab("resume");
+  } else {
+    workspace.activeTab = "resume";
+  }
+  showStatusForTab(
+    ownerTabId,
+    "success",
+    response.url || workspace.resumeUrl,
+    "Built:"
+  );
+  addLogForTab(
+    ownerTabId,
     "success",
     "Resume context inserted into the copied document without changing template styles."
   );
 }
 
 async function downloadSaveWorkspaceResume() {
-  if (
-    saveWorkspaceDownloadButton?.disabled ||
-    !beginSaveWorkspaceAction("Download resume clicked.")
-  ) {
+  if (saveWorkspaceDownloadButton?.disabled) {
     return;
   }
 
-  const workspace = currentSaveWorkspace;
+  const workspace = beginSaveWorkspaceAction("Download resume clicked.");
+  if (!workspace) {
+    return;
+  }
+
+  const ownerTabId = workspace.chatGptTabId;
 
   try {
     const response = await chrome.runtime.sendMessage({
       type: "DOWNLOAD_RESUME_PDF",
-      runId: activeRunId || createRunId(),
+      runId: registerRunTab(activeRunId || createRunId(), ownerTabId),
+      ownerTabId,
       documentUrl: workspace.resumeUrl,
       profileName: workspace.profileName
     });
@@ -3406,35 +4047,48 @@ async function downloadSaveWorkspaceResume() {
       throw new Error(response?.error || "Could not download the resume PDF.");
     }
 
-    showStatus("success", response.filename || "resume.pdf", "Downloaded:");
-    addLog(
+    showStatusForTab(
+      ownerTabId,
+      "success",
+      response.filename || "resume.pdf",
+      "Downloaded:"
+    );
+    addLogForTab(
+      ownerTabId,
       "success",
       `Resume PDF download started: ${response.filename || "resume.pdf"}`
     );
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Could not download the resume PDF.");
-    addLog("error", error.message || "Could not download the resume PDF.");
+    showStatusForTab(
+      ownerTabId,
+      "error",
+      error.message || "Could not download the resume PDF."
+    );
+    addLogForTab(
+      ownerTabId,
+      "error",
+      error.message || "Could not download the resume PDF."
+    );
   } finally {
-    if (currentSaveWorkspace === workspace) {
-      finishSaveWorkspaceAction();
-    }
+    finishSaveWorkspaceAction(workspace);
   }
 }
 
 async function exchangeSaveWorkspaceUrls() {
-  if (
-    areActionButtonsDisabled ||
-    !hasActiveSaveWorkspaceForCurrentTab() ||
-    !beginSaveWorkspaceAction(
-      "Exchange clicked. Switching the main tab URL..."
-    )
-  ) {
+  if (areActionButtonsDisabled || !hasActiveSaveWorkspaceForCurrentTab()) {
     return;
   }
 
-  const workspace = currentSaveWorkspace;
-  const isImportedWorkspace = currentSplitWindowSessionType === "make-resume";
+  const workspace = beginSaveWorkspaceAction(
+    "Exchange clicked. Switching the main tab URL..."
+  );
+  if (!workspace) {
+    return;
+  }
+
+  const ownerTabId = workspace.chatGptTabId;
+  const isImportedWorkspace = workspace.sessionType === "make-resume";
 
   try {
     const mainTab = await chrome.tabs.get(workspace.chatGptTabId);
@@ -3466,28 +4120,31 @@ async function exchangeSaveWorkspaceUrls() {
       active: true
     });
 
-    if (currentSaveWorkspace === workspace) {
-      if (isImportedWorkspace) {
-        workspace.jobUrl = mainTabUrl;
-        if (isChatOrClaudeUrl(mainTabUrl)) {
-          workspace.chatGptUrl = mainTabUrl;
-        } else if (isChatOrClaudeUrl(nextMainTabUrl)) {
-          workspace.chatGptUrl = nextMainTabUrl;
-        }
+    if (isImportedWorkspace) {
+      workspace.jobUrl = mainTabUrl;
+      if (isChatOrClaudeUrl(mainTabUrl)) {
+        workspace.chatGptUrl = mainTabUrl;
+      } else if (isChatOrClaudeUrl(nextMainTabUrl)) {
+        workspace.chatGptUrl = nextMainTabUrl;
+      }
+      if (currentSaveWorkspace === workspace) {
         setSaveWorkspaceTab(workspace.activeTab, {
           forceReload: workspace.activeTab === "job"
         });
-      } else {
-        workspace.storedExchangeUrl = isRestoringChat ? "" : mainTabUrl;
-        if (!isRestoringChat) {
-          workspace.chatGptUrl = mainTabUrl;
-        }
+      }
+    } else {
+      workspace.storedExchangeUrl = isRestoringChat ? "" : mainTabUrl;
+      if (!isRestoringChat) {
+        workspace.chatGptUrl = mainTabUrl;
+      }
+      if (currentSaveWorkspace === workspace) {
         updateSaveWorkspaceActions();
       }
     }
 
-    showStatus("success", nextMainTabUrl, "Main tab:");
-    addLog(
+    showStatusForTab(ownerTabId, "success", nextMainTabUrl, "Main tab:");
+    addLogForTab(
+      ownerTabId,
       "success",
       isImportedWorkspace
         ? "Main tab and Information page URLs exchanged."
@@ -3497,12 +4154,18 @@ async function exchangeSaveWorkspaceUrls() {
     );
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Could not exchange the URLs.");
-    addLog("error", error.message || "Could not exchange the URLs.");
+    showStatusForTab(
+      ownerTabId,
+      "error",
+      error.message || "Could not exchange the URLs."
+    );
+    addLogForTab(
+      ownerTabId,
+      "error",
+      error.message || "Could not exchange the URLs."
+    );
   } finally {
-    if (currentSaveWorkspace === workspace) {
-      finishSaveWorkspaceAction();
-    }
+    finishSaveWorkspaceAction(workspace);
   }
 }
 
@@ -3517,17 +4180,18 @@ function getWorkspaceUrlComparisonKey(value) {
 }
 
 async function pickupRemainingWorkspaceUrl() {
-  if (
-    areActionButtonsDisabled ||
-    !hasActiveSaveWorkspaceForCurrentTab() ||
-    !beginSaveWorkspaceAction(
-      "Pick up clicked. Opening the remaining URL in a right-side window..."
-    )
-  ) {
+  if (areActionButtonsDisabled || !hasActiveSaveWorkspaceForCurrentTab()) {
     return;
   }
 
-  const workspace = currentSaveWorkspace;
+  const workspace = beginSaveWorkspaceAction(
+    "Pick up clicked. Opening the remaining URL in a right-side window..."
+  );
+  if (!workspace) {
+    return;
+  }
+
+  const ownerTabId = workspace.chatGptTabId;
 
   try {
     const mainTab = await chrome.tabs.get(workspace.chatGptTabId);
@@ -3555,7 +4219,8 @@ async function pickupRemainingWorkspaceUrl() {
 
     const response = await chrome.runtime.sendMessage({
       type: "OPEN_URL_IN_RIGHT_WINDOW",
-      runId: activeRunId || createRunId(),
+      runId: registerRunTab(activeRunId || createRunId(), ownerTabId),
+      ownerTabId,
       url: remainingUrl,
       sourceWindowId: mainTab.windowId
     });
@@ -3565,31 +4230,35 @@ async function pickupRemainingWorkspaceUrl() {
       );
     }
 
-    showStatus("success", remainingUrl, "Picked up:");
-    addLog(
+    showStatusForTab(ownerTabId, "success", remainingUrl, "Picked up:");
+    addLogForTab(
+      ownerTabId,
       "success",
       "Opened the remaining job or ChatGPT URL in a right-side Chrome window."
     );
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Could not pick up the remaining URL.");
-    addLog("error", error.message || "Could not pick up the remaining URL.");
+    showStatusForTab(
+      ownerTabId,
+      "error",
+      error.message || "Could not pick up the remaining URL."
+    );
+    addLogForTab(
+      ownerTabId,
+      "error",
+      error.message || "Could not pick up the remaining URL."
+    );
   } finally {
-    if (currentSaveWorkspace === workspace) {
-      finishSaveWorkspaceAction();
-    }
+    finishSaveWorkspaceAction(workspace);
   }
 }
 
 function hasSaveWorkspaceSession() {
-  return (
-    ["save-workspace", "make-resume"].includes(currentSplitWindowSessionType) &&
-    saveWorkspacesByTabId.size > 0
-  );
+  return saveWorkspacesByTabId.size > 0;
 }
 
 function hasActiveSaveWorkspaceForCurrentTab() {
-  return hasSaveWorkspaceSession() && isSaveWorkspaceBoundTabActive;
+  return Boolean(currentSaveWorkspace);
 }
 
 function getCurrentSidePanelView() {
@@ -3628,6 +4297,9 @@ function renderSaveWorkspaceSidePanelView({ focus = false } = {}) {
   if (isSplitWindowsDialogOpen) {
     splitWindowsModal?.setAttribute("role", "dialog");
     splitWindowsModal?.setAttribute("aria-modal", "true");
+    // Another tab's render may have hidden the shared node, so show it again.
+    splitWindowsModal?.classList.remove("is-hidden");
+    splitWindowsModal?.setAttribute("aria-hidden", "false");
     return;
   }
 
@@ -3694,16 +4366,18 @@ function handleSplitWindowsHeaderAction() {
   setSplitWindowsModalOpen(false);
 }
 
+// Clears only the active tab's workspace; other tabs keep theirs.
 function resetSplitWindowsSession() {
   setBuildResumeContextModalOpen(false, { returnFocus: false });
   currentSplitWindowDownloadUrl = "";
   currentSplitWindowPairs = [];
   currentSplitWindowReturnTabId = null;
   currentSplitWindowSessionType = "make-resume";
+  if (Number.isInteger(activeTabId)) {
+    saveWorkspacesByTabId.delete(activeTabId);
+  }
   currentSaveWorkspace = null;
-  saveWorkspacesByTabId.clear();
   currentSaveWorkspaceSidePanelView = "workspace";
-  isSaveWorkspaceBoundTabActive = false;
   splitWindowsPreviewTabs?.classList.add("is-hidden");
 
   if (splitWindowsJobTabButton) {
@@ -3750,6 +4424,7 @@ function setSplitWindowsModalOpen(isOpen) {
 
   setSplitWindowsPreview("");
   resetSplitWindowsSession();
+  splitWindowsDraft = "";
   if (splitWindowUrlsInput) splitWindowUrlsInput.value = "";
   openSplitWindowsButton?.focus();
 }
@@ -4355,7 +5030,7 @@ function updateSaveWorkspaceActions() {
 }
 
 function showSaveWorkspacePreview({
-  batchStart = false,
+  runId = null,
   batchIndex = 0,
   batchCount = 1,
   jobTitle = "Job page",
@@ -4375,20 +5050,10 @@ function showSaveWorkspacePreview({
 
   const normalizedSessionType =
     sessionType === "make-resume" ? "make-resume" : "save-workspace";
-
-  if (batchStart || currentSplitWindowSessionType !== normalizedSessionType) {
-    setBuildResumeContextModalOpen(false, { returnFocus: false });
-    saveWorkspacesByTabId.clear();
-    currentSaveWorkspace = null;
-    currentSaveWorkspaceSidePanelView = "workspace";
-    setSplitWindowsPreview("");
-  }
-
-  isSplitWindowsDialogOpen = false;
-  currentSplitWindowSessionType = normalizedSessionType;
-  isSaveWorkspaceBoundTabActive = true;
   const normalizedChatGptUrl = String(chatGptUrl || "").trim();
   const workspace = {
+    runId,
+    sessionType: normalizedSessionType,
     jobTitle: String(jobTitle || "Job page").trim() || "Job page",
     jobUrl: String(jobUrl).trim(),
     profileName:
@@ -4407,12 +5072,29 @@ function showSaveWorkspacePreview({
     batchCount: Math.max(1, Number(batchCount) || 1)
   };
   saveWorkspacesByTabId.set(chatGptTabId, workspace);
-  currentSaveWorkspace = workspace;
+
+  // The workspace belongs to its own tab; only take over the panel when the
+  // user is actually looking at that tab.
+  const workspaceTabState = getTabState(chatGptTabId);
+  if (workspaceTabState) {
+    workspaceTabState.splitWindowSessionType = normalizedSessionType;
+    workspaceTabState.isSplitWindowsDialogOpen = false;
+    workspaceTabState.saveWorkspaceSidePanelView = "workspace";
+  }
+
+  if (chatGptTabId !== activeTabId) {
+    return;
+  }
+
+  isSplitWindowsDialogOpen = false;
+  currentSplitWindowSessionType = normalizedSessionType;
+  currentSaveWorkspaceSidePanelView = "workspace";
+  syncCurrentSaveWorkspace();
 
   splitWindowsPreviewTabs?.classList.remove("is-hidden");
   const resumeTabLabel = splitWindowsResumeTabButton?.querySelector("span");
   if (resumeTabLabel) {
-    resumeTabLabel.textContent = `${currentSaveWorkspace.profileName} resume`;
+    resumeTabLabel.textContent = `${workspace.profileName} resume`;
   }
 
   setSaveWorkspaceTab("resume");
@@ -4423,12 +5105,8 @@ function markSaveWorkspaceReady({
   chatGptUrl = "",
   chatGptTabId = null
 } = {}) {
-  if (currentSplitWindowSessionType !== "save-workspace") {
-    return false;
-  }
-
   const workspace = saveWorkspacesByTabId.get(chatGptTabId);
-  if (!workspace) {
+  if (!workspace || workspace.sessionType !== "save-workspace") {
     return false;
   }
 
@@ -4440,34 +5118,20 @@ function markSaveWorkspaceReady({
   return true;
 }
 
-function syncSaveWorkspaceVisibilityForTab(tabId) {
-  if (!hasSaveWorkspaceSession()) {
-    return false;
-  }
-
-  const workspace = saveWorkspacesByTabId.get(tabId) || null;
-  const wasBoundTabActive = isSaveWorkspaceBoundTabActive;
-  isSaveWorkspaceBoundTabActive = Boolean(workspace);
-  if (workspace) {
-    currentSaveWorkspace = workspace;
-  }
-  if (wasBoundTabActive && !isSaveWorkspaceBoundTabActive) {
-    currentDefaultSidePanelView = "home";
-  }
-  renderSaveWorkspaceSidePanelView();
-
-  return true;
-}
-
 
 function setApplicationWorkspaceTab(activeTab) {
   return setSaveWorkspaceTab(activeTab);
 }
 
-async function requestOpenUrlInNewTab(url) {
+async function requestOpenUrlInNewTab(
+  url,
+  runId = activeRunId,
+  ownerTabId = activeTabId
+) {
   const response = await chrome.runtime.sendMessage({
     type: "OPEN_URL_IN_NEW_TAB",
-    runId: activeRunId,
+    runId,
+    ownerTabId,
     url
   });
 
@@ -4478,7 +5142,7 @@ async function requestOpenUrlInNewTab(url) {
   return response;
 }
 
-function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId) {
+function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId) {
   if (!Array.isArray(openedPairs) || openedPairs.length === 0) {
     return false;
   }
@@ -4487,8 +5151,9 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId) {
   currentSplitWindowReturnTabId = returnTabId;
 
   openedPairs.forEach((pair, index) => {
+    registerRunTab(runId, pair.tabId);
     showSaveWorkspacePreview({
-      batchStart: index === 0,
+      runId,
       batchIndex: index,
       batchCount: openedPairs.length,
       jobTitle: `Information page ${index + 1}`,
@@ -4502,6 +5167,14 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId) {
       isReady: true,
       sessionType: "make-resume"
     });
+
+    // Every tab in the batch can close the whole batch, so each one needs the
+    // full pair list.
+    const tabState = getTabState(pair.tabId);
+    if (tabState) {
+      tabState.splitWindowPairs = openedPairs;
+      tabState.splitWindowReturnTabId = returnTabId;
+    }
   });
 
   return true;
@@ -4525,17 +5198,21 @@ async function openSplitWindows() {
     return;
   }
 
-  activeRunId = createRunId();
+  const { ownerTabId, runId } = beginRunForActiveTab();
   clearStatus();
-  clearDeletedRows();
-  beginButtonProcess("Make a resume clicked. Checking for an open Google Sheet...");
+  clearDeletedRowsForTab(ownerTabId);
+  beginButtonProcessForTab(
+    ownerTabId,
+    "Make a resume clicked. Checking for an open Google Sheet..."
+  );
 
   const openedPairs = [];
   let returnTabId = null;
 
   try {
     await requireOpenGoogleSheet();
-    addLog(
+    addLogForTab(
+      ownerTabId,
       "info",
       `Google Sheet found. Opening ${batch.pairs.length} job/resume workspace${
         batch.pairs.length === 1 ? "" : "s"
@@ -4551,16 +5228,18 @@ async function openSplitWindows() {
       const profileFound = Boolean(savedProfile);
 
       if (!profileFound) {
-        addLog(
+        addLogForTab(
+          ownerTabId,
           "info",
           `No saved profile matched "${pair.profileName}"; no profile note will be shown.`
         );
       }
-      addLog(
+      addLogForTab(
+        ownerTabId,
         "info",
         `Opening job ${index + 1} of ${batch.pairs.length}: ${pair.jobUrl}`
       );
-      const response = await requestOpenUrlInNewTab(pair.jobUrl);
+      const response = await requestOpenUrlInNewTab(pair.jobUrl, runId, ownerTabId);
 
       if (returnTabId === null && Number.isInteger(response.returnTabId)) {
         returnTabId = response.returnTabId;
@@ -4581,9 +5260,10 @@ async function openSplitWindows() {
     const didOpenApplicationWorkspace =
       isSplitWindowsDialogOpen &&
       !splitWindowsModal?.classList.contains("is-hidden") &&
-      showMakeResumeApplicationWorkspaces(openedPairs, returnTabId);
+      showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId);
 
-    showStatus(
+    showStatusForTab(
+      ownerTabId,
       "success",
       didOpenApplicationWorkspace
         ? `Opened ${openedPairs.length} job tab${
@@ -4594,7 +5274,8 @@ async function openSplitWindows() {
           }.`,
       "Opened:"
     );
-    addLog(
+    addLogForTab(
+      ownerTabId,
       "success",
       didOpenApplicationWorkspace
         ? `${openedPairs.length} job/resume workspace${
@@ -4609,14 +5290,18 @@ async function openSplitWindows() {
       isSplitWindowsDialogOpen &&
       !splitWindowsModal?.classList.contains("is-hidden")
     ) {
-      showMakeResumeApplicationWorkspaces(openedPairs, returnTabId);
+      showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId);
     }
 
     console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
+    showStatusForTab(
+      ownerTabId,
+      "error",
+      error.message || "Something went wrong."
+    );
+    addLogForTab(ownerTabId, "error", error.message || "Something went wrong.");
   } finally {
-    finishButtonProcess();
+    finishButtonProcessForTab(ownerTabId);
   }
 }
 
@@ -4641,15 +5326,19 @@ async function closeSplitWindowsAndReturn() {
     return;
   }
 
-  activeRunId = createRunId();
+  const { ownerTabId, runId } = beginRunForActiveTab();
   clearStatus();
-  clearDeletedRows();
-  beginButtonProcess("Back clicked. Closing the created tabs and returning...");
+  clearDeletedRowsForTab(ownerTabId);
+  beginButtonProcessForTab(
+    ownerTabId,
+    "Back clicked. Closing the created tabs and returning..."
+  );
 
   try {
     const response = await chrome.runtime.sendMessage({
       type: "CLOSE_TABS_AND_RETURN",
-      runId: activeRunId,
+      runId,
+      ownerTabId,
       openedTabIds: currentSplitWindowPairs.map((pair) => pair.tabId),
       returnTabId: currentSplitWindowReturnTabId
     });
@@ -4659,14 +5348,27 @@ async function closeSplitWindowsAndReturn() {
     }
 
     setSplitWindowsModalOpen(false);
-    showStatus("success", response.url || "Previous tab restored.", "Returned:");
-    addLog("success", "Created tabs closed and previous tab restored.");
+    showStatusForTab(
+      ownerTabId,
+      "success",
+      response.url || "Previous tab restored.",
+      "Returned:"
+    );
+    addLogForTab(
+      ownerTabId,
+      "success",
+      "Created tabs closed and previous tab restored."
+    );
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
+    showStatusForTab(
+      ownerTabId,
+      "error",
+      error.message || "Something went wrong."
+    );
+    addLogForTab(ownerTabId, "error", error.message || "Something went wrong.");
   } finally {
-    finishButtonProcess();
+    finishButtonProcessForTab(ownerTabId);
   }
 }
 
@@ -4914,27 +5616,26 @@ clearLogsButton?.addEventListener("click", () => {
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
+  // The side panel is scoped to one window, so ignore tab switches elsewhere.
+  if (panelWindowId !== null && activeInfo.windowId !== panelWindowId) {
+    return;
+  }
+
+  switchActiveTab(activeInfo.tabId);
   refreshMakeResumeButtonAvailability();
-  syncSaveWorkspaceVisibilityForTab(activeInfo.tabId);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (!hasSaveWorkspaceSession() || !saveWorkspacesByTabId.has(tabId)) {
+  const hadWorkspace = saveWorkspacesByTabId.delete(tabId);
+  forgetTabState(tabId);
+
+  if (tabId === activeTabId) {
+    activeTabId = null;
+    currentSaveWorkspace = null;
     return;
   }
 
-  const removedCurrentWorkspace = currentSaveWorkspace?.chatGptTabId === tabId;
-  saveWorkspacesByTabId.delete(tabId);
-
-  if (saveWorkspacesByTabId.size === 0) {
-    resetSplitWindowsSession();
-    return;
-  }
-
-  if (removedCurrentWorkspace) {
-    currentSaveWorkspace = saveWorkspacesByTabId.values().next().value || null;
-    isSaveWorkspaceBoundTabActive = false;
-    currentDefaultSidePanelView = "home";
+  if (hadWorkspace && !hasSaveWorkspaceSession() && !currentSaveWorkspace) {
     renderSaveWorkspaceSidePanelView();
   }
 });
@@ -4946,18 +5647,23 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
-  if (windowId !== chrome.windows.WINDOW_ID_NONE) {
-    refreshMakeResumeButtonAvailability();
+  if (
+    windowId === chrome.windows.WINDOW_ID_NONE ||
+    (panelWindowId !== null && windowId !== panelWindowId)
+  ) {
+    return;
+  }
 
-    try {
-      const [activeTab] = await chrome.tabs.query({
-        active: true,
-        windowId
-      });
-      syncSaveWorkspaceVisibilityForTab(activeTab?.id);
-    } catch (error) {
-      console.error("Could not check the focused window tab:", error);
-    }
+  refreshMakeResumeButtonAvailability();
+
+  try {
+    const [focusedTab] = await chrome.tabs.query({
+      active: true,
+      windowId
+    });
+    switchActiveTab(focusedTab?.id);
+  } catch (error) {
+    console.error("Could not check the focused window tab:", error);
   }
 });
 
@@ -4987,7 +5693,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 
   if (changes[SAVE_POST_PROCESS_STORAGE_KEY]) {
-    setSavePostProcessState(
+    applySavePostProcessStates(
       changes[SAVE_POST_PROCESS_STORAGE_KEY].newValue
     );
   }
@@ -5001,6 +5707,8 @@ loadSheetConfig();
 loadPromptSelection();
 loadHumanizePromptSelection();
 loadJobDescriptionSelection();
-loadSavePostProcessState().finally(() => {
-  refreshMakeResumeButtonAvailability();
-});
+initActiveTabTracking()
+  .then(() => loadSavePostProcessState())
+  .finally(() => {
+    refreshMakeResumeButtonAvailability();
+  });

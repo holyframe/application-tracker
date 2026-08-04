@@ -17,8 +17,51 @@ const DEFAULT_HUMANIZE_PROMPT =
   "humanize your answer shortening it as one sentence story telling and using gen y us native style. don't be so streamlined usually can't be expected from human's impromptu";
 const SAVE_POST_PROCESS_ALARM_NAME = "save-current-tab-post-process";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
-let savePostProcessCleanupPromise = null;
 const activeSaveProcessControllers = new Map();
+// Every run is owned by the tab it was started from, so the side panel can file
+// its logs and progress against that tab instead of a single global slot.
+const runOwnerTabIds = new Map();
+const savePostProcessCleanupPromisesByTabId = new Map();
+
+function registerRunOwnerTab(runId, tabId) {
+  const normalizedRunId = String(runId || "");
+  if (!normalizedRunId || !Number.isInteger(tabId)) {
+    return;
+  }
+
+  runOwnerTabIds.set(normalizedRunId, tabId);
+}
+
+function getRunOwnerTabId(runId) {
+  const ownerTabId = runOwnerTabIds.get(String(runId || ""));
+  return Number.isInteger(ownerTabId) ? ownerTabId : null;
+}
+
+function releaseRunOwnerTab(runId) {
+  runOwnerTabIds.delete(String(runId || ""));
+}
+
+async function getSavePostProcessStates() {
+  const stored = await chrome.storage.local.get(SAVE_POST_PROCESS_STORAGE_KEY);
+  const states = stored[SAVE_POST_PROCESS_STORAGE_KEY];
+  return states && typeof states === "object" && !Array.isArray(states)
+    ? states
+    : {};
+}
+
+function findSavePostProcessEntry(states, runId, ownerTabId) {
+  const normalizedRunId = String(runId || "");
+
+  if (Number.isInteger(ownerTabId) && states[ownerTabId]) {
+    return { tabId: ownerTabId, state: states[ownerTabId] };
+  }
+
+  const match = Object.entries(states).find(
+    ([, state]) => String(state?.runId || "") === normalizedRunId
+  );
+
+  return match ? { tabId: Number(match[0]), state: match[1] } : null;
+}
 const SAVE_PROCESS_CANCELLED_CODE = "SAVE_PROCESS_CANCELLED";
 const PROFILE_SELECTION_VERSION = 3;
 const GOOGLE_DOC_WRITABLE_TEXT_STYLE_FIELDS = Object.freeze([
@@ -667,6 +710,8 @@ async function resetApplicationInputsAfterSave(runId = "") {
   chrome.runtime
     .sendMessage({
       type: "APPLICATION_INPUTS_RESET",
+      runId,
+      ownerTabId: getRunOwnerTabId(runId),
       message
     })
     .catch(() => {});
@@ -1913,13 +1958,13 @@ async function closeTabsAndReturn(runId, options = {}) {
 async function performSavePostProcessCleanup({
   resetInputs = false,
   reason = "cleared",
-  runId = ""
+  runId = "",
+  ownerTabId = null
 } = {}) {
-  const stored = await chrome.storage.local.get(
-    SAVE_POST_PROCESS_STORAGE_KEY
-  );
-  const state = stored[SAVE_POST_PROCESS_STORAGE_KEY];
+  const states = await getSavePostProcessStates();
   const requestedRunId = String(runId || "");
+  const entry = findSavePostProcessEntry(states, requestedRunId, ownerTabId);
+  const state = entry?.state || null;
   const stateRunId = String(state?.runId || "");
 
   if (state && requestedRunId && stateRunId !== requestedRunId) {
@@ -1936,12 +1981,23 @@ async function performSavePostProcessCleanup({
     controller?.abort();
   }
 
-  await chrome.alarms.clear(SAVE_POST_PROCESS_ALARM_NAME);
-  await chrome.storage.local.remove(SAVE_POST_PROCESS_STORAGE_KEY);
+  // Only drop this tab's entry; other tabs may still have a run in flight.
+  if (entry) {
+    delete states[entry.tabId];
+    if (Object.keys(states).length === 0) {
+      await chrome.alarms.clear(SAVE_POST_PROCESS_ALARM_NAME);
+      await chrome.storage.local.remove(SAVE_POST_PROCESS_STORAGE_KEY);
+    } else {
+      await chrome.storage.local.set({
+        [SAVE_POST_PROCESS_STORAGE_KEY]: states
+      });
+    }
+  }
 
   if (!state) {
     if (controllerRunId) {
       activeSaveProcessControllers.delete(controllerRunId);
+      releaseRunOwnerTab(controllerRunId);
     }
     return {
       active: false,
@@ -1951,7 +2007,7 @@ async function performSavePostProcessCleanup({
   }
 
   if (resetInputs) {
-    await resetApplicationInputsAfterSave();
+    await resetApplicationInputsAfterSave(controllerRunId);
   }
 
   if (controllerRunId) {
@@ -1973,29 +2029,42 @@ async function performSavePostProcessCleanup({
   };
 }
 
+// Cleanups are serialised per owning tab so a run finishing in one tab cannot
+// tear down a run that is still going in another.
 async function clearSavePostProcess(options = {}) {
-  if (!savePostProcessCleanupPromise) {
-    savePostProcessCleanupPromise =
-      performSavePostProcessCleanup(options);
+  const cleanupKey = Number.isInteger(options.ownerTabId)
+    ? options.ownerTabId
+    : String(options.runId || "");
+
+  let cleanupPromise = savePostProcessCleanupPromisesByTabId.get(cleanupKey);
+  if (!cleanupPromise) {
+    cleanupPromise = performSavePostProcessCleanup(options);
+    savePostProcessCleanupPromisesByTabId.set(cleanupKey, cleanupPromise);
   }
 
-  const cleanupPromise = savePostProcessCleanupPromise;
   try {
     return await cleanupPromise;
   } finally {
-    if (savePostProcessCleanupPromise === cleanupPromise) {
-      savePostProcessCleanupPromise = null;
+    if (savePostProcessCleanupPromisesByTabId.get(cleanupKey) === cleanupPromise) {
+      savePostProcessCleanupPromisesByTabId.delete(cleanupKey);
     }
   }
 }
 
 async function scheduleSavePostProcess(
-  { mode = "save", profileCount = 1 } = {},
+  { mode = "save", profileCount = 1, ownerTabId = null } = {},
   runId
 ) {
+  const normalizedRunId = String(runId || "");
+  const resolvedOwnerTabId = Number.isInteger(ownerTabId)
+    ? ownerTabId
+    : getRunOwnerTabId(normalizedRunId);
+
+  // Replace only the run this tab already had in flight.
   await clearSavePostProcess({
     resetInputs: false,
-    reason: "replaced"
+    reason: "replaced",
+    ownerTabId: resolvedOwnerTabId
   });
   await chrome.alarms.clear("save-current-tab-check-reminder");
   await chrome.storage.local.remove([
@@ -2003,20 +2072,24 @@ async function scheduleSavePostProcess(
     "extensionUiLockedUntilNotification"
   ]);
 
-  const normalizedRunId = String(runId || "");
   const controller = new AbortController();
   activeSaveProcessControllers.set(normalizedRunId, controller);
 
   const state = {
     runId: normalizedRunId,
+    ownerTabId: resolvedOwnerTabId,
     mode: mode === "apply" ? "apply" : "save",
     profileCount: Math.max(1, Number(profileCount) || 1),
     startedAt: Date.now()
   };
 
   try {
+    const states = await getSavePostProcessStates();
+    if (Number.isInteger(resolvedOwnerTabId)) {
+      states[resolvedOwnerTabId] = state;
+    }
     await chrome.storage.local.set({
-      [SAVE_POST_PROCESS_STORAGE_KEY]: state
+      [SAVE_POST_PROCESS_STORAGE_KEY]: states
     });
   } catch (error) {
     activeSaveProcessControllers.delete(normalizedRunId);
@@ -2032,19 +2105,25 @@ function getActiveSaveProcessSignal(runId) {
   return activeSaveProcessControllers.get(String(runId || ""))?.signal;
 }
 
-async function completeSavePostProcess(runId = "") {
+async function completeSavePostProcess(runId = "", ownerTabId = null) {
   return clearSavePostProcess({
     resetInputs: true,
     reason: "completed",
-    runId
+    runId,
+    ownerTabId: Number.isInteger(ownerTabId)
+      ? ownerTabId
+      : getRunOwnerTabId(runId)
   });
 }
 
-async function cancelSavePostProcess(runId = "") {
+async function cancelSavePostProcess(runId = "", ownerTabId = null) {
   return clearSavePostProcess({
     resetInputs: true,
     reason: "cancelled",
-    runId
+    runId,
+    ownerTabId: Number.isInteger(ownerTabId)
+      ? ownerTabId
+      : getRunOwnerTabId(runId)
   });
 }
 
@@ -2108,6 +2187,39 @@ async function isSidePanelOpen() {
   }
 }
 
+// A closed tab can no longer show status, so drop its run and progress entry.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  const ownedRunIds = [...runOwnerTabIds.entries()]
+    .filter(([, ownerTabId]) => ownerTabId === tabId)
+    .map(([runId]) => runId);
+
+  ownedRunIds.forEach((runId) => {
+    activeSaveProcessControllers.get(runId)?.abort();
+    activeSaveProcessControllers.delete(runId);
+    releaseRunOwnerTab(runId);
+  });
+
+  getSavePostProcessStates()
+    .then(async (states) => {
+      if (!states[tabId]) {
+        return;
+      }
+
+      delete states[tabId];
+      if (Object.keys(states).length === 0) {
+        await chrome.storage.local.remove(SAVE_POST_PROCESS_STORAGE_KEY);
+        return;
+      }
+
+      await chrome.storage.local.set({
+        [SAVE_POST_PROCESS_STORAGE_KEY]: states
+      });
+    })
+    .catch((error) => {
+      console.error("Could not clear save progress for the closed tab:", error);
+    });
+});
+
 chrome.commands.onCommand.addListener((command) => {
   const action = APP_ACTION_COMMANDS[command];
   if (!action) {
@@ -2121,6 +2233,13 @@ chrome.commands.onCommand.addListener((command) => {
       return;
     }
 
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true
+    });
+    // The tab the shortcut fired on owns the run's status.
+    registerRunOwnerTab(runId, tab?.id);
+    const ownerTabId = getRunOwnerTabId(runId);
 
     const validation = await validateApplicationInputsForSave({
       groupTabs: action.groupTabs
@@ -2130,16 +2249,12 @@ chrome.commands.onCommand.addListener((command) => {
       await notifyExtensionPages({
         type: "HOTKEY_SAVE_FINISHED",
         runId,
+        ownerTabId,
         ok: false,
         error: validation.error
       });
       return;
     }
-
-    const [tab] = await chrome.tabs.query({
-      active: true,
-      lastFocusedWindow: true
-    });
 
     try {
       assertActiveJobTabUsable(tab, {
@@ -2150,6 +2265,7 @@ chrome.commands.onCommand.addListener((command) => {
       await notifyExtensionPages({
         type: "HOTKEY_SAVE_FINISHED",
         runId,
+        ownerTabId,
         ok: false,
         error: error.message
       });
@@ -2158,16 +2274,19 @@ chrome.commands.onCommand.addListener((command) => {
 
     await notifyExtensionPages({
       type: "HOTKEY_SAVE_STARTED",
-      runId
+      runId,
+      ownerTabId
     });
 
     const result = await saveCurrentTabUrlToSheet(runId, {
-      groupTabs: action.groupTabs
+      groupTabs: action.groupTabs,
+      ownerTabId
     });
 
     await notifyExtensionPages({
       type: "HOTKEY_SAVE_FINISHED",
       runId,
+      ownerTabId,
       ok: true,
       url: result?.url || ""
     });
@@ -2178,6 +2297,7 @@ chrome.commands.onCommand.addListener((command) => {
     notifyExtensionPages({
       type: "HOTKEY_SAVE_FINISHED",
       runId,
+      ownerTabId: getRunOwnerTabId(runId),
       ok: false,
       error: error.message || "Hotkey app action failed."
     }).catch((notificationError) => {
@@ -2398,11 +2518,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  // Remember which tab started this run so its logs and progress can be routed
+  // back to that tab's status in the side panel.
+  registerRunOwnerTab(
+    message.runId,
+    Number.isInteger(message.ownerTabId) ? message.ownerTabId : sender?.tab?.id
+  );
+
   const runPromise =
     message.type === "SAVE_CURRENT_TAB_URL_TO_SHEET"
       ? run(message.runId, {
-          groupTabs: message.mode === "apply"
+          groupTabs: message.mode === "apply",
+          ownerTabId: message.ownerTabId
         })
+      : message.type === "CANCEL_SAVE_POST_PROCESS"
+        ? run(message.runId, message.ownerTabId)
       : message.type === "DOWNLOAD_RESUME_PDF"
         ? run(message.runId, {
             documentUrl: message.documentUrl,
@@ -2577,6 +2707,9 @@ async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId, opt
 
 async function saveCurrentTabUrlToSheet(runId, options = {}) {
   const groupTabsInsteadOfClosing = options.groupTabs === true;
+  const ownerTabId = Number.isInteger(options.ownerTabId)
+    ? options.ownerTabId
+    : getRunOwnerTabId(runId);
   sendLog(
     runId,
     "info",
@@ -2606,7 +2739,8 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
   await scheduleSavePostProcess(
     {
       mode: groupTabsInsteadOfClosing ? "apply" : "save",
-      profileCount: selectedProfiles.length
+      profileCount: selectedProfiles.length,
+      ownerTabId
     },
     runId
   );
@@ -2688,7 +2822,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         await notifyExtensionPages({
           type: "SHOW_SAVE_WORKSPACE",
           runId,
-          batchStart: index === 0,
+          ownerTabId,
           batchIndex: index,
           batchCount: selectedProfiles.length,
           jobTitle: tab.title || "Job page",
@@ -2749,13 +2883,14 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       );
 
       if (index === selectedProfiles.length - 1) {
-        await completeSavePostProcess(runId);
+        await completeSavePostProcess(runId, ownerTabId);
       }
 
       if (!groupTabsInsteadOfClosing) {
         await notifyExtensionPages({
           type: "SAVE_WORKSPACE_READY",
           runId,
+          ownerTabId,
           profileName,
           chatGptUrl,
           chatGptTabId
@@ -2817,7 +2952,8 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       await clearSavePostProcess({
         resetInputs: true,
         reason: "cancelled",
-        runId
+        runId,
+        ownerTabId
       }).catch((cleanupError) => {
         console.error("Could not clean up the cancelled save process:", cleanupError);
       });
@@ -2827,7 +2963,8 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
     await clearSavePostProcess({
       resetInputs: false,
       reason: "failed",
-      runId
+      runId,
+      ownerTabId
     }).catch((cleanupError) => {
       console.error("Could not clean up the failed save process:", cleanupError);
     });
@@ -3893,6 +4030,7 @@ async function sendLog(runId, level, message) {
     await chrome.runtime.sendMessage({
       type: "SAVE_PROCESS_LOG",
       runId,
+      ownerTabId: getRunOwnerTabId(runId),
       level,
       message,
       timestamp: new Date().toLocaleTimeString()
