@@ -3516,10 +3516,11 @@ async function validateActiveBrowserTabForAppAction(mode = "save") {
     return { ok: false, error: "Current tab does not have a URL." };
   }
 
-  if (tab.pinned) {
+  if (tab.pinned && !isGoogleSheetsDocumentUrl(tab.url)) {
     return {
       ok: false,
-      error: "Pinned tabs are not supported. Unpin the tab and try again."
+      error:
+        "Pinned tabs are not supported unless the tab is a Google Sheet. Unpin the tab and try again."
     };
   }
 
@@ -3621,6 +3622,12 @@ async function applyNow() {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "SIDE_PANEL_PING") {
     sendResponse({ open: true });
+    return;
+  }
+
+  if (message.type === "CLOSE_SIDE_PANEL") {
+    window.close();
+    sendResponse({ closed: true });
     return;
   }
 

@@ -1425,8 +1425,10 @@ function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
     throw new Error("Current tab does not have a URL.");
   }
 
-  if (tab.pinned) {
-    throw new Error("Pinned tabs are not supported. Unpin the tab and try again.");
+  if (tab.pinned && !isGoogleSheetsDocumentUrl(tab.url)) {
+    throw new Error(
+      "Pinned tabs are not supported unless the tab is a Google Sheet. Unpin the tab and try again."
+    );
   }
 
   if (!allowGrouped && isTabInGroup(tab)) {
@@ -1434,6 +1436,76 @@ function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
       "Grouped tabs are not supported. Ungroup the tab or open it outside a tab group and try again."
     );
   }
+}
+
+function shouldEnableSidePanelForTab(tab) {
+  if (!tab?.pinned) {
+    return true;
+  }
+
+  return isGoogleSheetsDocumentUrl(tab.url || "");
+}
+
+async function closeSidePanelForWindow(tab) {
+  if (!tab || !Number.isInteger(tab.windowId)) {
+    return;
+  }
+
+  if (typeof chrome.sidePanel.close === "function") {
+    try {
+      await chrome.sidePanel.close({ windowId: tab.windowId });
+      return;
+    } catch (_windowCloseError) {
+      if (Number.isInteger(tab.id)) {
+        try {
+          await chrome.sidePanel.close({ tabId: tab.id });
+          return;
+        } catch (_tabCloseError) {
+          // Fall through to asking the open panel to close itself.
+        }
+      }
+    }
+  }
+
+  try {
+    await chrome.runtime.sendMessage({ type: "CLOSE_SIDE_PANEL" });
+  } catch (_error) {
+    // The side panel may already be closed.
+  }
+}
+
+async function syncSidePanelForTab(tab, { closeIfDisabled = false } = {}) {
+  if (!Number.isInteger(tab?.id)) {
+    return;
+  }
+
+  const enabled = shouldEnableSidePanelForTab(tab);
+
+  try {
+    await chrome.sidePanel.setOptions({
+      tabId: tab.id,
+      path: "sidepanel/sidepanel.html",
+      enabled
+    });
+  } catch (error) {
+    console.error("Could not sync side panel availability for tab:", error);
+  }
+
+  if (!enabled && closeIfDisabled) {
+    await closeSidePanelForWindow(tab);
+  }
+}
+
+async function syncSidePanelForAllTabs() {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map((tab) => syncSidePanelForTab(tab)));
+}
+
+async function configureSidePanelBehavior() {
+  await chrome.sidePanel.setPanelBehavior({
+    openPanelOnActionClick: true
+  });
+  await syncSidePanelForAllTabs();
 }
 
 function isChatGptConversationUrl(url = "") {
@@ -2128,9 +2200,7 @@ async function cancelSavePostProcess(runId = "", ownerTabId = null) {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  chrome.sidePanel.setPanelBehavior({
-    openPanelOnActionClick: true
-  });
+  await configureSidePanelBehavior();
 
   await chrome.alarms.clear("group-job-gpt-tabs-after-save");
   await chrome.alarms.clear("save-current-tab-check-reminder");
@@ -2152,6 +2222,39 @@ chrome.runtime.onInstalled.addListener(async () => {
     }
   });
 
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  configureSidePanelBehavior().catch((error) => {
+    console.error("Could not configure side panel on startup:", error);
+  });
+});
+
+chrome.tabs.onCreated.addListener((tab) => {
+  syncSidePanelForTab(tab);
+});
+
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    await syncSidePanelForTab(tab, { closeIfDisabled: true });
+  } catch (error) {
+    console.error("Could not sync side panel after tab activation:", error);
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (
+    Object.prototype.hasOwnProperty.call(changeInfo, "pinned") ||
+    changeInfo.url ||
+    changeInfo.status === "complete"
+  ) {
+    syncSidePanelForTab(tab, { closeIfDisabled: Boolean(tab.active) });
+  }
+});
+
+configureSidePanelBehavior().catch((error) => {
+  console.error("Could not configure side panel:", error);
 });
 
 const APP_ACTION_COMMANDS = {
