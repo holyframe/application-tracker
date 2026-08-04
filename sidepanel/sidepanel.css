@@ -1870,13 +1870,13 @@ textarea:focus {
 
 .split-windows-preview-view {
   display: grid;
-  grid-template-rows: auto auto minmax(240px, 1fr) auto auto;
+  grid-template-rows: auto auto auto minmax(240px, 1fr) auto auto;
   gap: 8px;
   min-height: 0;
 }
 
 .split-windows-preview-view.has-profile-note {
-  grid-template-rows: auto auto auto minmax(240px, 1fr) auto auto;
+  grid-template-rows: auto auto auto auto minmax(240px, 1fr) auto auto;
 }
 
 .split-windows-preview-tabs {
@@ -1949,35 +1949,60 @@ textarea:focus {
   display: none;
 }
 
-.split-windows-modal.is-workspace-page .save-workspace-actions {
-  grid-row: 1;
+.application-workspace-job-gpt-location {
+  display: none;
 }
 
-.split-windows-modal.is-workspace-page .split-windows-preview-location {
+.split-windows-modal.is-workspace-page .application-workspace-job-gpt-location {
+  grid-row: 1;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.split-windows-modal.is-workspace-page .save-workspace-actions {
   grid-row: 2;
 }
 
-.split-windows-modal.is-workspace-page .split-windows-preview-content {
+.split-windows-modal.is-workspace-page
+  .split-windows-preview-location:not(.application-workspace-job-gpt-location) {
   grid-row: 3;
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
-.split-windows-modal.is-workspace-page .split-windows-preview-help {
+.split-windows-modal.is-workspace-page .split-windows-preview-content {
   grid-row: 4;
 }
 
-.split-windows-modal.is-workspace-page #splitWindowsBatchActions {
+.split-windows-modal.is-workspace-page .split-windows-preview-help {
   grid-row: 5;
+}
+
+.split-windows-modal.is-workspace-page #splitWindowsBatchActions {
+  grid-row: 6;
 }
 
 .split-windows-modal.is-workspace-page .split-windows-preview-location {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 5px;
   border-color: rgba(143, 147, 255, 0.28);
   padding: 4px;
   background: linear-gradient(135deg, #11162d 0%, #202858 100%);
   box-shadow: 0 8px 20px rgba(7, 11, 45, 0.2);
+}
+
+.split-windows-modal.is-workspace-page .application-workspace-job-gpt-location.is-hidden {
+  display: none;
+}
+
+.split-windows-modal.is-workspace-page .application-workspace-job-gpt-url {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 6px;
+  color: #f4f5ff;
+  font-size: 11px;
 }
 
 .split-windows-modal.is-workspace-page .split-windows-preview-url-text {

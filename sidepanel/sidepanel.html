@@ -834,6 +834,64 @@
         >
 
           <div
+            id="applicationWorkspaceJobGptLocation"
+            class="split-windows-preview-location application-workspace-job-gpt-location is-hidden"
+          >
+            <div class="application-workspace-url-actions">
+              <button
+                id="applicationWorkspaceJobGptPickupButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Open job or GPT URL in a right-side window"
+                title="Open job or GPT URL in right-side window"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M12 4v16" />
+                  <path d="m15 10 3 3-3 3" />
+                  <path d="M14 13h4" />
+                </svg>
+              </button>
+              <button
+                id="applicationWorkspaceJobGptCopyButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Copy job or GPT URL to clipboard"
+                title="Copy URL"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
+                </svg>
+              </button>
+            </div>
+            <span
+              id="applicationWorkspaceJobGptUrl"
+              class="application-workspace-job-gpt-url"
+            ></span>
+            <div class="application-workspace-url-actions">
+              <button
+                id="applicationWorkspaceJobGptClearButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Delete job or GPT URL"
+                title="Delete URL"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                  <path d="M6 7l1 14h10l1-14" />
+                  <path d="M9 7V4h6v3" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div
             id="saveWorkspaceActions"
             class="modal-actions save-workspace-actions is-hidden"
           >
@@ -873,8 +931,8 @@
                 id="applicationWorkspacePickupButton"
                 type="button"
                 class="workspace-url-icon-button is-hidden"
-                aria-label="Pick up remaining URL in a right-side window"
-                title="Open remaining URL in right-side window"
+                aria-label="Open resume URL in a right-side window"
+                title="Open resume URL in right-side window"
                 disabled
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
