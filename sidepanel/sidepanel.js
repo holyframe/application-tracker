@@ -178,14 +178,12 @@ const appRoot = document.querySelector(".app");
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
-const SAVE_POST_PROCESS_DURATION_MS = 2 * 60 * 1000;
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
 const DEFAULT_PROFILE_NAME = "Default";
 
 let activeRunId = null;
 let savePostProcessState = null;
-let savePostProcessTimer = null;
 let isSavePostProcessRequestPending = false;
 let currentSplitWindowDownloadUrl = "";
 let currentSplitWindowPairs = [];
@@ -1372,41 +1370,12 @@ function setSaveButtonsDisabled(disabled) {
   if (jobDescriptionFormModalSubmitButton) jobDescriptionFormModalSubmitButton.disabled = disabled;
 }
 
-function getSavePostProcessTiming(state = savePostProcessState) {
-  const startedAt = Number(state?.startedAt);
-  const endsAt = Number(state?.endsAt);
-  const hasValidTiming =
-    Number.isFinite(startedAt) &&
-    Number.isFinite(endsAt) &&
-    endsAt > startedAt;
-
-  return {
-    startedAt: hasValidTiming ? startedAt : 0,
-    endsAt: hasValidTiming ? endsAt : 0,
-    durationMs: hasValidTiming
-      ? endsAt - startedAt
-      : SAVE_POST_PROCESS_DURATION_MS
-  };
-}
-
 function isSavePostProcessActive(state = savePostProcessState) {
-  const { endsAt } = getSavePostProcessTiming(state);
-  return endsAt > Date.now();
-}
-
-function formatSavePostProcessTime(remainingMs) {
-  const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
-  const minutes = Math.floor(remainingSeconds / 60);
-  const seconds = String(remainingSeconds % 60).padStart(2, "0");
-  return `${minutes}:${seconds}`;
+  return Boolean(state && typeof state === "object" && state.runId);
 }
 
 function renderSavePostProcessControls() {
-  const { endsAt } = getSavePostProcessTiming();
-  const hasState = endsAt > 0;
-  const remainingMs = Math.max(0, endsAt - Date.now());
-  const isCounting = hasState && remainingMs > 0;
-  const timeLabel = formatSavePostProcessTime(remainingMs);
+  const hasState = isSavePostProcessActive();
   const applicationControlsVisible = hasState && !isSplitWindowsDialogOpen;
   const exchangeDisabled = hasState;
 
@@ -1424,13 +1393,8 @@ function renderSavePostProcessControls() {
   progressStatuses.forEach(({ element, visible }) => {
     if (!element) return;
     element.classList.toggle("is-hidden", !visible);
-    element.textContent = `Save progress - ${timeLabel}`;
-    element.setAttribute(
-      "aria-label",
-      isCounting
-        ? `Save progress, ${timeLabel} remaining`
-        : "Save progress complete"
-    );
+    element.textContent = "Save progress";
+    element.setAttribute("aria-label", "Save progress");
   });
 
   homeCancelProcessButton?.classList.toggle("is-hidden", !hasState);
@@ -1455,26 +1419,9 @@ function renderSavePostProcessControls() {
 
 }
 
-function stopSavePostProcessTimer() {
-  if (savePostProcessTimer !== null) {
-    clearInterval(savePostProcessTimer);
-    savePostProcessTimer = null;
-  }
-}
-
 function setSavePostProcessState(state) {
-  stopSavePostProcessTimer();
   savePostProcessState = state && typeof state === "object" ? state : null;
   renderSavePostProcessControls();
-
-  if (isSavePostProcessActive()) {
-    savePostProcessTimer = setInterval(() => {
-      renderSavePostProcessControls();
-      if (!isSavePostProcessActive()) {
-        stopSavePostProcessTimer();
-      }
-    }, 250);
-  }
 }
 
 

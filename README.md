@@ -23,8 +23,8 @@ stay visible. Then provide a base GPT prompt and job description.
 
 Both actions normalize the active job URL, copy the relevant profile's
 configured Google Docs resume template, submit the prepared message to ChatGPT,
-and save the seven-column application record. A two-minute in-panel save
-countdown starts with the action and ends as soon as the final Google Sheet row
+and save the seven-column application record. An in-panel save progress
+indicator starts with the action and ends as soon as the final Google Sheet row
 is saved. `Save App` repeats that process once per checked profile. `Apply Now`
 currently requires exactly one checked profile.
 
@@ -57,16 +57,15 @@ never edited, and no placeholder is required.
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
 already-grouped job tab and leaves any existing group unchanged. While either
 application action is running, the matching **Home workspace** and **Application
-workspace** headers show `Save progress` with the remaining time inside the
-same compact status/log line. There is no separate progress bar, and Cancel
-Process stays at the far right of the header. The header Exchange icon that
-switches between Home and Application workspaces stays disabled until the final
-Google Sheet row is saved. Saving that row ends progress immediately. Cancel
-Process stops both progress and the active save early; the two-minute limit
-does the same if the process times out. Successful completion, cancellation,
-or timeout clears the checked profiles, selected prompt-resume variants, and
-job description without closing completed tabs or removing data already
-saved. No Chrome notification is created.
+workspace** headers show `Save progress` inside the same compact status/log
+line. There is no separate progress bar, and Cancel Process stays at the far
+right of the header. The header Exchange icon that switches between Home and
+Application workspaces stays disabled until the final Google Sheet row is
+saved. Saving that row ends progress immediately. Cancel Process stops both
+progress and the active save early. Successful completion or cancellation
+clears the checked profiles, selected prompt-resume variants, and job
+description without closing completed tabs or removing data already saved. No
+Chrome notification is created.
 
 Outside save progress, the matching workspace headers show an Exchange icon
 for switching between the two views. The compact line below each title retains

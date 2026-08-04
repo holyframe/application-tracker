@@ -17,7 +17,6 @@ const DEFAULT_HUMANIZE_PROMPT =
   "humanize your answer shortening it as one sentence story telling and using gen y us native style. don't be so streamlined usually can't be expected from human's impromptu";
 const SAVE_POST_PROCESS_ALARM_NAME = "save-current-tab-post-process";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
-const SAVE_POST_PROCESS_DURATION_MINUTES = 2;
 let savePostProcessCleanupPromise = null;
 const activeSaveProcessControllers = new Map();
 const SAVE_PROCESS_CANCELLED_CODE = "SAVE_PROCESS_CANCELLED";
@@ -1732,7 +1731,7 @@ async function performSavePostProcessCleanup({
     return {
       active: false,
       completed: false,
-      cancelled: reason === "cancelled" || reason === "timed-out"
+      cancelled: reason === "cancelled"
     };
   }
 
@@ -1748,17 +1747,14 @@ async function performSavePostProcessCleanup({
     const message =
       reason === "cancelled"
         ? "Save process cancelled. Application inputs cleared."
-        : reason === "timed-out"
-          ? "Save process timed out. Application inputs cleared."
-          : "Google Sheet saving finished. Save process completed and application inputs cleared.";
+        : "Google Sheet saving finished. Save process completed and application inputs cleared.";
     sendLog(runId, "info", message);
   }
 
   return {
     active: false,
     completed: reason === "completed",
-    cancelled: reason === "cancelled" || reason === "timed-out",
-    timedOut: reason === "timed-out"
+    cancelled: reason === "cancelled"
   };
 }
 
@@ -1796,34 +1792,23 @@ async function scheduleSavePostProcess(
   const controller = new AbortController();
   activeSaveProcessControllers.set(normalizedRunId, controller);
 
-  const startedAt = Date.now();
-  const endsAt =
-    startedAt + SAVE_POST_PROCESS_DURATION_MINUTES * 60 * 1000;
   const state = {
     runId: normalizedRunId,
     mode: mode === "apply" ? "apply" : "save",
     profileCount: Math.max(1, Number(profileCount) || 1),
-    startedAt,
-    endsAt
+    startedAt: Date.now()
   };
 
   try {
     await chrome.storage.local.set({
       [SAVE_POST_PROCESS_STORAGE_KEY]: state
     });
-    await chrome.alarms.create(SAVE_POST_PROCESS_ALARM_NAME, {
-      when: endsAt
-    });
   } catch (error) {
     activeSaveProcessControllers.delete(normalizedRunId);
     throw error;
   }
 
-  sendLog(
-    runId,
-    "info",
-    `Save progress started with a ${SAVE_POST_PROCESS_DURATION_MINUTES}-minute limit.`
-  );
+  sendLog(runId, "info", "Save progress started.");
 
   return state;
 }
@@ -1840,25 +1825,13 @@ async function completeSavePostProcess(runId = "") {
   });
 }
 
-async function cancelSavePostProcess(runId = "", options = {}) {
+async function cancelSavePostProcess(runId = "") {
   return clearSavePostProcess({
     resetInputs: true,
-    reason: options.reason === "timed-out" ? "timed-out" : "cancelled",
+    reason: "cancelled",
     runId
   });
 }
-
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== SAVE_POST_PROCESS_ALARM_NAME) {
-    return;
-  }
-
-  try {
-    await cancelSavePostProcess("", { reason: "timed-out" });
-  } catch (error) {
-    console.error("Could not stop the timed-out save process:", error);
-  }
-});
 
 chrome.runtime.onInstalled.addListener(async () => {
   chrome.sidePanel.setPanelBehavior({
@@ -1867,6 +1840,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   await chrome.alarms.clear("group-job-gpt-tabs-after-save");
   await chrome.alarms.clear("save-current-tab-check-reminder");
+  await chrome.alarms.clear(SAVE_POST_PROCESS_ALARM_NAME);
   await chrome.storage.local.remove([
     "pendingJobGptTabGroup",
     "saveCheckReminder",
