@@ -5015,10 +5015,9 @@ function updateSaveWorkspaceActions() {
   saveWorkspaceActions?.classList.toggle("is-hidden", !showWorkspaceActions);
 
   if (saveWorkspaceBuildButton) {
-    saveWorkspaceBuildButton.disabled = actionsDisabled;
-    saveWorkspaceBuildButton.title = actionsDisabled
-      ? "Build resume requires a ready Application workspace."
-      : "";
+    // Temporarily disabled in Application workspace.
+    saveWorkspaceBuildButton.disabled = true;
+    saveWorkspaceBuildButton.title = "Build resume is temporarily unavailable.";
   }
   if (saveWorkspaceDownloadButton) {
     saveWorkspaceDownloadButton.disabled = actionsDisabled;
