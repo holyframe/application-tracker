@@ -464,22 +464,91 @@ function renderActiveTabState() {
 
 async function initActiveTabTracking() {
   try {
-    const currentWindow = await chrome.windows.getCurrent();
-    panelWindowId = Number.isInteger(currentWindow?.id) ? currentWindow.id : null;
-
-    const [tab] = await chrome.tabs.query(
-      panelWindowId === null
-        ? { active: true, lastFocusedWindow: true }
-        : { active: true, windowId: panelWindowId }
-    );
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true
+    });
 
     if (Number.isInteger(tab?.id)) {
       activeTabId = tab.id;
+      // Take the window from a real tab rather than windows.getCurrent(), which
+      // is not dependable from a side panel document. Getting it wrong would
+      // silently filter out every tab switch.
+      panelWindowId = Number.isInteger(tab.windowId) ? tab.windowId : null;
       captureActiveTabState();
     }
   } catch (error) {
     console.error("Could not determine the active tab for the side panel:", error);
   }
+}
+
+async function syncActiveTabFromBrowser() {
+  try {
+    const [tab] = await chrome.tabs.query(
+      panelWindowId === null
+        ? { active: true, lastFocusedWindow: true }
+        : { active: true, windowId: panelWindowId }
+    );
+    if (Number.isInteger(tab?.id) && tab.id !== activeTabId) {
+      activeTabId = tab.id;
+      loadTabStateIntoRegisters(activeTabId);
+      renderActiveTabState();
+    }
+  } catch (error) {
+    console.error("Could not resolve the active tab:", error);
+  }
+}
+
+// Force the side panel onto a profile's Application workspace. Multi-profile
+// Save App must not wait for tabs.onActivated — SHOW arrives before the
+// service worker activates the tab, and missed events leave the panel on the
+// previous tab's home/workspace with empty details.
+function activateSaveWorkspaceTab(chatGptTabId) {
+  if (!Number.isInteger(chatGptTabId)) {
+    return false;
+  }
+
+  if (!saveWorkspacesByTabId.has(chatGptTabId)) {
+    return false;
+  }
+
+  const workspaceTabState = getTabState(chatGptTabId);
+  if (workspaceTabState) {
+    workspaceTabState.isSplitWindowsDialogOpen = false;
+    workspaceTabState.saveWorkspaceSidePanelView = "workspace";
+    if (workspaceTabState.splitWindowSessionType !== "make-resume") {
+      workspaceTabState.splitWindowSessionType = "save-workspace";
+    }
+  }
+
+  switchActiveTab(chatGptTabId);
+
+  if (activeTabId !== chatGptTabId) {
+    activeTabId = chatGptTabId;
+    loadTabStateIntoRegisters(chatGptTabId);
+  }
+
+  isSplitWindowsDialogOpen = false;
+  currentSaveWorkspaceSidePanelView = "workspace";
+  syncCurrentSaveWorkspace();
+
+  if (!currentSaveWorkspace) {
+    return false;
+  }
+
+  currentSplitWindowSessionType =
+    currentSaveWorkspace.sessionType || "save-workspace";
+  splitWindowsPreviewTabs?.classList.remove("is-hidden");
+  const resumeTabLabel = splitWindowsResumeTabButton?.querySelector("span");
+  if (resumeTabLabel) {
+    resumeTabLabel.textContent = `${currentSaveWorkspace.profileName} resume`;
+  }
+
+  setSaveWorkspaceTab(currentSaveWorkspace.activeTab || "resume", {
+    forceReload: true
+  });
+  renderSaveWorkspaceSidePanelView();
+  return true;
 }
 
 // Modals share one DOM node across every tab, so opening one is recorded against
@@ -3678,6 +3747,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       resumeUrl: message.resumeUrl,
       chatGptTabId: message.chatGptTabId
     });
+    // Always adopt this profile tab in the panel. Waiting for tab events fails
+    // for profile 2+ because SHOW is sent before the tab is activated.
+    activateSaveWorkspaceTab(message.chatGptTabId);
     addLogForTab(
       message.chatGptTabId,
       "success",
@@ -3695,6 +3767,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       chatGptUrl: message.chatGptUrl,
       chatGptTabId: message.chatGptTabId
     });
+    activateSaveWorkspaceTab(message.chatGptTabId);
     addLogForTab(
       message.chatGptTabId,
       "success",
@@ -5371,6 +5444,8 @@ function markSaveWorkspaceReady({
 
   workspace.chatGptUrl = String(chatGptUrl || "").trim();
   workspace.isReady = true;
+  // activateSaveWorkspaceTab() bails out on several paths, so the ready state
+  // has to reach the buttons here rather than relying on it.
   if (currentSaveWorkspace === workspace) {
     updateSaveWorkspaceActions();
   }
@@ -5901,8 +5976,12 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   forgetTabState(tabId);
 
   if (tabId === activeTabId) {
+    // Dropping activeTabId here orphans the panel: every later lookup keys off
+    // it, so the workspace and its job/resume details render empty. Re-point at
+    // whichever tab the browser activated instead.
     activeTabId = null;
     currentSaveWorkspace = null;
+    syncActiveTabFromBrowser();
     return;
   }
 
@@ -5912,6 +5991,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Deliberately no active-tab inference here. During a multi-profile save the
+  // panel is moved to the next profile's tab before the browser activates it,
+  // so the previous profile's tab is still reported active and its ChatGPT SPA
+  // URL/title updates would drag the panel straight back.
   if (tab.active && (changeInfo.url || changeInfo.status === "complete")) {
     refreshMakeResumeButtonAvailability();
   }

@@ -22,6 +22,9 @@ const activeSaveProcessControllers = new Map();
 // its logs and progress against that tab instead of a single global slot.
 const runOwnerTabIds = new Map();
 const savePostProcessCleanupPromisesByTabId = new Map();
+// Tabs we have explicitly disabled the side panel on, so the common case can
+// skip setOptions entirely.
+const sidePanelDisabledTabIds = new Set();
 
 function registerRunOwnerTab(runId, tabId) {
   const normalizedRunId = String(runId || "");
@@ -704,7 +707,6 @@ async function resetApplicationInputsAfterSave(runId = "") {
 
   if (runId) {
     sendLog(runId, "info", message);
-    return;
   }
 
   chrome.runtime
@@ -1480,6 +1482,17 @@ async function syncSidePanelForTab(tab, { closeIfDisabled = false } = {}) {
   }
 
   const enabled = shouldEnableSidePanelForTab(tab);
+  const wasDisabled = sidePanelDisabledTabIds.has(tab.id);
+
+  // Calling setOptions for a tab binds a tab-scoped side panel, and Chrome then
+  // remounts the panel document whenever that tab is activated. That wipes the
+  // panel's in-memory state, so a multi-profile save lost its workspace the
+  // moment the second profile's tab was activated. Only touch tabs whose
+  // enabled state actually needs to change; everything else stays on the
+  // window-level panel.
+  if (enabled !== wasDisabled) {
+    return;
+  }
 
   try {
     await chrome.sidePanel.setOptions({
@@ -1487,6 +1500,12 @@ async function syncSidePanelForTab(tab, { closeIfDisabled = false } = {}) {
       path: "sidepanel/sidepanel.html",
       enabled
     });
+
+    if (enabled) {
+      sidePanelDisabledTabIds.delete(tab.id);
+    } else {
+      sidePanelDisabledTabIds.add(tab.id);
+    }
   } catch (error) {
     console.error("Could not sync side panel availability for tab:", error);
   }
@@ -1498,7 +1517,26 @@ async function syncSidePanelForTab(tab, { closeIfDisabled = false } = {}) {
 
 async function syncSidePanelForAllTabs() {
   const tabs = await chrome.tabs.query({});
-  await Promise.all(tabs.map((tab) => syncSidePanelForTab(tab)));
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (!Number.isInteger(tab?.id)) {
+        return;
+      }
+
+      // Chrome keeps per-tab options across service worker restarts, so learn
+      // the existing state before deciding whether anything needs changing.
+      try {
+        const options = await chrome.sidePanel.getOptions({ tabId: tab.id });
+        if (options?.enabled === false) {
+          sidePanelDisabledTabIds.add(tab.id);
+        }
+      } catch (_error) {
+        // No per-tab override recorded for this tab.
+      }
+
+      await syncSidePanelForTab(tab);
+    })
+  );
 }
 
 async function configureSidePanelBehavior() {
@@ -2292,6 +2330,8 @@ async function isSidePanelOpen() {
 
 // A closed tab can no longer show status, so drop its run and progress entry.
 chrome.tabs.onRemoved.addListener((tabId) => {
+  sidePanelDisabledTabIds.delete(tabId);
+
   const ownedRunIds = [...runOwnerTabIds.entries()]
     .filter(([, ownerTabId]) => ownerTabId === tabId)
     .map(([runId]) => runId);
@@ -2853,9 +2893,13 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
   try {
     sendLog(runId, "info", "Checking current active tab...");
 
-    const urlForSheet = normalizeUrlForStorage(tab.url);
+    // Snapshot before any profile tab is navigated to ChatGPT — the live tab
+    // URL changes mid-batch and must not rewrite later workspaces' job pages.
+    const jobUrl = tab.url;
+    const jobTitle = tab.title || "Job page";
+    const urlForSheet = normalizeUrlForStorage(jobUrl);
 
-    sendLog(runId, "success", `Found tab URL: ${tab.url}`);
+    sendLog(runId, "success", `Found tab URL: ${jobUrl}`);
 
     const resumeTemplateIds = new Map(
       selectedProfiles.map((profile) => [
@@ -2898,7 +2942,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       );
 
       const baseDocTitle =
-        tab.title || `Application ${new Date().toLocaleDateString()}`;
+        jobTitle || `Application ${new Date().toLocaleDateString()}`;
       const docTitle =
         selectedProfiles.length > 1
           ? `${baseDocTitle} - ${profileName}`
@@ -2928,8 +2972,8 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
           ownerTabId,
           batchIndex: index,
           batchCount: selectedProfiles.length,
-          jobTitle: tab.title || "Job page",
-          jobUrl: tab.url,
+          jobTitle,
+          jobUrl,
           profileName,
           resumeUrl,
           chatGptTabId: targetTabId
@@ -2961,7 +3005,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
 
       const row = buildApplicationSheetRow({
         timestamp: new Date().toISOString(),
-        jobTitle: tab.title,
+        jobTitle,
         profileName,
         jobUrl: urlForSheet,
         chatGptUrl,
@@ -2985,10 +3029,6 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         `URL saved to profile sheet tab "${profileName}".`
       );
 
-      if (index === selectedProfiles.length - 1) {
-        await completeSavePostProcess(runId, ownerTabId);
-      }
-
       if (!groupTabsInsteadOfClosing) {
         await notifyExtensionPages({
           type: "SAVE_WORKSPACE_READY",
@@ -3010,6 +3050,11 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       sendLog(runId, "success", `Finished profile ${positionLabel}: ${profileName}`);
     }
 
+    // Clear inputs only after every profile workspace is shown. Doing this
+    // inside the last profile wiped job description / selections while the
+    // second tab's sidebar was still binding, so it looked like data loss.
+    await completeSavePostProcess(runId, ownerTabId);
+
 
     let applicationGroupId = null;
 
@@ -3020,7 +3065,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         resumeUrl: result.resumeUrl,
         chatGptUrl: result.chatGptUrl,
         chatGptTabId: result.chatGptTabId,
-        groupTitle: tab.title || "Application",
+        groupTitle: jobTitle || "Application",
         runId
       });
     }
@@ -3042,8 +3087,8 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       url: urlForSheet,
       chatGptUrl: finalResult.chatGptUrl,
       chatGptTabId: finalResult.chatGptTabId,
-      jobTitle: tab.title || "Job page",
-      jobUrl: tab.url,
+      jobTitle,
+      jobUrl,
       profileName: finalResult.profileName,
       resumeUrl: finalResult.resumeUrl,
       profileCount: selectedProfiles.length,
