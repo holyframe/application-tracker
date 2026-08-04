@@ -19,6 +19,8 @@ const SAVE_POST_PROCESS_ALARM_NAME = "save-current-tab-post-process";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
 const SAVE_POST_PROCESS_DURATION_MINUTES = 2;
 let savePostProcessCleanupPromise = null;
+const activeSaveProcessControllers = new Map();
+const SAVE_PROCESS_CANCELLED_CODE = "SAVE_PROCESS_CANCELLED";
 const PROFILE_SELECTION_VERSION = 3;
 const GOOGLE_DOC_WRITABLE_TEXT_STYLE_FIELDS = Object.freeze([
   "backgroundColor",
@@ -941,34 +943,128 @@ function randomDelayMs(minMs, maxMs) {
   return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function createSaveProcessCancelledError(
+  message = "Save process cancelled."
+) {
+  const error = new Error(message);
+  error.name = "AbortError";
+  error.code = SAVE_PROCESS_CANCELLED_CODE;
+  return error;
 }
 
-function waitForTabComplete(tabId, timeoutMs = 30000) {
+function isSaveProcessCancelledError(error) {
+  return (
+    error?.code === SAVE_PROCESS_CANCELLED_CODE ||
+    error?.name === "AbortError"
+  );
+}
+
+function throwIfSaveProcessCancelled(signal) {
+  if (signal?.aborted) {
+    throw createSaveProcessCancelledError();
+  }
+}
+
+function waitForSaveProcessOperation(operation, signal) {
+  throwIfSaveProcessCancelled(signal);
+
+  const operationPromise = Promise.resolve().then(operation);
+  if (!signal) {
+    return operationPromise;
+  }
+
+  return new Promise((resolve, reject) => {
+    let isSettled = false;
+    const finish = (callback, value) => {
+      if (isSettled) {
+        return;
+      }
+      isSettled = true;
+      signal.removeEventListener("abort", handleAbort);
+      callback(value);
+    };
+    const handleAbort = () => {
+      finish(reject, createSaveProcessCancelledError());
+    };
+
+    signal.addEventListener("abort", handleAbort, { once: true });
+    operationPromise.then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error)
+    );
+  });
+}
+
+function sleep(ms, signal) {
+  throwIfSaveProcessCancelled(signal);
+
+  return new Promise((resolve, reject) => {
+    let timeoutId = null;
+    const handleAbort = () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      reject(createSaveProcessCancelledError());
+    };
+
+    timeoutId = setTimeout(() => {
+      signal?.removeEventListener("abort", handleAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", handleAbort, { once: true });
+  });
+}
+
+function waitForTabComplete(tabId, timeoutMs = 30000, signal) {
+  throwIfSaveProcessCancelled(signal);
+
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
+    let timeoutId = null;
+    let isSettled = false;
+
+    const finish = (callback, value) => {
+      if (isSettled) {
+        return;
+      }
+      isSettled = true;
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      signal?.removeEventListener("abort", handleAbort);
+      callback(value);
+    };
+
+    const handleAbort = () => {
+      finish(reject, createSaveProcessCancelledError());
+    };
 
     const checkStatus = async () => {
+      if (isSettled) {
+        return;
+      }
+
       try {
+        throwIfSaveProcessCancelled(signal);
         const tab = await chrome.tabs.get(tabId);
 
         if (tab.status === "complete") {
-          resolve(tab);
+          finish(resolve, tab);
           return;
         }
 
         if (Date.now() - startedAt > timeoutMs) {
-          reject(new Error("ChatGPT tab took too long to load."));
+          finish(reject, new Error("ChatGPT tab took too long to load."));
           return;
         }
 
-        setTimeout(checkStatus, 250);
+        timeoutId = setTimeout(checkStatus, 250);
       } catch (error) {
-        reject(error);
+        finish(reject, error);
       }
     };
 
+    signal?.addEventListener("abort", handleAbort, { once: true });
     checkStatus();
   });
 }
@@ -999,16 +1095,23 @@ async function ensureChatGptContentScript(tabId, runId) {
   }
 }
 
-async function sendFillAndSendToTab(tabId, text, runId, maxAttempts = 24) {
+async function sendFillAndSendToTab(tabId, text, runId, options = {}) {
+  const maxAttempts = Math.max(1, Number(options.maxAttempts) || 24);
+  const { signal } = options;
+  throwIfSaveProcessCancelled(signal);
   let lastError = new Error("Could not reach ChatGPT page.");
   let didInject = false;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    throwIfSaveProcessCancelled(signal);
     try {
-      const response = await chrome.tabs.sendMessage(tabId, {
-        type: "FILL_AND_SEND",
-        text
-      });
+      const response = await waitForSaveProcessOperation(
+        () => chrome.tabs.sendMessage(tabId, {
+          type: "FILL_AND_SEND",
+          text
+        }),
+        signal
+      );
 
       if (response?.ok) {
         return response;
@@ -1025,7 +1128,10 @@ async function sendFillAndSendToTab(tabId, text, runId, maxAttempts = 24) {
           "info",
           "ChatGPT page not connected. Injecting content script..."
         );
-        await ensureChatGptContentScript(tabId, runId);
+        await waitForSaveProcessOperation(
+          () => ensureChatGptContentScript(tabId, runId),
+          signal
+        );
         continue;
       }
     }
@@ -1036,7 +1142,7 @@ async function sendFillAndSendToTab(tabId, text, runId, maxAttempts = 24) {
         "info",
         `Waiting for ChatGPT page (${attempt}/${maxAttempts})...`
       );
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await sleep(500, signal);
     }
   }
 
@@ -1186,10 +1292,13 @@ async function buildChatGptMessageFromStorage(profile = null) {
   return parts.join("\n\n");
 }
 
-async function openNewChatGptTab(runId, { active = true } = {}) {
+async function openNewChatGptTab(runId, { active = true, signal } = {}) {
   sendLog(runId, "info", "Opening ChatGPT in a new tab...");
-  const tab = await chrome.tabs.create({ url: CHATGPT_URL, active });
-  await waitForTabComplete(tab.id);
+  const tab = await waitForSaveProcessOperation(
+    () => chrome.tabs.create({ url: CHATGPT_URL, active }),
+    signal
+  );
+  await waitForTabComplete(tab.id, 30000, signal);
 
   return {
     url: CHATGPT_URL,
@@ -1197,17 +1306,20 @@ async function openNewChatGptTab(runId, { active = true } = {}) {
   };
 }
 
-async function openChatGptInExistingTab(tabId, runId) {
+async function openChatGptInExistingTab(tabId, runId, options = {}) {
   if (typeof tabId !== "number") {
     throw new Error("Current job tab does not have a valid tab ID.");
   }
 
   sendLog(runId, "info", "Opening ChatGPT in the current job tab...");
-  await chrome.tabs.update(tabId, {
-    url: CHATGPT_URL,
-    active: true
-  });
-  await waitForTabComplete(tabId);
+  await waitForSaveProcessOperation(
+    () => chrome.tabs.update(tabId, {
+      url: CHATGPT_URL,
+      active: true
+    }),
+    options.signal
+  );
+  await waitForTabComplete(tabId, 30000, options.signal);
 
   return {
     url: CHATGPT_URL,
@@ -1215,12 +1327,17 @@ async function openChatGptInExistingTab(tabId, runId) {
   };
 }
 
-async function resolveChatGptUrlAfterSend(tabId, runId) {
+async function resolveChatGptUrlAfterSend(tabId, runId, options = {}) {
+  const { signal } = options;
   const startedAt = Date.now();
   const timeoutMs = 60000;
 
   while (Date.now() - startedAt < timeoutMs) {
-    const tab = await chrome.tabs.get(tabId);
+    throwIfSaveProcessCancelled(signal);
+    const tab = await waitForSaveProcessOperation(
+      () => chrome.tabs.get(tabId),
+      signal
+    );
     const url = tab.url || "";
 
     if (isChatGptConversationUrl(url)) {
@@ -1228,7 +1345,7 @@ async function resolveChatGptUrlAfterSend(tabId, runId) {
       return `${parsed.origin}${parsed.pathname.replace(/\/$/, "")}`;
     }
 
-    await sleep(500);
+    await sleep(500, signal);
   }
 
   sendLog(
@@ -1249,8 +1366,10 @@ async function sendToChatGptAndGetUrl(text, runId, options = {}) {
 
   const targetTab =
     typeof options.tabId === "number"
-      ? await openChatGptInExistingTab(options.tabId, runId)
-      : await openNewChatGptTab(runId, { active: true });
+      ? await openChatGptInExistingTab(options.tabId, runId, {
+          signal: options.signal
+        })
+      : await openNewChatGptTab(runId, { active: true, signal: options.signal });
   const { tabId } = targetTab;
   if (typeof tabId !== "number") {
     throw new Error("Could not open ChatGPT.");
@@ -1266,12 +1385,14 @@ async function sendToChatGptAndGetUrl(text, runId, options = {}) {
     "info",
     `Waiting ${(settleMs / 1000).toFixed(1)}s before filling prompt...`
   );
-  await sleep(settleMs);
+  await sleep(settleMs, options.signal);
 
   sendLog(runId, "info", "Sending prompt to ChatGPT...");
-  await sendFillAndSendToTab(tabId, promptText, runId);
+  await sendFillAndSendToTab(tabId, promptText, runId, { signal: options.signal });
 
-  const chatGptUrl = await resolveChatGptUrlAfterSend(tabId, runId);
+  const chatGptUrl = await resolveChatGptUrlAfterSend(tabId, runId, {
+    signal: options.signal
+  });
   sendLog(runId, "success", `Prompt sent to ChatGPT: ${chatGptUrl}`);
 
   return {
@@ -1471,6 +1592,59 @@ async function openUrlInNewTab(runId, options = {}) {
   };
 }
 
+async function openUrlInRightWindow(runId, options = {}) {
+  const url = normalizeHttpUrl(options.url, "Page");
+  let sourceWindow = null;
+
+  if (Number.isInteger(options.sourceWindowId)) {
+    try {
+      sourceWindow = await chrome.windows.get(options.sourceWindowId);
+    } catch {
+      sourceWindow = null;
+    }
+  }
+  if (!sourceWindow || sourceWindow.type !== "normal") {
+    sourceWindow = await chrome.windows.getLastFocused({
+      windowTypes: ["normal"]
+    });
+  }
+
+  const sourceLeft = Number.isFinite(sourceWindow?.left)
+    ? sourceWindow.left
+    : 0;
+  const sourceTop = Number.isFinite(sourceWindow?.top)
+    ? sourceWindow.top
+    : 0;
+  const sourceWidth = Math.max(720, Number(sourceWindow?.width) || 1200);
+  const sourceHeight = Math.max(500, Number(sourceWindow?.height) || 800);
+  const rightWindowWidth = Math.max(480, Math.floor(sourceWidth / 2));
+
+  sendLog(runId, "info", "Opening the remaining URL in a right-side window...");
+
+  const createdWindow = await chrome.windows.create({
+    url,
+    type: "normal",
+    focused: true,
+    left: sourceLeft + sourceWidth - rightWindowWidth,
+    top: sourceTop,
+    width: rightWindowWidth,
+    height: sourceHeight
+  });
+  const openedTab = createdWindow?.tabs?.[0];
+
+  if (!Number.isInteger(createdWindow?.id)) {
+    throw new Error("Chrome did not return the newly opened window.");
+  }
+
+  sendLog(runId, "success", "Remaining URL opened in a right-side window.");
+
+  return {
+    url,
+    windowId: createdWindow.id,
+    tabId: Number.isInteger(openedTab?.id) ? openedTab.id : null
+  };
+}
+
 async function closeTabsAndReturn(runId, options = {}) {
   const openedTabIds = [
     ...new Set(
@@ -1531,15 +1705,34 @@ async function performSavePostProcessCleanup({
     SAVE_POST_PROCESS_STORAGE_KEY
   );
   const state = stored[SAVE_POST_PROCESS_STORAGE_KEY];
+  const requestedRunId = String(runId || "");
+  const stateRunId = String(state?.runId || "");
+
+  if (state && requestedRunId && stateRunId !== requestedRunId) {
+    return {
+      active: true,
+      completed: false,
+      cancelled: false
+    };
+  }
+
+  const controllerRunId = stateRunId || requestedRunId;
+  const controller = activeSaveProcessControllers.get(controllerRunId);
+  if (reason !== "completed") {
+    controller?.abort();
+  }
 
   await chrome.alarms.clear(SAVE_POST_PROCESS_ALARM_NAME);
   await chrome.storage.local.remove(SAVE_POST_PROCESS_STORAGE_KEY);
 
   if (!state) {
+    if (controllerRunId) {
+      activeSaveProcessControllers.delete(controllerRunId);
+    }
     return {
       active: false,
       completed: false,
-      cancelled: false
+      cancelled: reason === "cancelled" || reason === "timed-out"
     };
   }
 
@@ -1547,20 +1740,25 @@ async function performSavePostProcessCleanup({
     await resetApplicationInputsAfterSave();
   }
 
+  if (controllerRunId) {
+    activeSaveProcessControllers.delete(controllerRunId);
+  }
+
   if (runId) {
-    sendLog(
-      runId,
-      "info",
+    const message =
       reason === "cancelled"
-        ? "Check progress cancelled. Application inputs cleared."
-        : "Check progress completed. Application inputs cleared."
-    );
+        ? "Save process cancelled. Application inputs cleared."
+        : reason === "timed-out"
+          ? "Save process timed out. Application inputs cleared."
+          : "Google Sheet saving finished. Save process completed and application inputs cleared.";
+    sendLog(runId, "info", message);
   }
 
   return {
     active: false,
     completed: reason === "completed",
-    cancelled: reason === "cancelled"
+    cancelled: reason === "cancelled" || reason === "timed-out",
+    timedOut: reason === "timed-out"
   };
 }
 
@@ -1594,31 +1792,44 @@ async function scheduleSavePostProcess(
     "extensionUiLockedUntilNotification"
   ]);
 
+  const normalizedRunId = String(runId || "");
+  const controller = new AbortController();
+  activeSaveProcessControllers.set(normalizedRunId, controller);
+
   const startedAt = Date.now();
   const endsAt =
     startedAt + SAVE_POST_PROCESS_DURATION_MINUTES * 60 * 1000;
   const state = {
-    runId: String(runId || ""),
+    runId: normalizedRunId,
     mode: mode === "apply" ? "apply" : "save",
     profileCount: Math.max(1, Number(profileCount) || 1),
     startedAt,
     endsAt
   };
 
-  await chrome.storage.local.set({
-    [SAVE_POST_PROCESS_STORAGE_KEY]: state
-  });
-  await chrome.alarms.create(SAVE_POST_PROCESS_ALARM_NAME, {
-    when: endsAt
-  });
+  try {
+    await chrome.storage.local.set({
+      [SAVE_POST_PROCESS_STORAGE_KEY]: state
+    });
+    await chrome.alarms.create(SAVE_POST_PROCESS_ALARM_NAME, {
+      when: endsAt
+    });
+  } catch (error) {
+    activeSaveProcessControllers.delete(normalizedRunId);
+    throw error;
+  }
 
   sendLog(
     runId,
     "info",
-    `Check progress started for ${SAVE_POST_PROCESS_DURATION_MINUTES} minutes. Other application actions remain available.`
+    `Save progress started with a ${SAVE_POST_PROCESS_DURATION_MINUTES}-minute limit.`
   );
 
   return state;
+}
+
+function getActiveSaveProcessSignal(runId) {
+  return activeSaveProcessControllers.get(String(runId || ""))?.signal;
 }
 
 async function completeSavePostProcess(runId = "") {
@@ -1629,10 +1840,10 @@ async function completeSavePostProcess(runId = "") {
   });
 }
 
-async function cancelSavePostProcess(runId = "") {
+async function cancelSavePostProcess(runId = "", options = {}) {
   return clearSavePostProcess({
     resetInputs: true,
-    reason: "cancelled",
+    reason: options.reason === "timed-out" ? "timed-out" : "cancelled",
     runId
   });
 }
@@ -1643,9 +1854,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 
   try {
-    await completeSavePostProcess();
+    await cancelSavePostProcess("", { reason: "timed-out" });
   } catch (error) {
-    console.error("Could not complete save check progress:", error);
+    console.error("Could not stop the timed-out save process:", error);
   }
 });
 
@@ -1958,6 +2169,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
+    OPEN_URL_IN_RIGHT_WINDOW: openUrlInRightWindow,
     CLOSE_TABS_AND_RETURN: closeTabsAndReturn,
     UPDATE_WORKSPACE_RESUME_CONTEXT: updateWorkspaceResumeContext,
     CREATE_GOOGLE_DOC: createGoogleDoc,
@@ -1982,6 +2194,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ? run(message.runId, {
               url: message.url
             })
+          : message.type === "OPEN_URL_IN_RIGHT_WINDOW"
+            ? run(message.runId, {
+                url: message.url,
+                sourceWindowId: message.sourceWindowId
+              })
           : message.type === "CLOSE_TABS_AND_RETURN"
             ? run(message.runId, {
                 openedTabIds: message.openedTabIds,
@@ -2001,12 +2218,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   runPromise
     .then((result) => sendResponse({ ok: true, ...result }))
     .catch((error) => {
-      console.error(error);
+      const cancelled = isSaveProcessCancelledError(error);
+      if (cancelled) {
+        console.info(error.message || "Save process cancelled.");
+      } else {
+        console.error(error);
+      }
 
-      sendLog(message.runId, "error", error.message || "Unknown error");
+      sendLog(
+        message.runId,
+        cancelled ? "info" : "error",
+        error.message || "Unknown error"
+      );
 
       sendResponse({
         ok: false,
+        cancelled,
         error: error.message || "Unknown error"
       });
     });
@@ -2085,7 +2312,8 @@ async function groupApplicationTabs({
   return groupId;
 }
 
-async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId) {
+async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId, options = {}) {
+  const { signal } = options;
   if (typeof sourceTab?.id !== "number") {
     throw new Error("Current tab does not have a valid tab ID.");
   }
@@ -2105,6 +2333,7 @@ async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId) {
   );
 
   for (let index = 0; index < additionalTabCount; index += 1) {
+    throwIfSaveProcessCancelled(signal);
     const createProperties = {
       url: sourceTab.url,
       active: false,
@@ -2114,7 +2343,10 @@ async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId) {
       createProperties.index = sourceTab.index + index + 1;
     }
 
-    const duplicateTab = await chrome.tabs.create(createProperties);
+    const duplicateTab = await waitForSaveProcessOperation(
+      () => chrome.tabs.create(createProperties),
+      signal
+    );
     if (typeof duplicateTab.id !== "number") {
       throw new Error("Could not create a ChatGPT target tab for every profile.");
     }
@@ -2151,10 +2383,16 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
     allowGrouped: !groupTabsInsteadOfClosing
   });
 
-  await clearSavePostProcess({
-    resetInputs: false,
-    reason: "replaced"
-  });
+  const selectedProfiles = validation.selectedProfiles;
+  await scheduleSavePostProcess(
+    {
+      mode: groupTabsInsteadOfClosing ? "apply" : "save",
+      profileCount: selectedProfiles.length
+    },
+    runId
+  );
+  const signal = getActiveSaveProcessSignal(runId);
+  throwIfSaveProcessCancelled(signal);
 
   try {
     sendLog(runId, "info", "Checking current active tab...");
@@ -2163,14 +2401,17 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
 
     sendLog(runId, "success", `Found tab URL: ${tab.url}`);
 
-    const selectedProfiles = validation.selectedProfiles;
     const resumeTemplateIds = new Map(
       selectedProfiles.map((profile) => [
         profile.id,
         getProfileResumeTemplateId(profile)
       ])
     );
-    const token = await getGoogleAccessToken();
+    const token = await waitForSaveProcessOperation(
+      () => getGoogleAccessToken(),
+      signal
+    );
+    throwIfSaveProcessCancelled(signal);
 
     if (typeof tab.id !== "number") {
       throw new Error("Current tab does not have a valid tab ID.");
@@ -2178,10 +2419,16 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
 
     const targetTabIds = groupTabsInsteadOfClosing
       ? []
-      : await createSaveProfileTargetTabIds(tab, selectedProfiles.length, runId);
+      : await createSaveProfileTargetTabIds(
+          tab,
+          selectedProfiles.length,
+          runId,
+          { signal }
+        );
     const results = [];
 
     for (let index = 0; index < selectedProfiles.length; index += 1) {
+      throwIfSaveProcessCancelled(signal);
       const profile = selectedProfiles[index];
       const profileName =
         String(profile?.name || "").trim() || DEFAULT_PROFILE_NAME;
@@ -2205,12 +2452,13 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         token,
         docTitle,
         resumeTemplateId,
-        runId
+        runId, { signal }
       );
       sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
 
       sendLog(runId, "info", `Preparing ChatGPT prompt for "${profileName}"...`);
       const chatGptMessage = await buildChatGptMessageFromStorage(profile);
+      throwIfSaveProcessCancelled(signal);
       let chatGptUrl = CHATGPT_URL;
       let chatGptTabId = null;
       const targetTabId = groupTabsInsteadOfClosing
@@ -2236,7 +2484,9 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         const chatGptResult = await sendToChatGptAndGetUrl(
           chatGptMessage,
           runId,
-          groupTabsInsteadOfClosing ? {} : { tabId: targetTabId }
+          groupTabsInsteadOfClosing
+            ? { signal }
+            : { tabId: targetTabId, signal }
         );
         chatGptUrl = chatGptResult.url;
         chatGptTabId = chatGptResult.tabId;
@@ -2247,8 +2497,8 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
           `No ChatGPT message content was available for "${profileName}".`
         );
         const chatGptResult = groupTabsInsteadOfClosing
-          ? await openNewChatGptTab(runId)
-          : await openChatGptInExistingTab(targetTabId, runId);
+          ? await openNewChatGptTab(runId, { signal })
+          : await openChatGptInExistingTab(targetTabId, runId, { signal });
         chatGptUrl = chatGptResult.url;
         chatGptTabId = chatGptResult.tabId;
       }
@@ -2270,13 +2520,18 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       );
 
       await appendRowsToGoogleSheet([row], runId, {
-        sheetName: profileName
+        sheetName: profileName,
+        signal
       });
       sendLog(
         runId,
         "success",
         `URL saved to profile sheet tab "${profileName}".`
       );
+
+      if (index === selectedProfiles.length - 1) {
+        await completeSavePostProcess(runId);
+      }
 
       if (!groupTabsInsteadOfClosing) {
         await notifyExtensionPages({
@@ -2298,6 +2553,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       sendLog(runId, "success", `Finished profile ${positionLabel}: ${profileName}`);
     }
 
+
     let applicationGroupId = null;
 
     if (groupTabsInsteadOfClosing) {
@@ -2314,13 +2570,6 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
 
     const finalResult = results[results.length - 1];
 
-    await scheduleSavePostProcess(
-      {
-        mode: groupTabsInsteadOfClosing ? "apply" : "save",
-        profileCount: selectedProfiles.length
-      },
-      runId
-    );
 
     sendLog(
       runId,
@@ -2345,6 +2594,24 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       grouped: groupTabsInsteadOfClosing
     };
   } catch (error) {
+    if (isSaveProcessCancelledError(error)) {
+      await clearSavePostProcess({
+        resetInputs: true,
+        reason: "cancelled",
+        runId
+      }).catch((cleanupError) => {
+        console.error("Could not clean up the cancelled save process:", cleanupError);
+      });
+      throw createSaveProcessCancelledError();
+    }
+
+    await clearSavePostProcess({
+      resetInputs: false,
+      reason: "failed",
+      runId
+    }).catch((cleanupError) => {
+      console.error("Could not clean up the failed save process:", cleanupError);
+    });
     throw error;
   }
 }
@@ -2368,6 +2635,7 @@ async function ensureSheetExists(
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=${fields}`;
 
   const response = await fetch(url, {
+    signal: options.signal,
     headers: {
       Authorization: `Bearer ${token}`
     }
@@ -2391,7 +2659,8 @@ async function ensureSheetExists(
         spreadsheetId,
         sheetTitle,
         sheetId,
-        runId
+        runId,
+        { signal: options.signal }
       );
     }
     return sheetId;
@@ -2420,6 +2689,7 @@ async function ensureSheetExists(
   const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
   const createResponse = await fetch(batchUrl, {
     method: "POST",
+    signal: options.signal,
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json"
@@ -2460,13 +2730,15 @@ async function ensureApplicationSheetSchema(
   spreadsheetId,
   sheetName,
   sheetId,
-  runId
+  runId,
+  options = {}
 ) {
   const headerRange = encodeURIComponent(formatSheetRange(sheetName, "A1:G1"));
   const headerUrl =
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
     `/values/${headerRange}`;
   const headerResponse = await fetch(headerUrl, {
+    signal: options.signal,
     headers: {
       Authorization: `Bearer ${token}`
     }
@@ -2494,10 +2766,15 @@ async function ensureApplicationSheetSchema(
   let existingRowCount = 0;
 
   if (shouldInsertProfileColumn) {
-    const existingValues = await readSheetValues(token, runId, {
-      spreadsheetId,
-      sheetName
-    });
+    const existingValues = await readSheetValues(
+      token,
+      runId,
+      {
+        spreadsheetId,
+        sheetName
+      },
+      { signal: options.signal }
+    );
     existingRowCount = Math.max(0, existingValues.length - 1);
     requests.push({
       insertDimension: {
@@ -2538,6 +2815,7 @@ async function ensureApplicationSheetSchema(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
   const response = await fetch(batchUrl, {
     method: "POST",
+    signal: options.signal,
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json"
@@ -2563,7 +2841,7 @@ async function ensureApplicationSheetSchema(
   }
 }
 
-async function readSheetValues(token, runId, sheetConfig) {
+async function readSheetValues(token, runId, sheetConfig, options = {}) {
   const { spreadsheetId, sheetName } = sheetConfig;
   const range = encodeURIComponent(formatSheetRange(sheetName, "A:G"));
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`;
@@ -2571,6 +2849,7 @@ async function readSheetValues(token, runId, sheetConfig) {
   sendLog(runId, "info", `Reading rows from ${sheetName}...`);
 
   const response = await fetch(url, {
+    signal: options.signal,
     headers: {
       Authorization: `Bearer ${token}`
     }
@@ -2725,7 +3004,11 @@ async function removeDuplicateUrlsFromSheet(runId) {
 async function appendRowsToGoogleSheet(rows, runId, options = {}) {
   sendLog(runId, "info", "Requesting Google authorization token...");
 
-  const token = await getGoogleAccessToken();
+  const token = await waitForSaveProcessOperation(
+    () => getGoogleAccessToken(),
+    options.signal
+  );
+  throwIfSaveProcessCancelled(options.signal);
   const sheetConfig = await getSheetConfig();
   const sheetName =
     String(options.sheetName || sheetConfig.sheetName || "").trim();
@@ -2738,7 +3021,8 @@ async function appendRowsToGoogleSheet(rows, runId, options = {}) {
     sheetName,
     runId,
     {
-      initializeApplicationSheet: true
+      initializeApplicationSheet: true,
+      signal: options.signal
     }
   );
 
@@ -2752,6 +3036,7 @@ async function appendRowsToGoogleSheet(rows, runId, options = {}) {
 
   const response = await fetch(url, {
     method: "POST",
+    signal: options.signal,
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json"
@@ -2811,11 +3096,12 @@ function formatGoogleApiError(errorText, fallbackMessage) {
   return fallbackMessage;
 }
 
-async function copyGoogleDocTemplate(token, title, templateId) {
+async function copyGoogleDocTemplate(token, title, templateId, options = {}) {
   const response = await fetch(
     `https://www.googleapis.com/drive/v3/files/${templateId}/copy`,
     {
       method: "POST",
+      signal: options.signal,
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json"
@@ -3220,14 +3506,34 @@ async function replaceResumeContextPreservingStyles(
   return activeToken;
 }
 
-async function copyResumeAndGetUrl(token, title, resumeTemplateId, runId) {
-  let response = await copyGoogleDocTemplate(token, title, resumeTemplateId);
+async function copyResumeAndGetUrl(
+  token,
+  title,
+  resumeTemplateId,
+  runId,
+  options = {}
+) {
+  let response = await copyGoogleDocTemplate(
+    token,
+    title,
+    resumeTemplateId,
+    options
+  );
 
   if (response.status === 401 || response.status === 403) {
     sendLog(runId, "info", "Resume copy auth error. Refreshing token and retrying...");
     await clearCachedGoogleAccessToken(token);
-    const freshToken = await getGoogleAccessToken({ interactive: true });
-    response = await copyGoogleDocTemplate(freshToken, title, resumeTemplateId);
+    const freshToken = await waitForSaveProcessOperation(
+      () => getGoogleAccessToken({ interactive: true }),
+      options.signal
+    );
+    throwIfSaveProcessCancelled(options.signal);
+    response = await copyGoogleDocTemplate(
+      freshToken,
+      title,
+      resumeTemplateId,
+      options
+    );
   }
 
   if (!response.ok) {

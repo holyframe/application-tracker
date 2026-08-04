@@ -13,17 +13,7 @@ const homeCancelProcessButton = document.querySelector("#homeCancelProcessButton
 const applicationCancelProcessButton = document.querySelector(
   "#applicationCancelProcessButton"
 );
-const homeSavePostProcessProgress = document.querySelector(
-  "#homeSavePostProcessProgress"
-);
-const homeSavePostProcessBar = document.querySelector("#homeSavePostProcessBar");
 const homeSavePostProcessTime = document.querySelector("#homeSavePostProcessTime");
-const applicationSavePostProcessProgress = document.querySelector(
-  "#applicationSavePostProcessProgress"
-);
-const applicationSavePostProcessBar = document.querySelector(
-  "#applicationSavePostProcessBar"
-);
 const applicationSavePostProcessTime = document.querySelector(
   "#applicationSavePostProcessTime"
 );
@@ -45,8 +35,11 @@ const applicationWorkspaceUrlInput = document.querySelector(
 const applicationWorkspaceRefreshButton = document.querySelector(
   "#applicationWorkspaceRefreshButton"
 );
-const applicationWorkspaceExchangeUrlButton = document.querySelector(
-  "#applicationWorkspaceExchangeUrlButton"
+const applicationWorkspacePickupButton = document.querySelector(
+  "#applicationWorkspacePickupButton"
+);
+const applicationWorkspaceNotesButton = document.querySelector(
+  "#applicationWorkspaceNotesButton"
 );
 const applicationWorkspaceCopyUrlButton = document.querySelector(
   "#applicationWorkspaceCopyUrlButton"
@@ -555,7 +548,14 @@ function setProfileNotesModalOpen(isOpen) {
   }
 
   notesProfileId = null;
-  if (profileNotesInput) profileNotesInput.value = "";
+  if (profileNotesInput) {
+    profileNotesInput.value = "";
+    profileNotesInput.readOnly = false;
+  }
+  if (profileNotesModalSubmitButton) {
+    profileNotesModalSubmitButton.hidden = false;
+    profileNotesModalSubmitButton.disabled = false;
+  }
   profileList
     ?.querySelector(".profile-item.is-expanded .profile-notes")
     ?.focus();
@@ -581,8 +581,50 @@ function openProfileNotesModal(profileId) {
 
   if (profileNotesInput) {
     profileNotesInput.value = profile.notes || "";
+    profileNotesInput.readOnly = false;
+  }
+  if (profileNotesModalSubmitButton) {
+    profileNotesModalSubmitButton.hidden = false;
+    profileNotesModalSubmitButton.disabled = false;
   }
 
+  setProfileNotesModalOpen(true);
+}
+
+function openApplicationWorkspaceNotesModal() {
+  if (!hasActiveSaveWorkspaceForCurrentTab()) {
+    showStatus("error", "No active Application workspace profile.");
+    return;
+  }
+
+  const workspace = currentSaveWorkspace;
+  const profileName = String(
+    workspace.profileName || DEFAULT_PROFILE_NAME
+  ).trim();
+  const savedProfile = getProfileByName(profileName);
+
+  if (savedProfile) {
+    openProfileNotesModal(savedProfile.id);
+    return;
+  }
+
+  notesProfileId = null;
+  if (profileNotesModalTitle) {
+    profileNotesModalTitle.textContent = `Notes - ${profileName}`;
+  }
+  if (profileNotesModalHelp) {
+    profileNotesModalHelp.textContent =
+      "This workspace profile is not saved, so its notes are read-only.";
+  }
+  if (profileNotesInput) {
+    profileNotesInput.value =
+      String(workspace.profileNotes || "").trim() ||
+      "No notes are available for this profile.";
+    profileNotesInput.readOnly = true;
+  }
+  if (profileNotesModalSubmitButton) {
+    profileNotesModalSubmitButton.hidden = true;
+  }
   setProfileNotesModalOpen(true);
 }
 
@@ -1360,43 +1402,35 @@ function formatSavePostProcessTime(remainingMs) {
 }
 
 function renderSavePostProcessControls() {
-  const { startedAt, endsAt, durationMs } = getSavePostProcessTiming();
+  const { endsAt } = getSavePostProcessTiming();
   const hasState = endsAt > 0;
   const remainingMs = Math.max(0, endsAt - Date.now());
   const isCounting = hasState && remainingMs > 0;
-  const elapsedMs = Math.min(durationMs, Math.max(0, Date.now() - startedAt));
   const timeLabel = formatSavePostProcessTime(remainingMs);
   const applicationControlsVisible = hasState && !isSplitWindowsDialogOpen;
-  const exchangeDisabled = areActionButtonsDisabled || hasState;
+  const exchangeDisabled = hasState;
 
-  const progressViews = [
+  const progressStatuses = [
     {
-      container: homeSavePostProcessProgress,
-      bar: homeSavePostProcessBar,
-      time: homeSavePostProcessTime,
+      element: homeSavePostProcessTime,
       visible: hasState
     },
     {
-      container: applicationSavePostProcessProgress,
-      bar: applicationSavePostProcessBar,
-      time: applicationSavePostProcessTime,
+      element: applicationSavePostProcessTime,
       visible: applicationControlsVisible
     }
   ];
 
-  progressViews.forEach(({ container, bar, time, visible }) => {
-    container?.classList.toggle("is-hidden", !visible);
-    if (bar) {
-      bar.max = durationMs;
-      bar.value = elapsedMs;
-      bar.setAttribute(
-        "aria-valuetext",
-        isCounting ? `${timeLabel} remaining` : "Complete"
-      );
-    }
-    if (time) {
-      time.textContent = timeLabel;
-    }
+  progressStatuses.forEach(({ element, visible }) => {
+    if (!element) return;
+    element.classList.toggle("is-hidden", !visible);
+    element.textContent = `Save progress - ${timeLabel}`;
+    element.setAttribute(
+      "aria-label",
+      isCounting
+        ? `Save progress, ${timeLabel} remaining`
+        : "Save progress complete"
+    );
   });
 
   homeCancelProcessButton?.classList.toggle("is-hidden", !hasState);
@@ -1458,16 +1492,16 @@ async function cancelSavePostProcess() {
       runId: savePostProcessState?.runId || activeRunId
     });
     if (!response?.ok) {
-      throw new Error(response?.error || "Could not cancel check progress.");
+      throw new Error(response?.error || "Could not cancel the save process.");
     }
     setSavePostProcessState(null);
     addLog(
       "info",
-      "Check progress cancelled. Generated tabs and saved application data were kept."
+      "Save process cancelled. Any completed tabs and saved application data were kept."
     );
   } catch (error) {
-    console.error("Could not cancel check progress:", error);
-    addLog("error", error.message || "Could not cancel check progress.");
+    console.error("Could not cancel the save process:", error);
+    addLog("error", error.message || "Could not cancel the save process.");
   } finally {
     isSavePostProcessRequestPending = false;
     renderSavePostProcessControls();
@@ -1481,7 +1515,7 @@ async function loadSavePostProcessState() {
     );
     setSavePostProcessState(stored[SAVE_POST_PROCESS_STORAGE_KEY]);
   } catch (error) {
-    console.error("Could not load check progress:", error);
+    console.error("Could not load save progress:", error);
     setSavePostProcessState(null);
   }
 }
@@ -2666,7 +2700,14 @@ function updateWorkspaceHeaderStatus(type, message, titleText) {
   const displayText = `Last status: ${label}${detail ? ` — ${detail}` : ""}`;
 
   workspaceHeaderStatuses.forEach((statusElement) => {
-    statusElement.textContent = displayText;
+    const statusText = statusElement.querySelector(
+      ".workspace-header-status-text"
+    );
+    if (statusText) {
+      statusText.textContent = displayText;
+    } else {
+      statusElement.textContent = displayText;
+    }
     statusElement.title = displayText;
     statusElement.classList.toggle("is-error", type === "error");
   });
@@ -2889,7 +2930,9 @@ async function runCurrentAppAction(mode = "save") {
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error || "Could not save URL.");
+      const error = new Error(response?.error || "Could not save URL.");
+      error.cancelled = response?.cancelled === true;
+      throw error;
     }
 
     showStatus("success", response.url);
@@ -2900,9 +2943,14 @@ async function runCurrentAppAction(mode = "save") {
         : "Process completed successfully."
     );
   } catch (error) {
-    console.error(error);
-    showStatus("error", error.message || "Something went wrong.");
-    addLog("error", error.message || "Something went wrong.");
+    if (error.cancelled) {
+      showStatus("info", "Save process cancelled.", "Status:");
+      addLog("info", "Save process ended by Cancel Process.");
+    } else {
+      console.error(error);
+      showStatus("error", error.message || "Something went wrong.");
+      addLog("error", error.message || "Something went wrong.");
+    }
   } finally {
     finishButtonProcess();
   }
@@ -3367,6 +3415,81 @@ async function exchangeSaveWorkspaceUrls() {
   }
 }
 
+function getWorkspaceUrlComparisonKey(value) {
+  try {
+    const parsedUrl = new URL(String(value || "").trim());
+    parsedUrl.hash = "";
+    return parsedUrl.href.replace(/\/$/, "");
+  } catch {
+    return String(value || "").trim().replace(/\/$/, "");
+  }
+}
+
+async function pickupRemainingWorkspaceUrl() {
+  if (
+    areActionButtonsDisabled ||
+    !hasActiveSaveWorkspaceForCurrentTab() ||
+    !beginSaveWorkspaceAction(
+      "Pick up clicked. Opening the remaining URL in a right-side window..."
+    )
+  ) {
+    return;
+  }
+
+  const workspace = currentSaveWorkspace;
+
+  try {
+    const mainTab = await chrome.tabs.get(workspace.chatGptTabId);
+    const mainUrlKey = getWorkspaceUrlComparisonKey(mainTab?.url);
+    const seenUrls = new Set();
+    const remainingUrl = [
+      workspace.jobUrl,
+      workspace.storedExchangeUrl,
+      workspace.chatGptUrl
+    ]
+      .map((value) => String(value || "").trim())
+      .find((candidate) => {
+        if (!candidate) return false;
+        const candidateKey = getWorkspaceUrlComparisonKey(candidate);
+        if (!candidateKey || seenUrls.has(candidateKey)) return false;
+        seenUrls.add(candidateKey);
+        return candidateKey !== mainUrlKey;
+      });
+
+    if (!remainingUrl) {
+      throw new Error(
+        "Could not find a remaining job or ChatGPT URL to pick up."
+      );
+    }
+
+    const response = await chrome.runtime.sendMessage({
+      type: "OPEN_URL_IN_RIGHT_WINDOW",
+      runId: activeRunId || createRunId(),
+      url: remainingUrl,
+      sourceWindowId: mainTab.windowId
+    });
+    if (!response?.ok) {
+      throw new Error(
+        response?.error || "Could not open the remaining URL."
+      );
+    }
+
+    showStatus("success", remainingUrl, "Picked up:");
+    addLog(
+      "success",
+      "Opened the remaining job or ChatGPT URL in a right-side Chrome window."
+    );
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Could not pick up the remaining URL.");
+    addLog("error", error.message || "Could not pick up the remaining URL.");
+  } finally {
+    if (currentSaveWorkspace === workspace) {
+      finishSaveWorkspaceAction();
+    }
+  }
+}
+
 function hasSaveWorkspaceSession() {
   return (
     ["save-workspace", "make-resume"].includes(currentSplitWindowSessionType) &&
@@ -3748,20 +3871,24 @@ function appendDroppedUrls(dataTransfer) {
 function updateApplicationWorkspaceUrlControls() {
   const hasUrl = Boolean(applicationWorkspaceUrlInput?.value.trim());
   const hasActiveWorkspace = hasActiveSaveWorkspaceForCurrentTab();
-  const showExchange = !isSplitWindowsDialogOpen;
-  const exchangeDisabled =
-    !showExchange ||
+  const showPickup = !isSplitWindowsDialogOpen;
+  const pickupDisabled =
+    !showPickup ||
     !hasActiveWorkspace ||
     !currentSaveWorkspace?.isReady ||
     currentSaveWorkspace?.isBusy ||
     areActionButtonsDisabled;
 
-  if (applicationWorkspaceExchangeUrlButton) {
-    applicationWorkspaceExchangeUrlButton.classList.toggle(
+  if (applicationWorkspacePickupButton) {
+    applicationWorkspacePickupButton.classList.toggle(
       "is-hidden",
-      !showExchange
+      !showPickup
     );
-    applicationWorkspaceExchangeUrlButton.disabled = exchangeDisabled;
+    applicationWorkspacePickupButton.disabled = pickupDisabled;
+  }
+  if (applicationWorkspaceNotesButton) {
+    applicationWorkspaceNotesButton.disabled =
+      !showPickup || !hasActiveWorkspace;
   }
   if (applicationWorkspaceCopyUrlButton) {
     applicationWorkspaceCopyUrlButton.disabled = !hasUrl;
@@ -3909,6 +4036,13 @@ function renderApplicationWorkspaceProfileNote(workspace, activeTab) {
         : "No notes have been saved for this profile.");
   }
 }
+function getApplicationWorkspaceTitle(workspace = currentSaveWorkspace) {
+  const profileName = String(workspace?.profileName || "").trim();
+  return profileName
+    ? `Application workspace ${profileName}`
+    : "Application workspace";
+}
+
 function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
   const isResume = activeTab === "resume";
   const normalizedTab = isResume ? "resume" : "job";
@@ -3957,7 +4091,7 @@ function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
     const isConversationPreview = !isResume && isChatOrClaudeUrl(previewUrl);
 
     setSplitWindowsPreview(previewUrl, {
-      title: "Application workspace",
+      title: getApplicationWorkspaceTitle(currentSaveWorkspace),
       frameTitle: isResume
         ? `${currentSaveWorkspace.profileName} resume`
         : currentSaveWorkspace.jobTitle,
@@ -4101,11 +4235,7 @@ async function copyApplicationWorkspaceUrl() {
 function updateSaveWorkspaceActions() {
   const isApplicationWorkspace = !isSplitWindowsDialogOpen;
   const hasActiveWorkspace = hasActiveSaveWorkspaceForCurrentTab();
-  const activeWorkspaceTab = hasActiveWorkspace
-    ? currentSaveWorkspace.activeTab
-    : currentEmptyWorkspaceTab;
-  const showWorkspaceActions =
-    isApplicationWorkspace && activeWorkspaceTab === "resume";
+  const showWorkspaceActions = isApplicationWorkspace;
   const actionsDisabled =
     !hasActiveWorkspace ||
     !currentSaveWorkspace?.isReady ||
@@ -4487,9 +4617,13 @@ applicationWorkspaceRefreshButton?.addEventListener(
   "click",
   refreshApplicationWorkspacePreview
 );
-applicationWorkspaceExchangeUrlButton?.addEventListener(
+applicationWorkspacePickupButton?.addEventListener(
   "click",
-  exchangeSaveWorkspaceUrls
+  pickupRemainingWorkspaceUrl
+);
+applicationWorkspaceNotesButton?.addEventListener(
+  "click",
+  openApplicationWorkspaceNotesModal
 );
 applicationWorkspaceCopyUrlButton?.addEventListener(
   "click",

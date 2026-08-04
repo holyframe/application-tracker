@@ -81,7 +81,7 @@ input {
   z-index: 20;
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) auto;
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto;
   align-items: center;
   column-gap: 10px;
   row-gap: 3px;
@@ -117,6 +117,10 @@ input {
 .workspace-header-status {
   grid-column: 1 / -1;
   grid-row: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   margin: 0;
   min-width: 0;
   overflow: hidden;
@@ -127,6 +131,33 @@ input {
   text-align: center;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.workspace-header-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-save-progress-status {
+  flex: none;
+  color: #9ee7c0;
+  font-weight: 750;
+}
+
+.workspace-save-progress-status::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  vertical-align: 1px;
+}
+
+.workspace-save-progress-status.is-hidden {
+  display: none;
 }
 
 .workspace-header-status.is-error {
@@ -152,49 +183,8 @@ input {
   grid-row: auto;
 }
 
-.save-post-process-progress {
-  grid-column: 1 / -1;
-  grid-row: 3;
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-  margin-top: 2px;
-}
-
-.save-post-process-progress.is-hidden,
 .workspace-cancel-process-button.is-hidden {
   display: none;
-}
-
-.save-post-process-progress-label {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  color: rgba(228, 230, 255, 0.78);
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 1.2;
-}
-
-.save-post-process-progress progress {
-  appearance: none;
-  width: 100%;
-  height: 5px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(228, 230, 255, 0.18);
-}
-
-.save-post-process-progress progress::-webkit-progress-bar {
-  border-radius: 999px;
-  background: rgba(228, 230, 255, 0.18);
-}
-
-.save-post-process-progress progress::-webkit-progress-value {
-  border-radius: 999px;
-  background: linear-gradient(90deg, #8f93ff 0%, #72e2ad 100%);
-  transition: width 250ms linear;
 }
 
 .workspace-settings-button {
@@ -1834,7 +1824,7 @@ textarea:focus {
 
 .split-windows-preview-view {
   display: grid;
-  grid-template-rows: auto auto minmax(240px, 1fr) auto auto auto;
+  grid-template-rows: auto auto minmax(240px, 1fr) auto auto;
   gap: 8px;
   min-height: 0;
 }
@@ -1911,6 +1901,26 @@ textarea:focus {
 .application-workspace-url-input,
 .application-workspace-url-actions {
   display: none;
+}
+
+.split-windows-modal.is-workspace-page .save-workspace-actions {
+  grid-row: 1;
+}
+
+.split-windows-modal.is-workspace-page .split-windows-preview-location {
+  grid-row: 2;
+}
+
+.split-windows-modal.is-workspace-page .split-windows-preview-content {
+  grid-row: 3;
+}
+
+.split-windows-modal.is-workspace-page .split-windows-preview-help {
+  grid-row: 4;
+}
+
+.split-windows-modal.is-workspace-page #splitWindowsBatchActions {
+  grid-row: 5;
 }
 
 .split-windows-modal.is-workspace-page .split-windows-preview-location {

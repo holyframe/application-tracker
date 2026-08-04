@@ -10,7 +10,7 @@ It combines:
 - Google Docs template copying and resume generation
 - ChatGPT prompt submission
 - Google Sheets application tracking
-- Chrome tab grouping, keyboard shortcuts, in-panel check progress, and Google Docs PDF downloads
+- Chrome tab grouping, keyboard shortcuts, in-panel save progress, and Google Docs PDF downloads
 
 ## Main workflow
 
@@ -23,31 +23,29 @@ stay visible. Then provide a base GPT prompt and job description.
 
 Both actions normalize the active job URL, copy the relevant profile's
 configured Google Docs resume template, submit the prepared message to ChatGPT,
-save the seven-column application record, and start a two-minute in-panel check
-progress bar. `Save App` repeats that process once per checked profile. `Apply
-Now` currently requires exactly one checked profile.
+and save the seven-column application record. A two-minute in-panel save
+countdown starts with the action and ends as soon as the final Google Sheet row
+is saved. `Save App` repeats that process once per checked profile. `Apply Now`
+currently requires exactly one checked profile.
 
 `Save App` creates one ChatGPT workflow per checked profile. It reuses the
 original job tab for the first profile and creates one additional target tab
 for every remaining profile. Before navigating each target to ChatGPT, the
-extension opens a full-page application workspace in the side panel with two
-custom tabs:
+extension opens a full-page Application workspace in the side panel. Its
+header is labeled `Application workspace {profile name}`, and the copied
+profile resume is embedded without a separate tab panel.
 
-- **Profile resume** embeds the copied resume document created from the
-  selected profile's configured template. Its Build resume action opens a
-  Resume Context dialog and maps the submitted text onto that existing copy,
-  Download resume exports it as PDF, and Exchange stores the main
-  ChatGPT/Claude URL before navigating the main tab to the job URL. The chat
-  URL is never loaded in the sidebar iframe; the next Exchange restores it in
-  the main tab.
-- **Information page** embeds the original job URL.
+Build resume, Download resume, and Exchange appear above the URL panel. Build
+resume opens a Resume Context dialog and maps the submitted text onto the
+existing copied document. Download resume exports that document as PDF.
+Exchange stores the main ChatGPT/Claude URL before navigating the main tab to
+the job URL; the next Exchange restores the stored chat URL.
 
-The Profile resume tab is the initial tab shown for each populated Save App
-workspace.
-
-The Application workspace URL bar is editable. Press Enter or use its Refresh
-icon to validate, save, and reload the URL for the active Information page or
-Profile resume tab. The adjacent Copy icon copies the current field value.
+The Application workspace URL bar edits the embedded resume URL. Press Enter
+or use Refresh to validate, save, and reload it, while Copy copies the current
+field value. Pickup opens whichever job or ChatGPT/Claude URL is not currently
+in the main tab in a new Chrome window positioned on the right. The Notes icon
+to the left of Refresh opens the current profile's notes in a modal.
 
 Build resume maps each non-empty input line to the next existing text paragraph
 in the current copied Google Doc. It retains that document's paragraph
@@ -57,26 +55,30 @@ without deleting their paragraph formatting. The configured master template is
 never edited, and no placeholder is required.
 
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
-already-grouped job tab and leaves any existing group unchanged. After either
-application action finishes, the matching **Home workspace** and **Application
-workspace** headers show a two-minute progress bar and a Cancel Process icon.
-All other application actions remain available; only the header Exchange icon
-that switches between Home and Application workspaces is disabled. Completing
-or cancelling the progress clears the checked profiles, selected prompt-resume
-variants, and job description without closing generated tabs or removing saved
-application data. No Chrome notification is created.
+already-grouped job tab and leaves any existing group unchanged. While either
+application action is running, the matching **Home workspace** and **Application
+workspace** headers show `Save progress` with the remaining time inside the
+same compact status/log line. There is no separate progress bar, and Cancel
+Process stays at the far right of the header. The header Exchange icon that
+switches between Home and Application workspaces stays disabled until the final
+Google Sheet row is saved. Saving that row ends progress immediately. Cancel
+Process stops both progress and the active save early; the two-minute limit
+does the same if the process times out. Successful completion, cancellation,
+or timeout clears the checked profiles, selected prompt-resume variants, and
+job description without closing completed tabs or removing data already
+saved. No Chrome notification is created.
 
-Outside check progress, the matching workspace headers show an Exchange icon
-for switching between the two views. A compact line below each title retains
+Outside save progress, the matching workspace headers show an Exchange icon
+for switching between the two views. The compact line below each title retains
 the app's most recent success or error. The Home workspace header also provides
 a left-side Settings icon that opens configuration in a modal.
 
 Before `Save App` runs, and on browser tabs that are not bound to the current
-saved application, the Job page and Profile resume tabs show empty states
-without URLs. Returning to any ChatGPT tab created by the batch restores that
-profile's populated side-panel workspace. Each workspace is removed when its
-bound tab closes; after the final bound tab closes, the empty Application
-workspace remains available.
+saved application, the Application workspace shows an empty resume state and
+disabled resume actions. Returning to any ChatGPT tab created by the batch
+restores that profile's populated side-panel workspace. Each workspace is
+removed when its bound tab closes; after the final bound tab closes, the empty
+Application workspace remains available.
 
 `Apply Now` requires an ungrouped job tab and immediately groups the job page,
 resume document, and ChatGPT conversation.
@@ -113,14 +115,12 @@ columns C-F shift to D-G.
   every job URL in a new main tab and registers each tab in the same full-page
   Application workspace used by Save App. The profile name labels the paired
   Google Docs resume and retrieves that profile's locally saved note.
-- The imported Information page initially holds the ChatGPT or Claude URL. The
-  URL remains visible, while the body explains that conversations cannot be
-  embedded. Exchange swaps the main-tab URL with the Information-page URL, so
-  the conversation opens in the main tab and the job page moves into the
-  sidebar. Embeddable job pages display normally; blocked pages show an
-  explanation, and the profile note remains above the URL panel.
-  Switching among imported job tabs restores each tab's workspace. Make Resume
-  is available only while the current tab is a Google Sheets spreadsheet.
+- Pickup opens the imported ChatGPT or Claude URL in a new right-side Chrome
+  window while leaving the job URL in the main tab. Exchange can still swap the
+  stored main-tab job/chat URLs. The Notes icon displays the matched profile
+  note in a modal. Switching among imported job tabs restores each tab's
+  workspace. Make Resume is available only while the current tab is a Google
+  Sheets spreadsheet.
 - Profile notes are stored locally for reference and are not sent to ChatGPT or
   written to the Google Sheet.
 

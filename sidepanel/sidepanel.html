@@ -37,7 +37,15 @@
           class="workspace-header-status"
           aria-live="polite"
         >
-          Last status: No application activity yet.
+          <span class="workspace-header-status-text">
+            Last status: No application activity yet.
+          </span>
+          <span
+            id="homeSavePostProcessTime"
+            class="workspace-save-progress-status is-hidden"
+          >
+            Save progress - 2:00
+          </span>
         </p>
         <div class="workspace-header-actions">
           <button
@@ -58,7 +66,7 @@
             id="homeCancelProcessButton"
             type="button"
             class="workspace-cancel-process-button is-hidden"
-            aria-label="Cancel check progress"
+            aria-label="Cancel save process"
             title="Cancel process"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -67,21 +75,6 @@
               <path d="m15 9-6 6" />
             </svg>
           </button>
-        </div>
-        <div
-          id="homeSavePostProcessProgress"
-          class="save-post-process-progress is-hidden"
-        >
-          <div class="save-post-process-progress-label">
-            <span>Check progress</span>
-            <span id="homeSavePostProcessTime">2:00</span>
-          </div>
-          <progress
-            id="homeSavePostProcessBar"
-            max="120000"
-            value="0"
-            aria-label="Time until application inputs reset"
-          ></progress>
         </div>
       </header>
 
@@ -702,7 +695,15 @@
             class="workspace-header-status"
             aria-live="polite"
           >
-            Last status: No application activity yet.
+            <span class="workspace-header-status-text">
+              Last status: No application activity yet.
+            </span>
+            <span
+              id="applicationSavePostProcessTime"
+              class="workspace-save-progress-status is-hidden"
+            >
+              Save progress - 2:00
+            </span>
           </p>
           <div class="workspace-header-actions split-windows-header-actions">
             <button
@@ -726,7 +727,7 @@
               id="applicationCancelProcessButton"
               type="button"
               class="workspace-cancel-process-button is-hidden"
-              aria-label="Cancel check progress"
+              aria-label="Cancel save process"
               title="Cancel process"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -736,21 +737,6 @@
               </svg>
             </button>
           </div>
-          <div
-            id="applicationSavePostProcessProgress"
-            class="save-post-process-progress is-hidden"
-          >
-            <div class="save-post-process-progress-label">
-              <span>Check progress</span>
-              <span id="applicationSavePostProcessTime">2:00</span>
-            </div>
-            <progress
-              id="applicationSavePostProcessBar"
-              max="120000"
-              value="0"
-              aria-label="Time until application inputs reset"
-            ></progress>
-          </div>
         </header>
 
         <div id="splitWindowsInputView" class="split-windows-input-view">
@@ -758,8 +744,9 @@
             Paste one application per line using four tab-separated fields in
             Profile name, Chat, Job, Google Doc order. URL fields may be plain
             URLs or Markdown links such as [**URL**](URL). Job URLs open in the
-            main tabs, while Information pages start with the Chat URLs for
-            Exchange. Matching saved profile notes appear above the URL panel.
+            main tabs. The Application workspace shows the profile resume;
+            Pickup opens the remaining Chat URL in a new right-side window.
+            Use the Notes icon beside Refresh to open matching profile notes.
           </p>
 
           <div class="modal-form">
@@ -801,62 +788,56 @@
           id="splitWindowsPreviewView"
           class="split-windows-preview-view is-hidden"
         >
+
           <div
-            id="splitWindowsPreviewTabs"
-            class="split-windows-preview-tabs is-hidden"
-            role="tablist"
-            aria-label="Application workspace"
+            id="saveWorkspaceActions"
+            class="modal-actions save-workspace-actions is-hidden"
           >
             <button
-              id="splitWindowsResumeTabButton"
+              id="saveWorkspaceBuildButton"
               type="button"
-              class="split-windows-preview-tab"
-              role="tab"
-              aria-selected="false"
-              tabindex="-1"
+              class="primary-button modal-action-button"
+              title="Build resume requires a ready Application workspace."
+              disabled
             >
-              <span>Profile resume</span>
+              <span>Build resume</span>
             </button>
 
             <button
-              id="splitWindowsJobTabButton"
+              id="saveWorkspaceDownloadButton"
               type="button"
-              class="split-windows-preview-tab is-active"
-              role="tab"
-              aria-selected="true"
+              class="download-resume-button modal-action-button"
+              disabled
             >
-              <span>Information page</span>
+              <span>Download resume</span>
+            </button>
+
+            <button
+              id="saveWorkspaceExchangeButton"
+              type="button"
+              class="secondary-button modal-action-button"
+              disabled
+            >
+              <span>Exchange</span>
             </button>
           </div>
-
-          <section
-            id="applicationWorkspaceProfileNote"
-            class="application-workspace-profile-note is-hidden"
-            data-placement="above-url-panel"
-            aria-live="polite"
-          >
-            <strong id="applicationWorkspaceProfileNoteTitle">Profile note</strong>
-            <p id="applicationWorkspaceProfileNoteText">
-              No saved profile note.
-            </p>
-          </section>
 
           <div class="split-windows-preview-location">
             <span id="splitWindowsPreviewUrl" class="split-windows-preview-url-text"></span>
             <div class="application-workspace-url-actions">
               <button
-                id="applicationWorkspaceExchangeUrlButton"
+                id="applicationWorkspacePickupButton"
                 type="button"
                 class="workspace-url-icon-button is-hidden"
-                aria-label="Exchange main tab and Information page URLs"
-                title="Exchange URLs"
+                aria-label="Pick up remaining URL in a right-side window"
+                title="Open remaining URL in right-side window"
                 disabled
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M7 7h11l-3-3" />
-                  <path d="m18 7-3 3" />
-                  <path d="M17 17H6l3 3" />
-                  <path d="m6 17 3-3" />
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M12 4v16" />
+                  <path d="m15 10 3 3-3 3" />
+                  <path d="M14 13h4" />
                 </svg>
               </button>
               <button
@@ -884,6 +865,21 @@
               placeholder="Enter a URL"
             />
             <div class="application-workspace-url-actions">
+              <button
+                id="applicationWorkspaceNotesButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Open profile notes"
+                title="Profile notes"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 4h16v12l-4 4H4z" />
+                  <path d="M16 20v-4h4" />
+                  <path d="M8 8h8" />
+                  <path d="M8 12h5" />
+                </svg>
+              </button>
               <button
                 id="applicationWorkspaceRefreshButton"
                 type="button"
@@ -952,38 +948,6 @@
             </button>
           </div>
 
-          <div
-            id="saveWorkspaceActions"
-            class="modal-actions save-workspace-actions is-hidden"
-          >
-            <button
-              id="saveWorkspaceBuildButton"
-              type="button"
-              class="primary-button modal-action-button"
-              title="Build resume requires a ready Application workspace."
-              disabled
-            >
-              <span>Build resume</span>
-            </button>
-
-            <button
-              id="saveWorkspaceDownloadButton"
-              type="button"
-              class="download-resume-button modal-action-button"
-              disabled
-            >
-              <span>Download resume</span>
-            </button>
-
-            <button
-              id="saveWorkspaceExchangeButton"
-              type="button"
-              class="secondary-button modal-action-button"
-              disabled
-            >
-              <span>Exchange</span>
-            </button>
-          </div>
         </div>
       </div>
     </div>
