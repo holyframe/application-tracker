@@ -836,6 +836,200 @@ async function getSheetConfig() {
   return { spreadsheetId, sheetName };
 }
 
+const APP_DATA_BACKUP_KIND = "application-helper-backup";
+const APP_DATA_BACKUP_VERSION = 1;
+
+async function readSheetConfigForBackup() {
+  try {
+    return await getSheetConfig();
+  } catch (_error) {
+    const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
+    const config = stored[SHEET_CONFIG_STORAGE_KEY] || {};
+    return {
+      spreadsheetId:
+        parseSpreadsheetId(config.spreadsheetId || DEFAULT_SPREADSHEET_ID) ||
+        DEFAULT_SPREADSHEET_ID,
+      sheetName:
+        String(config.sheetName || DEFAULT_SHEET_NAME).trim() || DEFAULT_SHEET_NAME
+    };
+  }
+}
+
+function stripPromptResumesFromProfileSelection(selection) {
+  const state = normalizeProfileSelectionState({
+    ...selection,
+    profiles: (Array.isArray(selection?.profiles) ? selection.profiles : []).map(
+      (profile) => ({
+        ...profile,
+        promptResumes: [],
+        selectedPromptResumeId: ""
+      })
+    )
+  });
+
+  return state;
+}
+
+function mergeProfilesPreservingPromptResumes(incomingSelection, currentSelection) {
+  const currentById = new Map(
+    (Array.isArray(currentSelection?.profiles) ? currentSelection.profiles : []).map(
+      (profile) => [profile.id, profile]
+    )
+  );
+
+  const profiles = (
+    Array.isArray(incomingSelection?.profiles) ? incomingSelection.profiles : []
+  ).map((profile) => {
+    const existing = currentById.get(String(profile?.id || ""));
+    if (existing) {
+      return {
+        ...profile,
+        promptResumes: existing.promptResumes,
+        selectedPromptResumeId: existing.selectedPromptResumeId
+      };
+    }
+
+    return {
+      ...profile,
+      promptResumes: [],
+      selectedPromptResumeId: ""
+    };
+  });
+
+  return normalizeProfileSelectionState({
+    ...incomingSelection,
+    profiles
+  });
+}
+
+function buildTextSelectionState(selection) {
+  const content = normalizePromptContent(selection?.content);
+  return {
+    content,
+    updatedAt: content
+      ? normalizeUpdatedAt(selection?.updatedAt) || new Date().toISOString()
+      : ""
+  };
+}
+
+async function exportAppData({ includePromptResumes = true } = {}) {
+  const [
+    sheetConfig,
+    promptSelection,
+    humanizePromptSelection,
+    jobDescriptionSelection,
+    profileSelection
+  ] = await Promise.all([
+    readSheetConfigForBackup(),
+    getPromptSelectionState(),
+    getHumanizePromptSelectionState(),
+    getJobDescriptionSelectionState(),
+    getProfileSelectionState()
+  ]);
+
+  const includeResumes = Boolean(includePromptResumes);
+  const exportedProfiles = includeResumes
+    ? profileSelection
+    : stripPromptResumesFromProfileSelection(profileSelection);
+
+  return {
+    kind: APP_DATA_BACKUP_KIND,
+    version: APP_DATA_BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    includesPromptResumes: includeResumes,
+    sheetConfig,
+    promptSelection,
+    humanizePromptSelection,
+    jobDescriptionSelection,
+    profileSelection: exportedProfiles
+  };
+}
+
+async function importAppData(payload, { includePromptResumes = true } = {}) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Backup file is empty or invalid.");
+  }
+
+  if (payload.kind !== APP_DATA_BACKUP_KIND) {
+    throw new Error("This file is not an Application Helper backup.");
+  }
+
+  const includeResumes = Boolean(includePromptResumes);
+  const storagePayload = {};
+
+  if (payload.sheetConfig) {
+    const spreadsheetId = parseSpreadsheetId(payload.sheetConfig.spreadsheetId);
+    const sheetName = String(payload.sheetConfig.sheetName ?? "").trim();
+
+    if (!spreadsheetId || !sheetName) {
+      throw new Error("Backup sheet configuration is invalid.");
+    }
+
+    const stored = await chrome.storage.local.get(SHEET_CONFIG_STORAGE_KEY);
+    const existing = stored[SHEET_CONFIG_STORAGE_KEY] || {};
+
+    storagePayload[SHEET_CONFIG_STORAGE_KEY] = {
+      spreadsheetId,
+      sheetName,
+      resumeTemplateId: existing.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID
+    };
+  }
+
+  if (payload.promptSelection) {
+    storagePayload[PROMPT_SELECTION_STORAGE_KEY] = buildTextSelectionState(
+      payload.promptSelection
+    );
+  }
+
+  if (payload.humanizePromptSelection) {
+    storagePayload[HUMANIZE_PROMPT_SELECTION_STORAGE_KEY] =
+      buildTextSelectionState(payload.humanizePromptSelection);
+  }
+
+  if (payload.jobDescriptionSelection) {
+    storagePayload[JOB_DESCRIPTION_SELECTION_STORAGE_KEY] =
+      buildTextSelectionState(payload.jobDescriptionSelection);
+  }
+
+  if (payload.profileSelection) {
+    const currentProfileSelection = await getProfileSelectionState();
+    let nextProfileSelection = normalizeProfileSelectionState(payload.profileSelection);
+
+    if (!includeResumes || payload.includesPromptResumes === false) {
+      nextProfileSelection = mergeProfilesPreservingPromptResumes(
+        nextProfileSelection,
+        currentProfileSelection
+      );
+    }
+
+    storagePayload[PROFILE_SELECTION_STORAGE_KEY] = nextProfileSelection;
+  }
+
+  if (Object.keys(storagePayload).length === 0) {
+    throw new Error("Backup file does not contain any app data.");
+  }
+
+  await chrome.storage.local.set(storagePayload);
+
+  // Drop legacy prompt-resume keys so profile-owned resumes stay authoritative.
+  await chrome.storage.local.remove([
+    PROMPT_RESUME_SELECTION_STORAGE_KEY,
+    LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY
+  ]);
+
+  return {
+    sheetConfig: storagePayload[SHEET_CONFIG_STORAGE_KEY] || null,
+    promptSelection: storagePayload[PROMPT_SELECTION_STORAGE_KEY] || null,
+    humanizePromptSelection:
+      storagePayload[HUMANIZE_PROMPT_SELECTION_STORAGE_KEY] || null,
+    jobDescriptionSelection:
+      storagePayload[JOB_DESCRIPTION_SELECTION_STORAGE_KEY] || null,
+    profileSelection: storagePayload[PROFILE_SELECTION_STORAGE_KEY] || null,
+    includesPromptResumes:
+      includeResumes && payload.includesPromptResumes !== false
+  };
+}
+
 async function saveSheetConfig(spreadsheetIdInput, sheetNameInput) {
   const spreadsheetId = parseSpreadsheetId(spreadsheetIdInput);
   const sheetName = String(sheetNameInput ?? "").trim();
@@ -2131,6 +2325,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           ok: false,
           error: error.message || "Could not save job description selection."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "EXPORT_APP_DATA") {
+    exportAppData({
+      includePromptResumes: message.includePromptResumes !== false
+    })
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not export app data."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "IMPORT_APP_DATA") {
+    importAppData(message.data, {
+      includePromptResumes: message.includePromptResumes !== false
+    })
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not import app data."
         });
       });
     return true;

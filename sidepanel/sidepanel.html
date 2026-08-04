@@ -301,6 +301,50 @@
           <div class="prompt-selection-section">
             <ul id="humanizePromptList" class="prompt-selection-list" aria-label="Humanize prompt"></ul>
           </div>
+
+          <div class="app-data-transfer-section">
+            <h3 class="app-data-transfer-title">Backup &amp; restore</h3>
+            <p class="app-data-transfer-help">
+              Export or import sheet settings, prompts, job description, and
+              profiles. Use the checkbox to include prompt resume text.
+            </p>
+
+            <label class="app-data-transfer-option" for="includePromptResumeInfoCheckbox">
+              <input
+                id="includePromptResumeInfoCheckbox"
+                type="checkbox"
+                class="app-data-transfer-checkbox"
+              />
+              <span>Include prompt resume info</span>
+            </label>
+
+            <div class="app-data-transfer-actions">
+              <button
+                id="exportAppDataButton"
+                type="button"
+                class="secondary-button modal-action-button"
+              >
+                <span>Export data</span>
+              </button>
+              <button
+                id="importAppDataButton"
+                type="button"
+                class="secondary-button modal-action-button"
+              >
+                <span>Import data</span>
+              </button>
+              <input
+                id="importAppDataFileInput"
+                type="file"
+                accept="application/json,.json"
+                hidden
+                tabindex="-1"
+                aria-hidden="true"
+              />
+            </div>
+
+            <p id="appDataTransferStatus" class="config-status is-hidden" aria-live="polite"></p>
+          </div>
         </div>
 
         <div class="modal-actions">

@@ -122,6 +122,13 @@ const spreadsheetIdInput = document.querySelector("#spreadsheetIdInput");
 const sheetNameInput = document.querySelector("#sheetNameInput");
 const resumeTemplateInput = document.querySelector("#resumeTemplateInput");
 const saveConfigButton = document.querySelector("#saveConfigButton");
+const includePromptResumeInfoCheckbox = document.querySelector(
+  "#includePromptResumeInfoCheckbox"
+);
+const exportAppDataButton = document.querySelector("#exportAppDataButton");
+const importAppDataButton = document.querySelector("#importAppDataButton");
+const importAppDataFileInput = document.querySelector("#importAppDataFileInput");
+const appDataTransferStatus = document.querySelector("#appDataTransferStatus");
 const promptResumeList = document.querySelector("#promptResumeList");
 const promptResumeFormModal = document.querySelector("#promptResumeFormModal");
 const promptResumeFormModalTitle = document.querySelector("#promptResumeFormModalTitle");
@@ -1351,6 +1358,11 @@ function setSaveButtonsDisabled(disabled) {
     splitWindowsPreviewDownloadButton.disabled = disabled;
   }
   if (saveConfigButton) saveConfigButton.disabled = disabled;
+  if (exportAppDataButton) exportAppDataButton.disabled = disabled;
+  if (importAppDataButton) importAppDataButton.disabled = disabled;
+  if (includePromptResumeInfoCheckbox) {
+    includePromptResumeInfoCheckbox.disabled = disabled;
+  }
   if (addProfileButton) addProfileButton.disabled = disabled;
   profileList
     ?.querySelectorAll(
@@ -2577,6 +2589,7 @@ function setConfigModalOpen(isOpen, { returnFocus = true } = {}) {
   configModal.setAttribute("aria-hidden", String(!isOpen));
 
   if (isOpen) {
+    setAppDataTransferStatus("", "");
     spreadsheetIdInput?.focus();
     return;
   }
@@ -2635,6 +2648,132 @@ async function saveSheetConfig() {
     console.error(error);
     const message = error.message || "Could not save configuration.";
     addLog("error", message);
+  }
+}
+
+function shouldIncludePromptResumeInfo() {
+  return includePromptResumeInfoCheckbox?.checked !== false;
+}
+
+function setAppDataTransferStatus(type, message) {
+  if (!appDataTransferStatus) return;
+
+  const text = String(message || "").trim();
+  appDataTransferStatus.textContent = text;
+  appDataTransferStatus.classList.toggle("is-hidden", !text);
+  appDataTransferStatus.classList.toggle("is-success", type === "success");
+  appDataTransferStatus.classList.toggle("is-error", type === "error");
+}
+
+function downloadAppDataBackup(data) {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const filename = `application-helper-backup-${stamp}.json`;
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json"
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  return filename;
+}
+
+async function exportAppData() {
+  const includePromptResumes = shouldIncludePromptResumeInfo();
+  setAppDataTransferStatus("", "");
+  addLog(
+    "info",
+    includePromptResumes
+      ? "Exporting app data with prompt resume info..."
+      : "Exporting app data without prompt resume info..."
+  );
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "EXPORT_APP_DATA",
+      includePromptResumes
+    });
+
+    if (!response?.ok || !response.data) {
+      throw new Error(response?.error || "Could not export app data.");
+    }
+
+    const filename = downloadAppDataBackup(response.data);
+    const message = `Exported ${filename}.`;
+    setAppDataTransferStatus("success", message);
+    addLog("success", message);
+  } catch (error) {
+    console.error(error);
+    const message = error.message || "Could not export app data.";
+    setAppDataTransferStatus("error", message);
+    addLog("error", message);
+  }
+}
+
+async function refreshUiAfterAppDataImport() {
+  await Promise.all([
+    loadSheetConfig(),
+    loadPromptSelection(),
+    loadHumanizePromptSelection(),
+    loadJobDescriptionSelection(),
+    loadProfileSelection()
+  ]);
+}
+
+async function importAppDataFromFile(file) {
+  if (!file) {
+    return;
+  }
+
+  const includePromptResumes = shouldIncludePromptResumeInfo();
+  setAppDataTransferStatus("", "");
+  addLog(
+    "info",
+    includePromptResumes
+      ? `Importing app data from ${file.name} with prompt resume info...`
+      : `Importing app data from ${file.name} without prompt resume info...`
+  );
+
+  try {
+    const text = await file.text();
+    let payload;
+
+    try {
+      payload = JSON.parse(text);
+    } catch (_error) {
+      throw new Error("Backup file must be valid JSON.");
+    }
+
+    const response = await chrome.runtime.sendMessage({
+      type: "IMPORT_APP_DATA",
+      data: payload,
+      includePromptResumes
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not import app data.");
+    }
+
+    await refreshUiAfterAppDataImport();
+
+    const message = response.includesPromptResumes
+      ? "Imported app data, including prompt resume info."
+      : "Imported app data. Existing prompt resume info was kept.";
+    setAppDataTransferStatus("success", message);
+    addLog("success", message);
+  } catch (error) {
+    console.error(error);
+    const message = error.message || "Could not import app data.";
+    setAppDataTransferStatus("error", message);
+    addLog("error", message);
+  } finally {
+    if (importAppDataFileInput) {
+      importAppDataFileInput.value = "";
+    }
   }
 }
 
@@ -4664,6 +4803,15 @@ configModalCloseButton?.addEventListener("click", () => setConfigModalOpen(false
 configModalCancelButton?.addEventListener("click", () => setConfigModalOpen(false));
 
 saveConfigButton?.addEventListener("click", saveSheetConfig);
+
+exportAppDataButton?.addEventListener("click", exportAppData);
+importAppDataButton?.addEventListener("click", () => {
+  importAppDataFileInput?.click();
+});
+importAppDataFileInput?.addEventListener("change", () => {
+  const file = importAppDataFileInput.files?.[0];
+  importAppDataFromFile(file);
+});
 
 promptResumeFormModalBackdrop?.addEventListener("click", () =>
   setPromptResumeFormModalOpen(false)

@@ -1758,6 +1758,52 @@ textarea:focus {
   gap: var(--section-gap);
 }
 
+.app-data-transfer-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(84, 87, 255, 0.14);
+}
+
+.app-data-transfer-title {
+  margin: 0;
+  color: #1d2558;
+  font-size: var(--text-sm);
+  font-weight: 750;
+}
+
+.app-data-transfer-help {
+  margin: 0;
+  color: #4a537c;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.app-data-transfer-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: #323867;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.app-data-transfer-checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #5457ff;
+  cursor: pointer;
+}
+
+.app-data-transfer-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 .split-windows-modal .modal-panel {
   width: min(100%, 460px);
 }
@@ -2229,8 +2275,18 @@ textarea:focus {
   }
 
   .config-help,
-  .config-label {
+  .config-label,
+  .app-data-transfer-title,
+  .app-data-transfer-option {
     color: #c8cee3;
+  }
+
+  .app-data-transfer-help {
+    color: #aeb5cc;
+  }
+
+  .app-data-transfer-section {
+    border-top-color: rgba(255, 255, 255, 0.12);
   }
 
   .config-status.is-error {
