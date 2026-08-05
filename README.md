@@ -58,15 +58,19 @@ No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
 already-grouped job tab and leaves any existing group unchanged. While either
 application action is running, the matching **Home workspace** and **Application
 workspace** headers show `Save progress` inside the same compact status/log
-line. There is no separate progress bar, and Cancel Process stays at the far
-right of the header. The header Exchange icon that switches between Home and
-Application workspaces stays disabled until the final Google Sheet row is
-saved. Saving that row ends progress immediately. Cancel Process stops both
-progress and the active save early. Successful completion or cancellation ends save progress without clearing
-checked profiles, selected prompt-resume variants, or the job description.
+line and a progress bar in the workspace label panel. Cancel Process stays at
+the far right of the header. The header Exchange icon that switches between
+Home and Application workspaces stays disabled on involved tabs until the
+final Google Sheet row is saved. Saving that row ends progress immediately.
+Cancel Process stops both progress and the active save early. Successful completion or cancellation ends save progress and clears
+checked profiles, selected prompt-resume variants, and the job description.
 Each tab keeps its Application workspace details, process logs, and status
 until that Chrome tab is closed. Completed sheet rows and opened tabs are
 never rolled back. No Chrome notification is created.
+
+While save progress is active, only the Chrome tabs involved in that run
+show a progress bar in the workspace header and keep the Home/Application
+workspace switch icon disabled. Other tabs stay unlocked.
 
 Outside save progress, the matching workspace headers show an Exchange icon
 for switching between the two views. The compact line below each title retains

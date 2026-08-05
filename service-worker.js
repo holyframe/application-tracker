@@ -2132,8 +2132,8 @@ async function performSavePostProcessCleanup({
   if (runId) {
     const message =
       reason === "cancelled"
-        ? "Save process cancelled."
-        : "Google Sheet saving finished. Save process completed.";
+        ? "Save process cancelled. Application inputs cleared."
+        : "Google Sheet saving finished. Save process completed and application inputs cleared.";
     sendLog(runId, "info", message);
   }
 
@@ -2195,6 +2195,10 @@ async function scheduleSavePostProcess(
     ownerTabId: resolvedOwnerTabId,
     mode: mode === "apply" ? "apply" : "save",
     profileCount: Math.max(1, Number(profileCount) || 1),
+    completedCount: 0,
+    involvedTabIds: Number.isInteger(resolvedOwnerTabId)
+      ? [resolvedOwnerTabId]
+      : [],
     startedAt: Date.now()
   };
 
@@ -2216,15 +2220,56 @@ async function scheduleSavePostProcess(
   return state;
 }
 
+async function updateSavePostProcessProgress({
+  runId = "",
+  ownerTabId = null,
+  completedCount = null,
+  profileCount = null,
+  involvedTabIds = null
+} = {}) {
+  const states = await getSavePostProcessStates();
+  const entry = findSavePostProcessEntry(states, runId, ownerTabId);
+  if (!entry?.state) {
+    return null;
+  }
+
+  const nextInvolved = Array.isArray(involvedTabIds)
+    ? [
+        ...new Set(
+          involvedTabIds.filter((tabId) => Number.isInteger(tabId))
+        )
+      ]
+    : Array.isArray(entry.state.involvedTabIds)
+      ? entry.state.involvedTabIds
+      : [];
+
+  const nextState = {
+    ...entry.state,
+    completedCount:
+      completedCount == null
+        ? Math.max(0, Number(entry.state.completedCount) || 0)
+        : Math.max(0, Number(completedCount) || 0),
+    profileCount:
+      profileCount == null
+        ? Math.max(1, Number(entry.state.profileCount) || 1)
+        : Math.max(1, Number(profileCount) || 1),
+    involvedTabIds: nextInvolved
+  };
+
+  states[entry.tabId] = nextState;
+  await chrome.storage.local.set({
+    [SAVE_POST_PROCESS_STORAGE_KEY]: states
+  });
+  return nextState;
+}
+
 function getActiveSaveProcessSignal(runId) {
   return activeSaveProcessControllers.get(String(runId || ""))?.signal;
 }
 
 async function completeSavePostProcess(runId = "", ownerTabId = null) {
-  // Keep profile/job-description selections and each tab's workspace details
-  // until that Chrome tab closes — do not wipe them when the run finishes.
   return clearSavePostProcess({
-    resetInputs: false,
+    resetInputs: true,
     reason: "completed",
     runId,
     ownerTabId: Number.isInteger(ownerTabId)
@@ -2235,7 +2280,7 @@ async function completeSavePostProcess(runId = "", ownerTabId = null) {
 
 async function cancelSavePostProcess(runId = "", ownerTabId = null) {
   return clearSavePostProcess({
-    resetInputs: false,
+    resetInputs: true,
     reason: "cancelled",
     runId,
     ownerTabId: Number.isInteger(ownerTabId)
@@ -2981,6 +3026,21 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
           { signal }
         );
     const results = [];
+    const involvedTabIds = groupTabsInsteadOfClosing
+      ? Number.isInteger(ownerTabId)
+        ? [ownerTabId]
+        : Number.isInteger(tab.id)
+          ? [tab.id]
+          : []
+      : targetTabIds;
+
+    await updateSavePostProcessProgress({
+      runId,
+      ownerTabId,
+      completedCount: 0,
+      profileCount: selectedProfiles.length,
+      involvedTabIds
+    });
 
     for (let index = 0; index < selectedProfiles.length; index += 1) {
       throwIfSaveProcessCancelled(signal);
@@ -3103,6 +3163,23 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         chatGptTabId
       });
       sendLog(runId, "success", `Finished profile ${positionLabel}: ${profileName}`);
+
+      const nextInvolvedTabIds = [
+        ...new Set(
+          [
+            ...involvedTabIds,
+            chatGptTabId,
+            ...results.map((entry) => entry.chatGptTabId)
+          ].filter((tabId) => Number.isInteger(tabId))
+        )
+      ];
+      await updateSavePostProcessProgress({
+        runId,
+        ownerTabId,
+        completedCount: index + 1,
+        profileCount: selectedProfiles.length,
+        involvedTabIds: nextInvolvedTabIds
+      });
     }
 
     // Clear inputs only after every profile workspace is shown. Doing this
@@ -3153,7 +3230,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
   } catch (error) {
     if (isSaveProcessCancelledError(error)) {
       await clearSavePostProcess({
-        resetInputs: false,
+        resetInputs: true,
         reason: "cancelled",
         runId,
         ownerTabId

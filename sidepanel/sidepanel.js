@@ -17,6 +17,10 @@ const homeSavePostProcessTime = document.querySelector("#homeSavePostProcessTime
 const applicationSavePostProcessTime = document.querySelector(
   "#applicationSavePostProcessTime"
 );
+const homeSavePostProcessBar = document.querySelector("#homeSavePostProcessBar");
+const applicationSavePostProcessBar = document.querySelector(
+  "#applicationSavePostProcessBar"
+);
 const splitWindowsModalCancelButton = document.querySelector("#splitWindowsModalCancelButton");
 const splitWindowsModalOpenButton = document.querySelector("#splitWindowsModalOpenButton");
 const splitWindowUrlsInput = document.querySelector("#splitWindowUrlsInput");
@@ -613,6 +617,7 @@ function renderActiveTabState() {
     buildResumeContextInput.value = buildResumeContextDraft;
   }
   setSaveButtonsDisabled(areActionButtonsDisabled);
+  renderSavePostProcessControls();
   renderSaveWorkspaceSidePanelView();
 }
 
@@ -2020,11 +2025,97 @@ function isSavePostProcessActive(state = savePostProcessState) {
   return Boolean(state && typeof state === "object" && state.runId);
 }
 
+function getSavePostProcessProgressPercent(state = savePostProcessState) {
+  if (!isSavePostProcessActive(state)) {
+    return 0;
+  }
+
+  const profileCount = Math.max(1, Number(state.profileCount) || 1);
+  const completedCount = Math.max(0, Number(state.completedCount) || 0);
+  return Math.max(0, Math.min(100, Math.round((completedCount / profileCount) * 100)));
+}
+
+function getSavePostProcessProgressLabel(state = savePostProcessState) {
+  if (!isSavePostProcessActive(state)) {
+    return "Save progress";
+  }
+
+  const profileCount = Math.max(1, Number(state.profileCount) || 1);
+  const completedCount = Math.max(0, Number(state.completedCount) || 0);
+  if (profileCount <= 1) {
+    return completedCount > 0 ? "Save progress 1/1" : "Save progress";
+  }
+
+  return `Save progress ${Math.min(completedCount, profileCount)}/${profileCount}`;
+}
+
+function resolveSavePostProcessTargetTabIds(state, fallbackOwnerTabId = null) {
+  const tabIds = new Set();
+
+  if (Number.isInteger(fallbackOwnerTabId)) {
+    tabIds.add(fallbackOwnerTabId);
+  }
+  if (Number.isInteger(state?.ownerTabId)) {
+    tabIds.add(state.ownerTabId);
+  }
+
+  if (Array.isArray(state?.involvedTabIds)) {
+    state.involvedTabIds.forEach((tabId) => {
+      if (Number.isInteger(tabId)) {
+        tabIds.add(tabId);
+      }
+    });
+  }
+
+  runTabIdsByRunId.get(state?.runId)?.forEach((tabId) => tabIds.add(tabId));
+
+  saveWorkspacesByTabId.forEach((workspace, tabId) => {
+    if (
+      workspace?.runId &&
+      state?.runId &&
+      workspace.runId === state.runId &&
+      Number.isInteger(tabId)
+    ) {
+      tabIds.add(tabId);
+    }
+  });
+
+  return [...tabIds];
+}
+
+function updateSavePostProcessBar(element, state, visible) {
+  if (!element) return;
+
+  const fill = element.querySelector(".workspace-save-progress-bar-fill");
+  element.classList.toggle("is-hidden", !visible);
+  if (!visible) {
+    element.classList.remove("is-indeterminate");
+    if (fill) fill.style.width = "0%";
+    element.setAttribute("aria-valuenow", "0");
+    return;
+  }
+
+  const profileCount = Math.max(1, Number(state?.profileCount) || 1);
+  const completedCount = Math.max(0, Number(state?.completedCount) || 0);
+  const percent = getSavePostProcessProgressPercent(state);
+  const indeterminate = completedCount <= 0 && profileCount >= 1;
+
+  element.classList.toggle("is-indeterminate", indeterminate);
+  element.setAttribute("aria-valuenow", String(percent));
+  element.setAttribute("aria-valuemax", "100");
+  element.setAttribute("aria-label", getSavePostProcessProgressLabel(state));
+  if (fill) {
+    fill.style.width = indeterminate ? "" : `${percent}%`;
+  }
+}
+
 function renderSavePostProcessControls() {
   const hasState = isSavePostProcessActive();
   const applicationControlsVisible = hasState && !isSplitWindowsDialogOpen;
+  // Only tabs that own/participate in this save get a locked workspace switch.
   const exchangeDisabled = hasState;
 
+  const progressLabel = getSavePostProcessProgressLabel();
   const progressStatuses = [
     {
       element: homeSavePostProcessTime,
@@ -2039,9 +2130,16 @@ function renderSavePostProcessControls() {
   progressStatuses.forEach(({ element, visible }) => {
     if (!element) return;
     element.classList.toggle("is-hidden", !visible);
-    element.textContent = "Save progress";
-    element.setAttribute("aria-label", "Save progress");
+    element.textContent = progressLabel;
+    element.setAttribute("aria-label", progressLabel);
   });
+
+  updateSavePostProcessBar(homeSavePostProcessBar, savePostProcessState, hasState);
+  updateSavePostProcessBar(
+    applicationSavePostProcessBar,
+    savePostProcessState,
+    applicationControlsVisible
+  );
 
   homeCancelProcessButton?.classList.toggle("is-hidden", !hasState);
   applicationCancelProcessButton?.classList.toggle(
@@ -2062,7 +2160,6 @@ function renderSavePostProcessControls() {
     splitWindowsModalCloseButton.disabled =
       !isSplitWindowsDialogOpen && exchangeDisabled;
   }
-
 }
 
 function setSavePostProcessStateForTab(tabId, state) {
@@ -2082,20 +2179,31 @@ function setSavePostProcessStateForTab(tabId, state) {
   schedulePersistTabSession();
 }
 
-// The service worker stores one save-progress record per owning tab, so spread
-// the stored map back across the per-tab states.
+// The service worker stores one save-progress record per owning tab. Spread that
+// record across every Chrome tab involved in the run so only those tabs show
+// progress / locked workspace switching.
 function applySavePostProcessStates(statesByTabId) {
   const map =
     statesByTabId && typeof statesByTabId === "object" ? statesByTabId : {};
-  const presentTabIds = new Set();
+  const stateByTargetTabId = new Map();
 
   Object.entries(map).forEach(([key, value]) => {
-    const tabId = Number(key);
-    if (!Number.isInteger(tabId)) {
+    const ownerTabId = Number(key);
+    if (!value || typeof value !== "object" || !value.runId) {
       return;
     }
 
-    presentTabIds.add(tabId);
+    resolveSavePostProcessTargetTabIds(value, ownerTabId).forEach((tabId) => {
+      stateByTargetTabId.set(tabId, value);
+      if (value.runId) {
+        registerRunTab(value.runId, tabId);
+      }
+    });
+  });
+
+  const presentTabIds = new Set(stateByTargetTabId.keys());
+
+  stateByTargetTabId.forEach((value, tabId) => {
     setSavePostProcessStateForTab(tabId, value);
   });
 
@@ -2108,6 +2216,45 @@ function applySavePostProcessStates(statesByTabId) {
   if (Number.isInteger(activeTabId) && !presentTabIds.has(activeTabId)) {
     setSavePostProcessStateForTab(activeTabId, null);
   }
+}
+
+function adoptSavePostProcessForRunTab(runId, tabId) {
+  if (!runId || !Number.isInteger(tabId)) {
+    return;
+  }
+
+  let sourceState = null;
+  if (isSavePostProcessActive() && activeRunId === runId) {
+    sourceState = savePostProcessState;
+  } else {
+    for (const state of tabStateById.values()) {
+      if (state?.savePostProcessState?.runId === runId) {
+        sourceState = state.savePostProcessState;
+        break;
+      }
+    }
+  }
+
+  if (!sourceState) {
+    return;
+  }
+
+  const involvedTabIds = [
+    ...new Set(
+      [
+        ...(Array.isArray(sourceState.involvedTabIds)
+          ? sourceState.involvedTabIds
+          : []),
+        tabId,
+        sourceState.ownerTabId
+      ].filter((id) => Number.isInteger(id))
+    )
+  ];
+
+  setSavePostProcessStateForTab(tabId, {
+    ...sourceState,
+    involvedTabIds
+  });
 }
 
 function setSavePostProcessRequestPendingForTab(tabId, isPending) {
@@ -3922,6 +4069,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       resumeUrl: message.resumeUrl,
       chatGptTabId: message.chatGptTabId
     });
+    adoptSavePostProcessForRunTab(message.runId, message.chatGptTabId);
     // Always adopt this profile tab in the panel. Waiting for tab events fails
     // for profile 2+ because SHOW is sent before the tab is activated.
     activateSaveWorkspaceTab(message.chatGptTabId);
@@ -3942,6 +4090,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       chatGptUrl: message.chatGptUrl,
       chatGptTabId: message.chatGptTabId
     });
+    adoptSavePostProcessForRunTab(message.runId, message.chatGptTabId);
     activateSaveWorkspaceTab(message.chatGptTabId);
     addLogForTab(
       message.chatGptTabId,
