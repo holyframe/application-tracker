@@ -2310,6 +2310,37 @@ async function isSidePanelOpen() {
   }
 }
 
+async function closePersistedPickupWindowsForTab(tabId) {
+  if (!Number.isInteger(tabId)) {
+    return;
+  }
+
+  const stored = await chrome.storage.session.get(TAB_SESSION_STORAGE_KEY);
+  const session = stored[TAB_SESSION_STORAGE_KEY];
+  if (!session || typeof session !== "object") {
+    return;
+  }
+
+  const tabState = session.tabStates?.[String(tabId)];
+  const windowIds = Array.isArray(tabState?.pickupWindowIds)
+    ? [...new Set(tabState.pickupWindowIds.map(Number).filter(Number.isInteger))]
+    : [];
+
+  if (windowIds.length === 0) {
+    return;
+  }
+
+  await Promise.all(
+    windowIds.map(async (windowId) => {
+      try {
+        await chrome.windows.remove(windowId);
+      } catch {
+        // Window may already be closed by the side panel or the user.
+      }
+    })
+  );
+}
+
 async function forgetPersistedTabSession(tabId) {
   if (!Number.isInteger(tabId)) {
     return;
@@ -2368,9 +2399,15 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     releaseRunOwnerTab(runId);
   });
 
-  forgetPersistedTabSession(tabId).catch((error) => {
-    console.error("Could not clear persisted tab session for the closed tab:", error);
-  });
+  closePersistedPickupWindowsForTab(tabId)
+    .catch((error) => {
+      console.error("Could not close pickup windows for the closed tab:", error);
+    })
+    .finally(() => {
+      forgetPersistedTabSession(tabId).catch((error) => {
+        console.error("Could not clear persisted tab session for the closed tab:", error);
+      });
+    });
 
   getSavePostProcessStates()
     .then(async (states) => {

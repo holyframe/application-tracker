@@ -276,7 +276,8 @@ function createTabState() {
     editingProfileId: null,
     notesProfileId: null,
     promptResumeFormMode: "add",
-    editingPromptResumeId: null
+    editingPromptResumeId: null,
+    pickupWindowIds: []
   };
 }
 
@@ -312,7 +313,10 @@ function cloneTabStateForPersistence(state) {
     managedModalDrafts:
       state.managedModalDrafts && typeof state.managedModalDrafts === "object"
         ? { ...state.managedModalDrafts }
-        : {}
+        : {},
+    pickupWindowIds: Array.isArray(state.pickupWindowIds)
+      ? [...new Set(state.pickupWindowIds.map(Number).filter(Number.isInteger))]
+      : []
   };
 }
 
@@ -4353,6 +4357,77 @@ async function exchangeSaveWorkspaceUrls() {
   }
 }
 
+function rememberPickupWindowForOwnerTab(ownerTabId, windowId) {
+  if (!Number.isInteger(ownerTabId) || !Number.isInteger(windowId)) {
+    return;
+  }
+
+  const state = getTabState(ownerTabId);
+  if (!Array.isArray(state.pickupWindowIds)) {
+    state.pickupWindowIds = [];
+  }
+  if (state.pickupWindowIds.includes(windowId)) {
+    return;
+  }
+
+  state.pickupWindowIds.push(windowId);
+  schedulePersistTabSession();
+}
+
+function forgetPickupWindowIdEverywhere(windowId) {
+  if (!Number.isInteger(windowId)) {
+    return;
+  }
+
+  let changed = false;
+  tabStateById.forEach((state) => {
+    if (!Array.isArray(state?.pickupWindowIds) || state.pickupWindowIds.length === 0) {
+      return;
+    }
+    const nextIds = state.pickupWindowIds.filter((id) => id !== windowId);
+    if (nextIds.length !== state.pickupWindowIds.length) {
+      state.pickupWindowIds = nextIds;
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    schedulePersistTabSession();
+  }
+}
+
+async function closePickupWindowsForOwnerTab(ownerTabId) {
+  if (!Number.isInteger(ownerTabId)) {
+    return;
+  }
+
+  const state = tabStateById.get(ownerTabId);
+  const windowIds = Array.isArray(state?.pickupWindowIds)
+    ? [...new Set(state.pickupWindowIds.map(Number).filter(Number.isInteger))]
+    : [];
+
+  if (state) {
+    state.pickupWindowIds = [];
+  }
+
+  if (windowIds.length === 0) {
+    return;
+  }
+
+  await Promise.all(
+    windowIds.map(async (windowId) => {
+      try {
+        await chrome.windows.remove(windowId);
+      } catch {
+        // Window may already be closed.
+      }
+      forgetPickupWindowIdEverywhere(windowId);
+    })
+  );
+
+  await updatePickupCloseButtons();
+}
+
 function getWorkspaceUrlComparisonKey(value) {
   try {
     const parsedUrl = new URL(String(value || "").trim());
@@ -4490,6 +4565,7 @@ async function closePickedUpWindowForUrl(url, {
 
   try {
     await chrome.windows.remove(pickedUpWindow.windowId);
+    forgetPickupWindowIdEverywhere(pickedUpWindow.windowId);
     if (Number.isInteger(resolvedOwnerTabId)) {
       showStatusForTab(
         resolvedOwnerTabId,
@@ -4548,6 +4624,12 @@ async function openWorkspaceUrlInRightWindow(url, {
   }
 
   const didReuse = Boolean(response.reused);
+  if (Number.isInteger(response.windowId)) {
+    rememberPickupWindowForOwnerTab(resolvedOwnerTabId, response.windowId);
+    await persistTabSession().catch((error) => {
+      console.error("Could not persist pickup window tracking:", error);
+    });
+  }
   showStatusForTab(
     resolvedOwnerTabId,
     "success",
@@ -6308,6 +6390,10 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  closePickupWindowsForOwnerTab(tabId).catch((error) => {
+    console.error("Could not close pickup windows for the closed tab:", error);
+  });
+
   const hadWorkspace = saveWorkspacesByTabId.delete(tabId);
   forgetTabState(tabId);
 
@@ -6369,7 +6455,8 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   }
 });
 
-chrome.windows.onRemoved.addListener(() => {
+chrome.windows.onRemoved.addListener((windowId) => {
+  forgetPickupWindowIdEverywhere(windowId);
   updatePickupCloseButtons();
 });
 
