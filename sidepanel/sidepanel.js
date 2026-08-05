@@ -5842,6 +5842,32 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId) {
     }
   });
 
+  // Opening job tabs with active:true flips the panel onto those tabs and clears
+  // the paste-dialog flag before we get here, so never gate registration on it.
+  // Close the input dialog on the sheet/return tab so coming back does not
+  // reopen the paste form, then force the Application workspace onto the tab
+  // Chrome left active (or the last opened tab).
+  if (Number.isInteger(returnTabId)) {
+    const returnState = getTabState(returnTabId);
+    if (returnState) {
+      returnState.isSplitWindowsDialogOpen = false;
+      returnState.splitWindowsDraft = "";
+    }
+  }
+
+  splitWindowsDraft = "";
+  if (splitWindowUrlsInput) {
+    splitWindowUrlsInput.value = "";
+  }
+
+  const focusTabId = openedPairs.some((pair) => pair.tabId === activeTabId)
+    ? activeTabId
+    : openedPairs[openedPairs.length - 1]?.tabId;
+
+  if (Number.isInteger(focusTabId)) {
+    activateSaveWorkspaceTab(focusTabId);
+  }
+
   return true;
 }
 
@@ -5922,10 +5948,11 @@ async function openSplitWindows() {
       });
     }
 
-    const didOpenApplicationWorkspace =
-      isSplitWindowsDialogOpen &&
-      !splitWindowsModal?.classList.contains("is-hidden") &&
-      showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId);
+    const didOpenApplicationWorkspace = showMakeResumeApplicationWorkspaces(
+      openedPairs,
+      returnTabId ?? ownerTabId,
+      runId
+    );
 
     showStatusForTab(
       ownerTabId,
@@ -5946,16 +5973,16 @@ async function openSplitWindows() {
         ? `${openedPairs.length} job/resume workspace${
             openedPairs.length === 1 ? "" : "s"
           } opened successfully.`
-        : "Job tabs opened; the sidebar dialog was closed before previewing the resumes."
+        : "Job tabs opened, but no Application workspaces were registered."
     );
 
   } catch (error) {
-    if (
-      openedPairs.length > 0 &&
-      isSplitWindowsDialogOpen &&
-      !splitWindowsModal?.classList.contains("is-hidden")
-    ) {
-      showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId);
+    if (openedPairs.length > 0) {
+      showMakeResumeApplicationWorkspaces(
+        openedPairs,
+        returnTabId ?? ownerTabId,
+        runId
+      );
     }
 
     console.error(error);
