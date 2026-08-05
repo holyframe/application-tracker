@@ -1715,7 +1715,6 @@ async function toggleProfileSelection(profileId) {
     expandedProfileIds.add(profileId);
   } else {
     selectedIds.delete(profileId);
-    expandedProfileIds.delete(profileId);
     profileSelectionState.profiles = profileSelectionState.profiles.map(
       (entry) =>
         entry.id === profileId
@@ -1752,13 +1751,17 @@ async function loadProfileSelection() {
     }
 
     profileSelectionState = normalizeProfileSelectionState(response);
-    expandedProfileIds = new Set(profileSelectionState.selectedProfileIds);
+    expandedProfileIds = new Set(
+      profileSelectionState.profiles.map((profile) => profile.id)
+    );
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
   } catch (error) {
     console.error(error);
     profileSelectionState = normalizeProfileSelectionState(null);
-    expandedProfileIds = new Set();
+    expandedProfileIds = new Set(
+      profileSelectionState.profiles.map((profile) => profile.id)
+    );
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
     addLog("error", error.message || "Could not load profiles.");
