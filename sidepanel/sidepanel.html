@@ -309,10 +309,6 @@
             <ul id="promptList" class="prompt-selection-list" aria-label="Prompt"></ul>
           </div>
 
-          <div class="prompt-selection-section">
-            <ul id="humanizePromptList" class="prompt-selection-list" aria-label="Humanize prompt"></ul>
-          </div>
-
           <div class="app-data-transfer-section">
             <h3 class="app-data-transfer-title">Backup &amp; restore</h3>
             <p class="app-data-transfer-help">
@@ -609,58 +605,6 @@
           </button>
 
           <button id="promptFormModalSubmitButton" type="button" class="primary-button modal-action-button">
-            <span>Save Changes</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div
-      id="humanizeFormModal"
-      class="modal humanize-form-modal is-hidden"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="humanizeFormModalTitle"
-      aria-hidden="true"
-    >
-      <button
-        id="humanizeFormModalBackdrop"
-        type="button"
-        class="modal-backdrop"
-        aria-label="Close edit humanize prompt dialog"
-      ></button>
-
-      <div class="modal-panel">
-        <div class="modal-header">
-          <h2 id="humanizeFormModalTitle">Edit Humanize Prompt</h2>
-          <button
-            id="humanizeFormModalCloseButton"
-            type="button"
-            class="modal-close-button"
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-
-        <div class="modal-form">
-          <div class="config-field">
-            <label class="config-label" for="humanizeContentInput">Humanize prompt text</label>
-            <textarea
-              id="humanizeContentInput"
-              class="humanize-content-input"
-              placeholder="Paste or type the humanize prompt..."
-              rows="20"
-            ></textarea>
-          </div>
-        </div>
-
-        <div class="modal-actions">
-          <button id="humanizeFormModalCancelButton" type="button" class="secondary-button modal-action-button">
-            <span>Cancel</span>
-          </button>
-
-          <button id="humanizeFormModalSubmitButton" type="button" class="primary-button modal-action-button">
             <span>Save Changes</span>
           </button>
         </div>

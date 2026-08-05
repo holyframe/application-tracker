@@ -1776,7 +1776,6 @@ textarea:focus {
 
 .prompt-resume-form-modal .modal-panel,
 .prompt-form-modal .modal-panel,
-.humanize-form-modal .modal-panel,
 .job-description-form-modal .modal-panel,
 .build-resume-context-modal .modal-panel,
 .profile-notes-modal .modal-panel {
@@ -2220,7 +2219,6 @@ textarea:focus {
 
 .prompt-resume-form-modal .prompt-resume-content-input,
 .prompt-form-modal .prompt-content-input,
-.humanize-form-modal .humanize-content-input,
 .job-description-form-modal .job-description-content-input,
 .build-resume-context-modal .build-resume-context-input,
 .profile-notes-modal .profile-notes-input {
@@ -2229,7 +2227,6 @@ textarea:focus {
 
 .prompt-resume-form-modal .config-label,
 .prompt-form-modal .config-label,
-.humanize-form-modal .config-label,
 .job-description-form-modal .config-label,
 .build-resume-context-modal .config-label,
 .profile-notes-modal .config-label {

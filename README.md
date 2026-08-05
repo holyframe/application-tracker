@@ -112,8 +112,6 @@ columns C-F shift to D-G.
 
 ## Other actions
 
-- **Humanize** sends the configured Humanize prompt to the active or most
-  recently used ChatGPT conversation.
 - **Make a resume** accepts one application per line, with four tab-separated
   fields in Profile name, ChatGPT/Claude, job-page, and Google Docs order. URL
   fields can be plain URLs or Markdown links such as `[**URL**](URL)`. It opens

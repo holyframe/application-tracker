@@ -11,10 +11,7 @@ const LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const DEFAULT_PROFILE_NAME = "Default";
 const PROMPT_SELECTION_STORAGE_KEY = "promptSelection";
-const HUMANIZE_PROMPT_SELECTION_STORAGE_KEY = "humanizePromptSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
-const DEFAULT_HUMANIZE_PROMPT =
-  "humanize your answer shortening it as one sentence story telling and using gen y us native style. don't be so streamlined usually can't be expected from human's impromptu";
 const SAVE_POST_PROCESS_ALARM_NAME = "save-current-tab-post-process";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
 // Side panel mirrors of per-tab workspace/process state. Kept until the Chrome
@@ -781,48 +778,6 @@ async function savePromptSelectionState(contentInput) {
   return state;
 }
 
-async function loadHumanizePromptSelectionRecord() {
-  const stored = await chrome.storage.local.get(HUMANIZE_PROMPT_SELECTION_STORAGE_KEY);
-  const selection = stored[HUMANIZE_PROMPT_SELECTION_STORAGE_KEY];
-
-  if (!selection || typeof selection.content !== "string") {
-    return null;
-  }
-
-  return {
-    content: normalizePromptContent(selection.content),
-    updatedAt: normalizeUpdatedAt(selection.updatedAt)
-  };
-}
-
-async function getHumanizePromptSelectionState() {
-  const selection = await loadHumanizePromptSelectionRecord();
-
-  if (selection?.content?.trim()) {
-    return selection;
-  }
-
-  if (selection) {
-    return selection;
-  }
-
-  return saveHumanizePromptSelectionState(DEFAULT_HUMANIZE_PROMPT);
-}
-
-async function saveHumanizePromptSelectionState(contentInput) {
-  const content = normalizePromptContent(contentInput);
-  const state = {
-    content,
-    updatedAt: content ? new Date().toISOString() : ""
-  };
-
-  await chrome.storage.local.set({
-    [HUMANIZE_PROMPT_SELECTION_STORAGE_KEY]: state
-  });
-
-  return state;
-}
-
 async function loadJobDescriptionSelectionRecord() {
   const stored = await chrome.storage.local.get(JOB_DESCRIPTION_SELECTION_STORAGE_KEY);
   const selection = stored[JOB_DESCRIPTION_SELECTION_STORAGE_KEY];
@@ -984,13 +939,11 @@ async function exportAppData({ includePromptResumes = true } = {}) {
   const [
     sheetConfig,
     promptSelection,
-    humanizePromptSelection,
     jobDescriptionSelection,
     profileSelection
   ] = await Promise.all([
     readSheetConfigForBackup(),
     getPromptSelectionState(),
-    getHumanizePromptSelectionState(),
     getJobDescriptionSelectionState(),
     getProfileSelectionState()
   ]);
@@ -1007,7 +960,6 @@ async function exportAppData({ includePromptResumes = true } = {}) {
     includesPromptResumes: includeResumes,
     sheetConfig,
     promptSelection,
-    humanizePromptSelection,
     jobDescriptionSelection,
     profileSelection: exportedProfiles
   };
@@ -1049,11 +1001,6 @@ async function importAppData(payload, { includePromptResumes = true } = {}) {
     );
   }
 
-  if (payload.humanizePromptSelection) {
-    storagePayload[HUMANIZE_PROMPT_SELECTION_STORAGE_KEY] =
-      buildTextSelectionState(payload.humanizePromptSelection);
-  }
-
   if (payload.jobDescriptionSelection) {
     storagePayload[JOB_DESCRIPTION_SELECTION_STORAGE_KEY] =
       buildTextSelectionState(payload.jobDescriptionSelection);
@@ -1088,8 +1035,6 @@ async function importAppData(payload, { includePromptResumes = true } = {}) {
   return {
     sheetConfig: storagePayload[SHEET_CONFIG_STORAGE_KEY] || null,
     promptSelection: storagePayload[PROMPT_SELECTION_STORAGE_KEY] || null,
-    humanizePromptSelection:
-      storagePayload[HUMANIZE_PROMPT_SELECTION_STORAGE_KEY] || null,
     jobDescriptionSelection:
       storagePayload[JOB_DESCRIPTION_SELECTION_STORAGE_KEY] || null,
     profileSelection: storagePayload[PROFILE_SELECTION_STORAGE_KEY] || null,
@@ -1194,11 +1139,6 @@ function normalizeUrlForStorage(url) {
 }
 
 const CHATGPT_NEW_TAB_SETTLE_MS = { min: 3000, max: 5000 };
-const CHATGPT_EXISTING_TAB_SETTLE_MS = { min: 2000, max: 4000 };
-const CHATGPT_TAB_URL_PATTERNS = [
-  "https://chatgpt.com/*",
-  "https://chat.openai.com/*"
-];
 
 function randomDelayMs(minMs, maxMs) {
   return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
@@ -1408,10 +1348,6 @@ async function sendFillAndSendToTab(tabId, text, runId, options = {}) {
   }
 
   throw lastError;
-}
-
-function isChatGptUrl(url = "") {
-  return /^https:\/\/(chatgpt\.com|chat\.openai\.com)/.test(url);
 }
 
 function isTabInGroup(tab) {
@@ -1772,71 +1708,6 @@ async function sendToChatGptAndGetUrl(text, runId, options = {}) {
   };
 }
 
-async function resolveChatGptTabForHumanize(runId) {
-  const [activeTab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true
-  });
-
-  if (activeTab?.id && isChatGptUrl(activeTab.url || "")) {
-    sendLog(runId, "info", "Using active ChatGPT tab.");
-    return activeTab;
-  }
-
-  const tabs = await chrome.tabs.query({ url: CHATGPT_TAB_URL_PATTERNS });
-  const sortedTabs = tabs
-    .filter((tab) => typeof tab.id === "number")
-    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
-
-  if (sortedTabs[0]) {
-    sendLog(runId, "info", "Using most recent ChatGPT tab.");
-    return sortedTabs[0];
-  }
-
-  throw new Error("No open ChatGPT tab found. Open a ChatGPT conversation first.");
-}
-
-async function sendHumanizePromptToChatGpt(runId) {
-  const { content } = await getHumanizePromptSelectionState();
-  const promptText = String(content ?? "").trim();
-
-  if (!promptText) {
-    throw new Error("Humanize prompt is not configured.");
-  }
-
-  sendLog(runId, "info", "Looking for an open ChatGPT tab...");
-  const tab = await resolveChatGptTabForHumanize(runId);
-
-  await chrome.tabs.update(tab.id, { active: true });
-
-  if (tab.status !== "complete") {
-    await waitForTabComplete(tab.id);
-  }
-
-  const settleMs = randomDelayMs(
-    CHATGPT_EXISTING_TAB_SETTLE_MS.min,
-    CHATGPT_EXISTING_TAB_SETTLE_MS.max
-  );
-
-  sendLog(
-    runId,
-    "info",
-    `Waiting ${(settleMs / 1000).toFixed(1)}s before filling humanize prompt...`
-  );
-  await sleep(settleMs);
-
-  sendLog(runId, "info", "Sending humanize prompt to ChatGPT...");
-  await sendFillAndSendToTab(tab.id, promptText, runId);
-
-  const chatGptUrl = await resolveChatGptUrlAfterSend(tab.id, runId);
-  sendLog(runId, "success", `Humanize prompt sent to ChatGPT: ${chatGptUrl}`);
-
-  return {
-    url: chatGptUrl,
-    tabId: tab.id
-  };
-}
-
 async function downloadGoogleDocUrlAsPdf(
   runId,
   { documentUrl = "", documentTitle = "", profileName = "" } = {}
@@ -1899,11 +1770,6 @@ async function downloadActiveGoogleDocAsPdf(runId) {
     documentUrl: tab.url,
     documentTitle: tab.title
   });
-}
-
-async function humanizeChatGptConversation(runId) {
-  sendLog(runId, "info", "Starting Humanize...");
-  return sendHumanizePromptToChatGpt(runId);
 }
 
 async function downloadResumeAsPdf(runId, options = {}) {
@@ -2666,30 +2532,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "GET_HUMANIZE_PROMPT_SELECTION") {
-    getHumanizePromptSelectionState()
-      .then((state) => sendResponse({ ok: true, ...state }))
-      .catch((error) => {
-        sendResponse({
-          ok: false,
-          error: error.message || "Could not load humanize prompt."
-        });
-      });
-    return true;
-  }
-
-  if (message.type === "SAVE_HUMANIZE_PROMPT_SELECTION") {
-    saveHumanizePromptSelectionState(message.content)
-      .then((state) => sendResponse({ ok: true, ...state }))
-      .catch((error) => {
-        sendResponse({
-          ok: false,
-          error: error.message || "Could not save humanize prompt."
-        });
-      });
-    return true;
-  }
-
   if (message.type === "GET_JOB_DESCRIPTION_SELECTION") {
     getJobDescriptionSelectionState()
       .then((state) => sendResponse({ ok: true, ...state }))
@@ -2745,7 +2587,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
-    HUMANIZE_CHATGPT: humanizeChatGptConversation,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
