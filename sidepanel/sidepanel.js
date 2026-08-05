@@ -41,6 +41,9 @@ const applicationWorkspaceJobGptLocation = document.querySelector(
 const applicationWorkspaceJobGptUrl = document.querySelector(
   "#applicationWorkspaceJobGptUrl"
 );
+const applicationWorkspaceJobGptClosePickupButton = document.querySelector(
+  "#applicationWorkspaceJobGptClosePickupButton"
+);
 const applicationWorkspaceJobGptPickupButton = document.querySelector(
   "#applicationWorkspaceJobGptPickupButton"
 );
@@ -52,6 +55,9 @@ const applicationWorkspaceJobGptClearButton = document.querySelector(
 );
 const applicationWorkspaceRefreshButton = document.querySelector(
   "#applicationWorkspaceRefreshButton"
+);
+const applicationWorkspaceClosePickupButton = document.querySelector(
+  "#applicationWorkspaceClosePickupButton"
 );
 const applicationWorkspacePickupButton = document.querySelector(
   "#applicationWorkspacePickupButton"
@@ -4357,9 +4363,164 @@ function getWorkspaceUrlComparisonKey(value) {
   }
 }
 
+async function getPickupSourceWindowId() {
+  if (Number.isInteger(activeTabId)) {
+    try {
+      const tab = await chrome.tabs.get(activeTabId);
+      if (Number.isInteger(tab?.windowId)) {
+        return tab.windowId;
+      }
+    } catch {
+      // Fall through to the side panel window.
+    }
+  }
+  return Number.isInteger(panelWindowId) ? panelWindowId : null;
+}
+
+async function findPickedUpWindowForUrl(url) {
+  const targetUrl = String(url || "").trim();
+  const targetKey = getWorkspaceUrlComparisonKey(targetUrl);
+  if (!targetKey) {
+    return null;
+  }
+
+  const sourceWindowId = await getPickupSourceWindowId();
+  let windows = [];
+  try {
+    windows = await chrome.windows.getAll({
+      populate: true,
+      windowTypes: ["normal"]
+    });
+  } catch (error) {
+    console.error("Could not look up picked-up windows:", error);
+    return null;
+  }
+
+  for (const win of windows) {
+    if (!Number.isInteger(win?.id) || win.id === sourceWindowId) {
+      continue;
+    }
+
+    for (const tab of win.tabs || []) {
+      if (!Number.isInteger(tab?.id)) {
+        continue;
+      }
+      if (
+        getWorkspaceUrlComparisonKey(tab.url || tab.pendingUrl || "") !==
+        targetKey
+      ) {
+        continue;
+      }
+
+      return {
+        windowId: win.id,
+        tabId: tab.id,
+        url: tab.url || targetUrl
+      };
+    }
+  }
+
+  return null;
+}
+
+function setPickupCloseButtonVisible(button, isVisible) {
+  if (!button) {
+    return;
+  }
+  button.classList.toggle("is-hidden", !isVisible);
+  if (!isVisible) {
+    button.disabled = true;
+  }
+}
+
+async function updatePickupCloseButtons() {
+  const jobOrGptUrl = String(
+    applicationWorkspaceJobGptUrl?.textContent || ""
+  ).trim();
+  const resumeUrl = getApplicationWorkspaceResumePickupUrl();
+  const showResumePickup = !isSplitWindowsDialogOpen;
+
+  const [jobPickupWindow, resumePickupWindow] = await Promise.all([
+    jobOrGptUrl ? findPickedUpWindowForUrl(jobOrGptUrl) : Promise.resolve(null),
+    showResumePickup && resumeUrl
+      ? findPickedUpWindowForUrl(resumeUrl)
+      : Promise.resolve(null)
+  ]);
+
+  if (applicationWorkspaceJobGptClosePickupButton) {
+    const showClose = Boolean(jobPickupWindow);
+    setPickupCloseButtonVisible(
+      applicationWorkspaceJobGptClosePickupButton,
+      showClose
+    );
+    applicationWorkspaceJobGptClosePickupButton.disabled = !showClose;
+  }
+
+  if (applicationWorkspaceClosePickupButton) {
+    const showClose = showResumePickup && Boolean(resumePickupWindow);
+    setPickupCloseButtonVisible(
+      applicationWorkspaceClosePickupButton,
+      showClose
+    );
+    applicationWorkspaceClosePickupButton.disabled = !showClose;
+  }
+}
+
+async function closePickedUpWindowForUrl(url, {
+  ownerTabId = null,
+  successLog = "Closed the picked-up window.",
+  emptyMessage = "No picked-up window is open for this URL."
+} = {}) {
+  const targetUrl = String(url || "").trim();
+  if (!targetUrl) {
+    showStatus("error", emptyMessage);
+    return;
+  }
+
+  const pickedUpWindow = await findPickedUpWindowForUrl(targetUrl);
+  if (!pickedUpWindow) {
+    await updatePickupCloseButtons();
+    showStatus("error", emptyMessage);
+    return;
+  }
+
+  const resolvedOwnerTabId = Number.isInteger(ownerTabId)
+    ? ownerTabId
+    : activeTabId;
+
+  try {
+    await chrome.windows.remove(pickedUpWindow.windowId);
+    if (Number.isInteger(resolvedOwnerTabId)) {
+      showStatusForTab(
+        resolvedOwnerTabId,
+        "success",
+        targetUrl,
+        "Closed:"
+      );
+      addLogForTab(resolvedOwnerTabId, "success", successLog);
+    } else {
+      showStatus("success", targetUrl, "Closed:");
+      addLog("success", successLog);
+    }
+  } catch (error) {
+    console.error(error);
+    const message = error.message || "Could not close the picked-up window.";
+    if (Number.isInteger(resolvedOwnerTabId)) {
+      showStatusForTab(resolvedOwnerTabId, "error", message);
+      addLogForTab(resolvedOwnerTabId, "error", message);
+    } else {
+      showStatus("error", message);
+      addLog("error", message);
+    }
+  } finally {
+    await updatePickupCloseButtons();
+  }
+}
+
 async function openWorkspaceUrlInRightWindow(url, {
   ownerTabId = null,
   successLog = "Opened the URL in a right-side Chrome window.",
+  reopenSuccessLog = "Reopened the existing right-side Chrome window.",
   statusPrefix = "Picked up:"
 } = {}) {
   const targetUrl = String(url || "").trim();
@@ -4386,8 +4547,19 @@ async function openWorkspaceUrlInRightWindow(url, {
     throw new Error(response?.error || "Could not open the URL.");
   }
 
-  showStatusForTab(resolvedOwnerTabId, "success", targetUrl, statusPrefix);
-  addLogForTab(resolvedOwnerTabId, "success", successLog);
+  const didReuse = Boolean(response.reused);
+  showStatusForTab(
+    resolvedOwnerTabId,
+    "success",
+    targetUrl,
+    didReuse ? "Reopened:" : statusPrefix
+  );
+  addLogForTab(
+    resolvedOwnerTabId,
+    "success",
+    didReuse ? reopenSuccessLog : successLog
+  );
+  await updatePickupCloseButtons();
   return targetUrl;
 }
 
@@ -4411,7 +4583,7 @@ async function pickupApplicationWorkspaceResumeUrl() {
 
   if (hasActiveSaveWorkspaceForCurrentTab()) {
     const workspace = beginSaveWorkspaceAction(
-      "Pick up clicked. Opening the resume URL in a right-side window..."
+      "Pick up clicked. Opening or reopening the resume URL in a right-side window..."
     );
     if (!workspace) {
       return;
@@ -4423,6 +4595,8 @@ async function pickupApplicationWorkspaceResumeUrl() {
         ownerTabId,
         successLog:
           "Opened the resume URL in a right-side Chrome window.",
+        reopenSuccessLog:
+          "Reopened the existing resume window.",
         statusPrefix: "Picked up:"
       });
     } catch (error) {
@@ -4446,12 +4620,30 @@ async function pickupApplicationWorkspaceResumeUrl() {
   try {
     await openWorkspaceUrlInRightWindow(resumeUrl, {
       successLog: "Opened the resume URL in a right-side Chrome window.",
+      reopenSuccessLog: "Reopened the existing resume window.",
       statusPrefix: "Picked up:"
     });
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Could not open the resume URL.");
   }
+}
+
+async function closeApplicationWorkspaceResumePickupWindow() {
+  if (isSplitWindowsDialogOpen) {
+    return;
+  }
+
+  const resumeUrl = getApplicationWorkspaceResumePickupUrl();
+  const ownerTabId = hasActiveSaveWorkspaceForCurrentTab()
+    ? currentSaveWorkspace?.chatGptTabId
+    : activeTabId;
+
+  await closePickedUpWindowForUrl(resumeUrl, {
+    ownerTabId,
+    successLog: "Closed the picked-up resume window.",
+    emptyMessage: "No picked-up resume window is open."
+  });
 }
 
 async function pickupApplicationWorkspaceJobGptUrl() {
@@ -4469,7 +4661,7 @@ async function pickupApplicationWorkspaceJobGptUrl() {
 
   if (hasActiveSaveWorkspaceForCurrentTab()) {
     const workspace = beginSaveWorkspaceAction(
-      "Pick up clicked. Opening the job or GPT URL in a right-side window..."
+      "Pick up clicked. Opening or reopening the job or GPT URL in a right-side window..."
     );
     if (!workspace) {
       return;
@@ -4481,6 +4673,8 @@ async function pickupApplicationWorkspaceJobGptUrl() {
         ownerTabId,
         successLog:
           "Opened the job or ChatGPT URL in a right-side Chrome window.",
+        reopenSuccessLog:
+          "Reopened the existing job or ChatGPT window.",
         statusPrefix: "Picked up:"
       });
     } catch (error) {
@@ -4505,12 +4699,33 @@ async function pickupApplicationWorkspaceJobGptUrl() {
     await openWorkspaceUrlInRightWindow(jobOrGptUrl, {
       successLog:
         "Opened the job or ChatGPT URL in a right-side Chrome window.",
+      reopenSuccessLog:
+        "Reopened the existing job or ChatGPT window.",
       statusPrefix: "Picked up:"
     });
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Could not open the job or GPT URL.");
   }
+}
+
+async function closeApplicationWorkspaceJobGptPickupWindow() {
+  if (isSplitWindowsDialogOpen) {
+    return;
+  }
+
+  const jobOrGptUrl = String(
+    applicationWorkspaceJobGptUrl?.textContent || ""
+  ).trim();
+  const ownerTabId = hasActiveSaveWorkspaceForCurrentTab()
+    ? currentSaveWorkspace?.chatGptTabId
+    : activeTabId;
+
+  await closePickedUpWindowForUrl(jobOrGptUrl, {
+    ownerTabId,
+    successLog: "Closed the picked-up job or GPT window.",
+    emptyMessage: "No picked-up job or GPT window is open."
+  });
 }
 
 function clearApplicationWorkspaceJobGptUrl() {
@@ -4996,6 +5211,10 @@ async function updateApplicationWorkspaceJobGptUrl() {
     applicationWorkspaceJobGptLocation.classList.add("is-hidden");
     applicationWorkspaceJobGptUrl.textContent = "";
     applicationWorkspaceJobGptUrl.removeAttribute("title");
+    setPickupCloseButtonVisible(
+      applicationWorkspaceJobGptClosePickupButton,
+      false
+    );
     if (applicationWorkspaceJobGptPickupButton) {
       applicationWorkspaceJobGptPickupButton.disabled = true;
     }
@@ -5030,6 +5249,7 @@ async function updateApplicationWorkspaceJobGptUrl() {
   if (applicationWorkspaceJobGptClearButton) {
     applicationWorkspaceJobGptClearButton.disabled = !url || actionsDisabled;
   }
+  await updatePickupCloseButtons();
 }
 
 async function copyApplicationWorkspaceJobGptUrl() {
@@ -5068,6 +5288,9 @@ function updateApplicationWorkspaceUrlControls() {
       !showPickup
     );
     applicationWorkspacePickupButton.disabled = pickupDisabled;
+  }
+  if (!showPickup) {
+    setPickupCloseButtonVisible(applicationWorkspaceClosePickupButton, false);
   }
   if (applicationWorkspaceNotesButton) {
     applicationWorkspaceNotesButton.disabled =
@@ -5863,6 +6086,10 @@ applicationWorkspacePickupButton?.addEventListener(
   "click",
   pickupApplicationWorkspaceResumeUrl
 );
+applicationWorkspaceClosePickupButton?.addEventListener(
+  "click",
+  closeApplicationWorkspaceResumePickupWindow
+);
 applicationWorkspaceNotesButton?.addEventListener(
   "click",
   openApplicationWorkspaceNotesModal
@@ -5874,6 +6101,10 @@ applicationWorkspaceCopyUrlButton?.addEventListener(
 applicationWorkspaceJobGptPickupButton?.addEventListener(
   "click",
   pickupApplicationWorkspaceJobGptUrl
+);
+applicationWorkspaceJobGptClosePickupButton?.addEventListener(
+  "click",
+  closeApplicationWorkspaceJobGptPickupWindow
 );
 applicationWorkspaceJobGptCopyButton?.addEventListener(
   "click",
@@ -6111,6 +6342,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   ) {
     updateApplicationWorkspaceJobGptUrl();
   }
+
+  if (changeInfo.url) {
+    updatePickupCloseButtons();
+  }
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
@@ -6132,6 +6367,10 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   } catch (error) {
     console.error("Could not check the focused window tab:", error);
   }
+});
+
+chrome.windows.onRemoved.addListener(() => {
+  updatePickupCloseButtons();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {

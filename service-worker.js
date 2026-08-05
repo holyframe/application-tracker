@@ -1832,6 +1832,50 @@ async function openUrlInNewTab(runId, options = {}) {
   };
 }
 
+function getUrlComparisonKey(value) {
+  try {
+    const parsedUrl = new URL(String(value || "").trim());
+    parsedUrl.hash = "";
+    return parsedUrl.href.replace(/\/$/, "");
+  } catch {
+    return String(value || "").trim().replace(/\/$/, "");
+  }
+}
+
+async function findExistingRightWindowForUrl(url, sourceWindowId) {
+  const targetKey = getUrlComparisonKey(url);
+  if (!targetKey) {
+    return null;
+  }
+
+  const windows = await chrome.windows.getAll({
+    populate: true,
+    windowTypes: ["normal"]
+  });
+
+  for (const win of windows) {
+    if (!Number.isInteger(win?.id) || win.id === sourceWindowId) {
+      continue;
+    }
+
+    for (const tab of win.tabs || []) {
+      if (!Number.isInteger(tab?.id)) {
+        continue;
+      }
+      if (getUrlComparisonKey(tab.url || tab.pendingUrl || "") !== targetKey) {
+        continue;
+      }
+
+      return {
+        windowId: win.id,
+        tabId: tab.id
+      };
+    }
+  }
+
+  return null;
+}
+
 async function openUrlInRightWindow(runId, options = {}) {
   const url = normalizeHttpUrl(options.url, "Page");
   let sourceWindow = null;
@@ -1847,6 +1891,25 @@ async function openUrlInRightWindow(runId, options = {}) {
     sourceWindow = await chrome.windows.getLastFocused({
       windowTypes: ["normal"]
     });
+  }
+
+  const existingWindow = await findExistingRightWindowForUrl(
+    url,
+    sourceWindow?.id
+  );
+  if (existingWindow) {
+    sendLog(runId, "info", "Reopening the existing right-side window...");
+    await chrome.windows.update(existingWindow.windowId, { focused: true });
+    if (Number.isInteger(existingWindow.tabId)) {
+      await chrome.tabs.update(existingWindow.tabId, { active: true });
+    }
+    sendLog(runId, "success", "Existing right-side window focused.");
+    return {
+      url,
+      windowId: existingWindow.windowId,
+      tabId: existingWindow.tabId,
+      reused: true
+    };
   }
 
   const sourceLeft = Number.isFinite(sourceWindow?.left)
@@ -1881,7 +1944,8 @@ async function openUrlInRightWindow(runId, options = {}) {
   return {
     url,
     windowId: createdWindow.id,
-    tabId: Number.isInteger(openedTab?.id) ? openedTab.id : null
+    tabId: Number.isInteger(openedTab?.id) ? openedTab.id : null,
+    reused: false
   };
 }
 
