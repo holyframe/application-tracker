@@ -854,8 +854,8 @@
                 id="applicationWorkspaceJobGptClearButton"
                 type="button"
                 class="workspace-url-icon-button"
-                aria-label="Delete job or GPT URL"
-                title="Delete URL"
+                aria-label="Delete application"
+                title="Delete application"
                 disabled
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1114,6 +1114,60 @@
             class="primary-button modal-action-button"
           >
             <span>OK</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="deleteApplicationModal"
+      class="modal delete-application-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="deleteApplicationModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="deleteApplicationModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Cancel delete application"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="deleteApplicationModalTitle">Delete application?</h2>
+          <button
+            id="deleteApplicationModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <p id="deleteApplicationModalHelp" class="modal-help">
+          This removes the Google Sheet row, trashes the copied resume Doc,
+          closes pickup windows, returns the side panel to Home, and opens the
+          job URL in the main tab.
+        </p>
+
+        <div class="modal-actions">
+          <button
+            id="deleteApplicationModalCancelButton"
+            type="button"
+            class="secondary-button modal-action-button"
+          >
+            <span>Cancel</span>
+          </button>
+
+          <button
+            id="deleteApplicationModalConfirmButton"
+            type="button"
+            class="danger-button modal-action-button"
+          >
+            <span>Delete</span>
           </button>
         </div>
       </div>

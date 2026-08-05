@@ -53,6 +53,22 @@ const applicationWorkspaceJobGptCopyButton = document.querySelector(
 const applicationWorkspaceJobGptClearButton = document.querySelector(
   "#applicationWorkspaceJobGptClearButton"
 );
+const deleteApplicationModal = document.querySelector("#deleteApplicationModal");
+const deleteApplicationModalBackdrop = document.querySelector(
+  "#deleteApplicationModalBackdrop"
+);
+const deleteApplicationModalCloseButton = document.querySelector(
+  "#deleteApplicationModalCloseButton"
+);
+const deleteApplicationModalCancelButton = document.querySelector(
+  "#deleteApplicationModalCancelButton"
+);
+const deleteApplicationModalConfirmButton = document.querySelector(
+  "#deleteApplicationModalConfirmButton"
+);
+const deleteApplicationModalHelp = document.querySelector(
+  "#deleteApplicationModalHelp"
+);
 const applicationWorkspaceRefreshButton = document.querySelector(
   "#applicationWorkspaceRefreshButton"
 );
@@ -756,6 +772,12 @@ function getManagedModals() {
       element: jobDescriptionFormModal,
       setOpen: setJobDescriptionFormModalOpen,
       fields: [jobDescriptionContentInput]
+    },
+    {
+      id: "deleteApplication",
+      element: deleteApplicationModal,
+      setOpen: (isOpen) => setDeleteApplicationModalOpen(isOpen, { returnFocus: false }),
+      fields: []
     }
   ];
 }
@@ -2000,6 +2022,9 @@ function setSaveButtonsDisabled(disabled) {
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
   if (promptFormModalSubmitButton) promptFormModalSubmitButton.disabled = disabled;
   if (jobDescriptionFormModalSubmitButton) jobDescriptionFormModalSubmitButton.disabled = disabled;
+  if (deleteApplicationModalConfirmButton) {
+    deleteApplicationModalConfirmButton.disabled = disabled;
+  }
 }
 
 function setSaveButtonsDisabledForTab(tabId, disabled) {
@@ -4845,6 +4870,196 @@ function clearApplicationWorkspaceJobGptUrl() {
   schedulePersistTabSession();
 }
 
+function setDeleteApplicationModalOpen(isOpen, { returnFocus = true } = {}) {
+  if (!deleteApplicationModal) {
+    return;
+  }
+
+  deleteApplicationModal.classList.toggle("is-hidden", !isOpen);
+  deleteApplicationModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    const workspace = currentSaveWorkspace;
+    const profileName = String(workspace?.profileName || "").trim();
+    const jobUrl = String(workspace?.jobUrl || "").trim();
+    if (deleteApplicationModalHelp) {
+      const trashResumeNote =
+        workspace?.sessionType === "save-workspace"
+          ? "trashes the copied resume Doc, "
+          : "";
+      deleteApplicationModalHelp.textContent = profileName
+        ? `Delete the "${profileName}" application${
+            jobUrl ? ` for ${jobUrl}` : ""
+          }? This removes matching Google Sheet rows, ${trashResumeNote}closes pickup windows, returns Home, and opens the job URL in the main tab.`
+        : "Delete this application? This removes matching Google Sheet rows, closes pickup windows, returns Home, and opens the job URL in the main tab.";
+    }
+    deleteApplicationModalConfirmButton?.focus();
+    return;
+  }
+
+  if (returnFocus) {
+    applicationWorkspaceJobGptClearButton?.focus();
+  }
+}
+
+function requestDeleteApplicationWorkspace() {
+  if (areActionButtonsDisabled || isSplitWindowsDialogOpen) {
+    return;
+  }
+
+  if (!hasActiveSaveWorkspaceForCurrentTab()) {
+    clearApplicationWorkspaceJobGptUrl();
+    return;
+  }
+
+  if (!currentSaveWorkspace?.isReady || currentSaveWorkspace.isBusy) {
+    return;
+  }
+
+  setDeleteApplicationModalOpen(true);
+}
+
+function tearDownDeletedSaveWorkspace(workspace) {
+  if (!workspace) {
+    return;
+  }
+
+  const ownerTabId = workspace.chatGptTabId;
+  if (Number.isInteger(ownerTabId)) {
+    saveWorkspacesByTabId.delete(ownerTabId);
+    const tabState = tabStateById.get(ownerTabId);
+    if (tabState) {
+      tabState.saveWorkspaceSidePanelView = "home";
+      tabState.splitWindowSessionType = "make-resume";
+    }
+  }
+
+  if (currentSaveWorkspace === workspace) {
+    currentSaveWorkspace = null;
+  }
+
+  currentSaveWorkspaceSidePanelView = "workspace";
+  currentDefaultSidePanelView = "home";
+  currentSplitWindowDownloadUrl = "";
+  currentSplitWindowPairs = [];
+  currentSplitWindowReturnTabId = null;
+  currentSplitWindowSessionType = "make-resume";
+  splitWindowsPreviewTabs?.classList.add("is-hidden");
+  setBuildResumeContextModalOpen(false, { returnFocus: false });
+  schedulePersistTabSession();
+  renderSaveWorkspaceSidePanelView({ focus: true });
+}
+
+async function confirmDeleteApplicationWorkspace() {
+  if (
+    areActionButtonsDisabled ||
+    isSplitWindowsDialogOpen ||
+    !hasActiveSaveWorkspaceForCurrentTab()
+  ) {
+    setDeleteApplicationModalOpen(false);
+    return;
+  }
+
+  const workspace = beginSaveWorkspaceAction(
+    "Delete confirmed. Removing the application record..."
+  );
+  if (!workspace) {
+    setDeleteApplicationModalOpen(false);
+    return;
+  }
+
+  setDeleteApplicationModalOpen(false, { returnFocus: false });
+
+  const ownerTabId = workspace.chatGptTabId;
+  const snapshot = {
+    profileName: String(workspace.profileName || "").trim(),
+    jobUrl: String(workspace.jobUrl || "").trim(),
+    resumeUrl: String(workspace.resumeUrl || "").trim(),
+    chatGptUrl: String(workspace.chatGptUrl || "").trim(),
+    sessionType: workspace.sessionType,
+    chatGptTabId: ownerTabId
+  };
+  const runId = registerRunTab(
+    activeRunId || createRunId(),
+    ownerTabId
+  );
+
+  if (deleteApplicationModalConfirmButton) {
+    deleteApplicationModalConfirmButton.disabled = true;
+  }
+
+  try {
+    await closePickupWindowsForOwnerTab(ownerTabId);
+
+    const response = await chrome.runtime.sendMessage({
+      type: "DELETE_APPLICATION_RECORD",
+      runId,
+      ownerTabId,
+      profileName: snapshot.profileName,
+      jobUrl: snapshot.jobUrl,
+      resumeUrl: snapshot.resumeUrl,
+      chatGptUrl: snapshot.chatGptUrl,
+      trashResume: snapshot.sessionType === "save-workspace"
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not delete the application.");
+    }
+
+    if (snapshot.jobUrl && Number.isInteger(ownerTabId)) {
+      await chrome.tabs.update(ownerTabId, {
+        url: snapshot.jobUrl,
+        active: true
+      });
+    }
+
+    const removedCount = Number(response.removed) || 0;
+    const summaryParts = [];
+    if (removedCount > 0) {
+      summaryParts.push(
+        `removed ${removedCount} sheet row${removedCount === 1 ? "" : "s"}`
+      );
+    } else {
+      summaryParts.push("no matching sheet rows");
+    }
+    if (response.trashedDocumentId) {
+      summaryParts.push("trashed resume copy");
+    }
+
+    showStatusForTab(
+      ownerTabId,
+      "success",
+      snapshot.jobUrl || snapshot.profileName || "Application deleted.",
+      "Deleted:"
+    );
+    addLogForTab(
+      ownerTabId,
+      "success",
+      `Application deleted (${summaryParts.join(", ")}).`
+    );
+
+    finishSaveWorkspaceAction(workspace);
+    tearDownDeletedSaveWorkspace(workspace);
+  } catch (error) {
+    console.error(error);
+    showStatusForTab(
+      ownerTabId,
+      "error",
+      error.message || "Could not delete the application."
+    );
+    addLogForTab(
+      ownerTabId,
+      "error",
+      error.message || "Could not delete the application."
+    );
+    finishSaveWorkspaceAction(workspace);
+  } finally {
+    if (deleteApplicationModalConfirmButton) {
+      deleteApplicationModalConfirmButton.disabled = false;
+    }
+  }
+}
+
 function hasSaveWorkspaceSession() {
   return saveWorkspacesByTabId.size > 0;
 }
@@ -6194,7 +6409,20 @@ applicationWorkspaceJobGptCopyButton?.addEventListener(
 );
 applicationWorkspaceJobGptClearButton?.addEventListener(
   "click",
-  clearApplicationWorkspaceJobGptUrl
+  requestDeleteApplicationWorkspace
+);
+deleteApplicationModalBackdrop?.addEventListener("click", () =>
+  setDeleteApplicationModalOpen(false)
+);
+deleteApplicationModalCloseButton?.addEventListener("click", () =>
+  setDeleteApplicationModalOpen(false)
+);
+deleteApplicationModalCancelButton?.addEventListener("click", () =>
+  setDeleteApplicationModalOpen(false)
+);
+deleteApplicationModalConfirmButton?.addEventListener(
+  "click",
+  confirmDeleteApplicationWorkspace
 );
 applicationWorkspaceUrlInput?.addEventListener("input", () => {
   applicationWorkspaceUrlInput.removeAttribute("aria-invalid");
@@ -6365,6 +6593,11 @@ document.addEventListener("keydown", (event) => {
 
   if (jobDescriptionFormModal && !jobDescriptionFormModal.classList.contains("is-hidden")) {
     setJobDescriptionFormModalOpen(false);
+    return;
+  }
+
+  if (deleteApplicationModal && !deleteApplicationModal.classList.contains("is-hidden")) {
+    setDeleteApplicationModalOpen(false);
     return;
   }
 

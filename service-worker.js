@@ -2688,6 +2688,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
+    DELETE_APPLICATION_RECORD: deleteApplicationRecord,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
@@ -2724,6 +2725,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             documentTitle: message.documentTitle,
             profileName: message.profileName
           })
+        : message.type === "DELETE_APPLICATION_RECORD"
+          ? run(message.runId, {
+              profileName: message.profileName,
+              jobUrl: message.jobUrl,
+              resumeUrl: message.resumeUrl,
+              chatGptUrl: message.chatGptUrl,
+              trashResume: message.trashResume
+            })
         : message.type === "OPEN_URL_IN_NEW_TAB"
           ? run(message.runId, {
               url: message.url
@@ -3576,6 +3585,199 @@ async function removeDuplicateUrlsFromSheet(runId) {
     removed: duplicateRowIndices.length,
     rowCount: dataRowCount,
     deletedRows
+  };
+}
+
+function applicationSheetRowMatchesRecord(row, {
+  jobUrl = "",
+  resumeUrl = "",
+  chatGptUrl = ""
+} = {}) {
+  const resumeKey = normalizeUrlKeyForDedupe(resumeUrl);
+  const rowResumeKey = normalizeUrlKeyForDedupe(row?.[5]);
+  if (resumeKey && rowResumeKey && resumeKey === rowResumeKey) {
+    return true;
+  }
+
+  const jobKey = normalizeUrlKeyForDedupe(jobUrl);
+  const rowJobKey = normalizeUrlKeyForDedupe(row?.[4]);
+  if (!jobKey || !rowJobKey || jobKey !== rowJobKey) {
+    return false;
+  }
+
+  const chatKey = normalizeUrlKeyForDedupe(chatGptUrl);
+  if (!chatKey) {
+    return true;
+  }
+
+  const rowChatKey = normalizeUrlKeyForDedupe(row?.[3]);
+  return !rowChatKey || rowChatKey === chatKey;
+}
+
+async function trashGoogleDocByUrl(runId, documentUrl) {
+  const normalizedDocumentUrl = String(documentUrl || "").trim();
+  if (!isGoogleDocsDocumentUrl(normalizedDocumentUrl)) {
+    throw new Error("The resume URL is not a Google Docs document.");
+  }
+
+  const documentId = parseGoogleDocId(normalizedDocumentUrl);
+  if (!documentId) {
+    throw new Error("Could not find a Google Docs document ID in the resume URL.");
+  }
+
+  sendLog(runId, "info", "Moving the copied resume Doc to Google Drive trash...");
+  let token = await getGoogleAccessToken();
+  let response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(documentId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ trashed: true })
+    }
+  );
+
+  if (response.status === 401 || response.status === 403) {
+    sendLog(runId, "info", "Drive trash auth error. Refreshing token and retrying...");
+    await clearCachedGoogleAccessToken(token);
+    token = await getGoogleAccessToken({ interactive: true });
+    response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(documentId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ trashed: true })
+      }
+    );
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      formatGoogleApiError(
+        errorText,
+        "Could not move the copied resume Doc to Google Drive trash."
+      )
+    );
+  }
+
+  sendLog(runId, "success", "Copied resume Doc moved to Google Drive trash.");
+  return { documentId };
+}
+
+async function deleteApplicationRecord(runId, options = {}) {
+  const profileName =
+    String(options.profileName || "").trim() || DEFAULT_PROFILE_NAME;
+  const jobUrl = String(options.jobUrl || "").trim();
+  const resumeUrl = String(options.resumeUrl || "").trim();
+  const chatGptUrl = String(options.chatGptUrl || "").trim();
+  const trashResume = options.trashResume !== false && Boolean(resumeUrl);
+
+  if (!jobUrl && !resumeUrl) {
+    throw new Error("A job URL or resume URL is required to delete the application.");
+  }
+
+  sendLog(runId, "info", `Deleting application record for profile "${profileName}"...`);
+
+  const token = await getGoogleAccessToken();
+  sendLog(runId, "success", "Google authorization token received.");
+
+  const baseSheetConfig = await getSheetConfig();
+  const sheetConfig = {
+    ...baseSheetConfig,
+    sheetName: profileName
+  };
+  const sheetId = await ensureSheetExists(
+    token,
+    sheetConfig.spreadsheetId,
+    profileName,
+    runId,
+    {
+      initializeApplicationSheet: true
+    }
+  );
+
+  const values = await readSheetValues(token, runId, sheetConfig);
+  const firstDataRowIndex =
+    values.length > 0 && hasApplicationSheetHeaders(values[0]) ? 1 : 0;
+  const matchingRowIndices = [];
+  const deletedRows = [];
+
+  for (let i = firstDataRowIndex; i < values.length; i++) {
+    const row = values[i] || [];
+    if (
+      !applicationSheetRowMatchesRecord(row, {
+        jobUrl,
+        resumeUrl,
+        chatGptUrl
+      })
+    ) {
+      continue;
+    }
+
+    matchingRowIndices.push(i);
+    deletedRows.push({
+      rowNumber: i + 1,
+      timestamp: row[0] || "",
+      title: row[1] || "",
+      profileName: row[2] || "",
+      chatGptUrl: row[3] || "",
+      url: row[4] || "",
+      resumeUrl: row[5] || "",
+      applyNow: row[6] || ""
+    });
+  }
+
+  if (matchingRowIndices.length === 0) {
+    sendLog(
+      runId,
+      "info",
+      `No matching Google Sheet rows found in "${profileName}".`
+    );
+  } else {
+    sendLog(
+      runId,
+      "info",
+      `Removing ${matchingRowIndices.length} matching Google Sheet row(s)...`
+    );
+    await batchDeleteSheetRows(
+      token,
+      sheetConfig.spreadsheetId,
+      sheetId,
+      matchingRowIndices,
+      runId
+    );
+    sendLog(
+      runId,
+      "success",
+      `Removed ${matchingRowIndices.length} Google Sheet row(s).`
+    );
+  }
+
+  let trashedDocumentId = null;
+  if (trashResume) {
+    const trashResult = await trashGoogleDocByUrl(runId, resumeUrl);
+    trashedDocumentId = trashResult.documentId;
+  } else if (resumeUrl) {
+    sendLog(
+      runId,
+      "info",
+      "Skipping Google Docs trash because this resume was not a Save App copy."
+    );
+  }
+
+  return {
+    removed: matchingRowIndices.length,
+    deletedRows,
+    trashedDocumentId,
+    profileName,
+    jobUrl,
+    resumeUrl
   };
 }
 
