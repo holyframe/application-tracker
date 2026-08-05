@@ -62,10 +62,11 @@ line. There is no separate progress bar, and Cancel Process stays at the far
 right of the header. The header Exchange icon that switches between Home and
 Application workspaces stays disabled until the final Google Sheet row is
 saved. Saving that row ends progress immediately. Cancel Process stops both
-progress and the active save early. Successful completion or cancellation
-clears the checked profiles, selected prompt-resume variants, and job
-description without closing completed tabs or removing data already saved. No
-Chrome notification is created.
+progress and the active save early. Successful completion or cancellation ends save progress without clearing
+checked profiles, selected prompt-resume variants, or the job description.
+Each tab keeps its Application workspace details, process logs, and status
+until that Chrome tab is closed. Completed sheet rows and opened tabs are
+never rolled back. No Chrome notification is created.
 
 Outside save progress, the matching workspace headers show an Exchange icon
 for switching between the two views. The compact line below each title retains
@@ -75,9 +76,10 @@ a left-side Settings icon that opens configuration in a modal.
 Before `Save App` runs, and on browser tabs that are not bound to the current
 saved application, the Application workspace shows an empty resume state and
 disabled resume actions. Returning to any ChatGPT tab created by the batch
-restores that profile's populated side-panel workspace. Each workspace is
-removed when its bound tab closes; after the final bound tab closes, the empty
-Application workspace remains available.
+restores that profile's populated side-panel workspace, including after the
+side panel is closed and reopened. Each workspace and its process details are
+removed only when its bound tab closes; after the final bound tab closes, the
+empty Application workspace remains available.
 
 `Apply Now` requires an ungrouped job tab and immediately groups the job page,
 resume document, and ChatGPT conversation.
@@ -131,6 +133,11 @@ columns C-F shift to D-G.
 The shortcuts are handled only while the side panel is open. If the panel is
 closed, Chrome ignores these application actions.
 
+Pinned tabs keep the side panel closed automatically, except for Google Sheets
+(where Make a resume needs it). Switching back to another pinned tab closes
+the panel; per-tab process and workspace details for other open tabs are kept
+until those tabs close.
+
 ## Configuration and storage
 
 The header Settings modal accepts a Google Spreadsheet URL or ID. Application
@@ -139,8 +146,10 @@ profile tabs are created automatically. The configured default tab name is
 retained for backward compatibility.
 
 Profiles, prompts, job descriptions, notes, selected resume variants, and
-workflow state are stored in `chrome.storage.local`. The extension has no
-application server or third-party JavaScript dependencies.
+sheet configuration are stored in `chrome.storage.local`. Per-tab Application
+workspace details, process logs, and status are kept in `chrome.storage.session`
+until that Chrome tab closes. The extension has no application server or
+third-party JavaScript dependencies.
 
 Google authorization uses `chrome.identity` and the OAuth configuration in
 `manifest.json`. The signed-in account must be able to access the configured

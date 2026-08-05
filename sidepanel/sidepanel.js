@@ -203,6 +203,8 @@ const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
 const DEFAULT_PROFILE_NAME = "Default";
+// Survives side-panel reloads for as long as the Chrome tab stays open.
+const TAB_SESSION_STORAGE_KEY = "tabSessionById";
 
 let activeRunId = null;
 let savePostProcessState = null;
@@ -242,6 +244,7 @@ const tabStateById = new Map();
 const runTabIdsByRunId = new Map();
 let activeTabId = null;
 let panelWindowId = null;
+let tabSessionPersistTimer = null;
 
 function createTabState() {
   return {
@@ -273,6 +276,155 @@ function createTabState() {
     promptResumeFormMode: "add",
     editingPromptResumeId: null
   };
+}
+
+function cloneTabStateForPersistence(state) {
+  if (!state || typeof state !== "object") {
+    return createTabState();
+  }
+
+  return {
+    ...createTabState(),
+    ...state,
+    logs: Array.isArray(state.logs) ? state.logs.map((entry) => ({ ...entry })) : [],
+    deletedRows: Array.isArray(state.deletedRows)
+      ? state.deletedRows.map((entry) => ({ ...entry }))
+      : [],
+    headerStatus:
+      state.headerStatus && typeof state.headerStatus === "object"
+        ? { ...state.headerStatus }
+        : null,
+    savePostProcessState:
+      state.savePostProcessState && typeof state.savePostProcessState === "object"
+        ? { ...state.savePostProcessState }
+        : null,
+    splitWindowPairs: Array.isArray(state.splitWindowPairs)
+      ? state.splitWindowPairs.map((entry) =>
+          entry && typeof entry === "object" ? { ...entry } : entry
+        )
+      : [],
+    emptyWorkspaceUrls:
+      state.emptyWorkspaceUrls && typeof state.emptyWorkspaceUrls === "object"
+        ? { ...state.emptyWorkspaceUrls }
+        : { job: "", resume: "" },
+    managedModalDrafts:
+      state.managedModalDrafts && typeof state.managedModalDrafts === "object"
+        ? { ...state.managedModalDrafts }
+        : {}
+  };
+}
+
+function serializeTabSession() {
+  captureActiveTabState();
+
+  const workspaces = {};
+  saveWorkspacesByTabId.forEach((workspace, tabId) => {
+    if (!Number.isInteger(tabId) || !workspace || typeof workspace !== "object") {
+      return;
+    }
+    workspaces[String(tabId)] = { ...workspace };
+  });
+
+  const tabStates = {};
+  tabStateById.forEach((state, tabId) => {
+    if (!Number.isInteger(tabId)) {
+      return;
+    }
+    tabStates[String(tabId)] = cloneTabStateForPersistence(state);
+  });
+
+  return { workspaces, tabStates };
+}
+
+function schedulePersistTabSession() {
+  if (tabSessionPersistTimer !== null) {
+    return;
+  }
+
+  tabSessionPersistTimer = setTimeout(() => {
+    tabSessionPersistTimer = null;
+    persistTabSession().catch((error) => {
+      console.error("Could not persist per-tab session state:", error);
+    });
+  }, 100);
+}
+
+async function persistTabSession() {
+  if (tabSessionPersistTimer !== null) {
+    clearTimeout(tabSessionPersistTimer);
+    tabSessionPersistTimer = null;
+  }
+
+  const session = serializeTabSession();
+  const hasWorkspaces = Object.keys(session.workspaces).length > 0;
+  const hasTabStates = Object.keys(session.tabStates).length > 0;
+
+  if (!hasWorkspaces && !hasTabStates) {
+    await chrome.storage.session.remove(TAB_SESSION_STORAGE_KEY);
+    return;
+  }
+
+  await chrome.storage.session.set({
+    [TAB_SESSION_STORAGE_KEY]: session
+  });
+}
+
+async function restoreTabSession() {
+  const stored = await chrome.storage.session.get(TAB_SESSION_STORAGE_KEY);
+  const session = stored[TAB_SESSION_STORAGE_KEY];
+  if (!session || typeof session !== "object") {
+    return;
+  }
+
+  const openTabIds = new Set();
+  try {
+    const tabs = await chrome.tabs.query({});
+    tabs.forEach((tab) => {
+      if (Number.isInteger(tab?.id)) {
+        openTabIds.add(tab.id);
+      }
+    });
+  } catch (error) {
+    console.error("Could not list open tabs while restoring session state:", error);
+  }
+
+  saveWorkspacesByTabId.clear();
+  tabStateById.clear();
+  runTabIdsByRunId.clear();
+
+  const workspaces =
+    session.workspaces && typeof session.workspaces === "object"
+      ? session.workspaces
+      : {};
+  Object.entries(workspaces).forEach(([tabKey, workspace]) => {
+    const tabId = Number(tabKey);
+    if (!Number.isInteger(tabId) || !openTabIds.has(tabId)) {
+      return;
+    }
+    if (!workspace || typeof workspace !== "object") {
+      return;
+    }
+    saveWorkspacesByTabId.set(tabId, { ...workspace, chatGptTabId: tabId });
+  });
+
+  const tabStates =
+    session.tabStates && typeof session.tabStates === "object"
+      ? session.tabStates
+      : {};
+  Object.entries(tabStates).forEach(([tabKey, state]) => {
+    const tabId = Number(tabKey);
+    if (!Number.isInteger(tabId) || !openTabIds.has(tabId)) {
+      return;
+    }
+    const restored = cloneTabStateForPersistence(state);
+    tabStateById.set(tabId, restored);
+    if (restored.runId) {
+      registerRunTab(restored.runId, tabId);
+    }
+  });
+
+  // Drop closed-tab leftovers left behind if the service worker missed a remove.
+  schedulePersistTabSession();
 }
 
 function getTabState(tabId) {
@@ -364,6 +516,7 @@ function switchActiveTab(tabId) {
   activeTabId = tabId;
   loadTabStateIntoRegisters(activeTabId);
   renderActiveTabState();
+  schedulePersistTabSession();
   return true;
 }
 
@@ -375,6 +528,7 @@ function forgetTabState(tabId) {
       runTabIdsByRunId.delete(runId);
     }
   });
+  schedulePersistTabSession();
 }
 
 // A run starts on one tab but can adopt the tabs it opens (for example the
@@ -475,7 +629,10 @@ async function initActiveTabTracking() {
       // is not dependable from a side panel document. Getting it wrong would
       // silently filter out every tab switch.
       panelWindowId = Number.isInteger(tab.windowId) ? tab.windowId : null;
-      captureActiveTabState();
+      // Prefer restored per-tab state over empty module registers.
+      loadTabStateIntoRegisters(activeTabId);
+      renderActiveTabState();
+      schedulePersistTabSession();
     }
   } catch (error) {
     console.error("Could not determine the active tab for the side panel:", error);
@@ -1851,10 +2008,12 @@ function setSaveButtonsDisabledForTab(tabId, disabled) {
     if (state) {
       state.areActionButtonsDisabled = Boolean(disabled);
     }
+    schedulePersistTabSession();
     return;
   }
 
   setSaveButtonsDisabled(disabled);
+  schedulePersistTabSession();
 }
 
 function isSavePostProcessActive(state = savePostProcessState) {
@@ -1914,11 +2073,13 @@ function setSavePostProcessStateForTab(tabId, state) {
     if (tabState) {
       tabState.savePostProcessState = normalized;
     }
+    schedulePersistTabSession();
     return;
   }
 
   savePostProcessState = normalized;
   renderSavePostProcessControls();
+  schedulePersistTabSession();
 }
 
 // The service worker stores one save-progress record per owning tab, so spread
@@ -3347,6 +3508,7 @@ function showStatusForTab(tabId, type, message, titleText) {
   if (isActiveTab(tabId)) {
     headerStatusState = status;
     renderHeaderStatus();
+    schedulePersistTabSession();
     return;
   }
 
@@ -3354,6 +3516,7 @@ function showStatusForTab(tabId, type, message, titleText) {
   if (state) {
     state.headerStatus = status;
   }
+  schedulePersistTabSession();
 }
 
 function showStatus(type, message, titleText) {
@@ -3416,6 +3579,7 @@ function addLogForTab(
         state.logs.splice(0, state.logs.length - MAX_TAB_LOG_ENTRIES);
       }
     }
+    schedulePersistTabSession();
     return;
   }
 
@@ -3423,17 +3587,20 @@ function addLogForTab(
   if (logEntries.length > MAX_TAB_LOG_ENTRIES) {
     logEntries.splice(0, logEntries.length - MAX_TAB_LOG_ENTRIES);
     renderLogEntries();
+    schedulePersistTabSession();
     return;
   }
 
   if (!logsList) {
     console.log(`[${level}] ${message}`);
+    schedulePersistTabSession();
     return;
   }
 
   logsList.appendChild(createLogListItem(entry));
   updateLogsState();
   logsList.scrollTop = logsList.scrollHeight;
+  schedulePersistTabSession();
 }
 
 function addLog(level, message, timestamp = new Date().toLocaleTimeString()) {
@@ -3695,9 +3862,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "CLOSE_SIDE_PANEL") {
-    window.close();
+    // Flush before the document goes away so pinned-tab auto-close does not
+    // drop the latest process/workspace details for still-open tabs.
+    persistTabSession()
+      .catch((error) => {
+        console.error("Could not persist tab session before closing:", error);
+      })
+      .finally(() => {
+        window.close();
+      });
     sendResponse({ closed: true });
-    return;
+    return true;
   }
 
   if (message.type === "HOTKEY_SAVE_STARTED") {
@@ -4037,6 +4212,7 @@ function finishSaveWorkspaceAction(workspace = currentSaveWorkspace) {
   if (currentSaveWorkspace === workspace) {
     updateSaveWorkspaceActions();
   }
+  schedulePersistTabSession();
 }
 
 async function submitBuildResumeContext() {
@@ -4462,6 +4638,7 @@ function clearApplicationWorkspaceJobGptUrl() {
 
   updateApplicationWorkspaceJobGptUrl();
   showStatus("success", displayedUrl, "Deleted:");
+  schedulePersistTabSession();
 }
 
 function hasSaveWorkspaceSession() {
@@ -4590,6 +4767,7 @@ function resetSplitWindowsSession() {
   currentSaveWorkspace = null;
   currentSaveWorkspaceSidePanelView = "workspace";
   splitWindowsPreviewTabs?.classList.add("is-hidden");
+  schedulePersistTabSession();
 
   if (splitWindowsJobTabButton) {
     splitWindowsJobTabButton.classList.add("is-active");
@@ -5226,6 +5404,7 @@ function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
   );
 
   updateSaveWorkspaceActions();
+  schedulePersistTabSession();
 }
 
 
@@ -5414,6 +5593,8 @@ function showSaveWorkspacePreview({
     workspaceTabState.saveWorkspaceSidePanelView = "workspace";
   }
 
+  schedulePersistTabSession();
+
   if (chatGptTabId !== activeTabId) {
     return;
   }
@@ -5449,6 +5630,7 @@ function markSaveWorkspaceReady({
   if (currentSaveWorkspace === workspace) {
     updateSaveWorkspaceActions();
   }
+  schedulePersistTabSession();
   return true;
 }
 
@@ -6069,7 +6251,11 @@ loadSheetConfig();
 loadPromptSelection();
 loadHumanizePromptSelection();
 loadJobDescriptionSelection();
-initActiveTabTracking()
+restoreTabSession()
+  .catch((error) => {
+    console.error("Could not restore per-tab session state:", error);
+  })
+  .then(() => initActiveTabTracking())
   .then(() => loadSavePostProcessState())
   .finally(() => {
     refreshMakeResumeButtonAvailability();

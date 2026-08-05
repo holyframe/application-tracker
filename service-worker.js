@@ -17,6 +17,9 @@ const DEFAULT_HUMANIZE_PROMPT =
   "humanize your answer shortening it as one sentence story telling and using gen y us native style. don't be so streamlined usually can't be expected from human's impromptu";
 const SAVE_POST_PROCESS_ALARM_NAME = "save-current-tab-post-process";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
+// Side panel mirrors of per-tab workspace/process state. Kept until the Chrome
+// tab closes so reopening the panel still restores each tab's details.
+const TAB_SESSION_STORAGE_KEY = "tabSessionById";
 const activeSaveProcessControllers = new Map();
 // Every run is owned by the tab it was started from, so the side panel can file
 // its logs and progress against that tab instead of a single global slot.
@@ -1483,33 +1486,35 @@ async function syncSidePanelForTab(tab, { closeIfDisabled = false } = {}) {
 
   const enabled = shouldEnableSidePanelForTab(tab);
   const wasDisabled = sidePanelDisabledTabIds.has(tab.id);
+  // Desired state already matches what we last applied when enabled XOR
+  // wasDisabled — i.e. enabled tabs are not in the disabled set.
+  const alreadySynced = enabled !== wasDisabled;
 
   // Calling setOptions for a tab binds a tab-scoped side panel, and Chrome then
-  // remounts the panel document whenever that tab is activated. That wipes the
-  // panel's in-memory state, so a multi-profile save lost its workspace the
-  // moment the second profile's tab was activated. Only touch tabs whose
-  // enabled state actually needs to change; everything else stays on the
-  // window-level panel.
-  if (enabled !== wasDisabled) {
-    return;
-  }
+  // remounts the panel document whenever that tab is activated. That would wipe
+  // in-memory UI, so only touch tabs whose enabled state actually needs to
+  // change; everything else stays on the window-level panel. Per-tab process /
+  // workspace details still survive panel close via chrome.storage.session.
+  if (!alreadySynced) {
+    try {
+      await chrome.sidePanel.setOptions({
+        tabId: tab.id,
+        path: "sidepanel/sidepanel.html",
+        enabled
+      });
 
-  try {
-    await chrome.sidePanel.setOptions({
-      tabId: tab.id,
-      path: "sidepanel/sidepanel.html",
-      enabled
-    });
-
-    if (enabled) {
-      sidePanelDisabledTabIds.delete(tab.id);
-    } else {
-      sidePanelDisabledTabIds.add(tab.id);
+      if (enabled) {
+        sidePanelDisabledTabIds.delete(tab.id);
+      } else {
+        sidePanelDisabledTabIds.add(tab.id);
+      }
+    } catch (error) {
+      console.error("Could not sync side panel availability for tab:", error);
     }
-  } catch (error) {
-    console.error("Could not sync side panel availability for tab:", error);
   }
 
+  // Always close when landing on a pinned non-Sheet tab, even if setOptions was
+  // skipped because that tab was already disabled.
   if (!enabled && closeIfDisabled) {
     await closeSidePanelForWindow(tab);
   }
@@ -2127,8 +2132,8 @@ async function performSavePostProcessCleanup({
   if (runId) {
     const message =
       reason === "cancelled"
-        ? "Save process cancelled. Application inputs cleared."
-        : "Google Sheet saving finished. Save process completed and application inputs cleared.";
+        ? "Save process cancelled."
+        : "Google Sheet saving finished. Save process completed.";
     sendLog(runId, "info", message);
   }
 
@@ -2216,8 +2221,10 @@ function getActiveSaveProcessSignal(runId) {
 }
 
 async function completeSavePostProcess(runId = "", ownerTabId = null) {
+  // Keep profile/job-description selections and each tab's workspace details
+  // until that Chrome tab closes — do not wipe them when the run finishes.
   return clearSavePostProcess({
-    resetInputs: true,
+    resetInputs: false,
     reason: "completed",
     runId,
     ownerTabId: Number.isInteger(ownerTabId)
@@ -2228,7 +2235,7 @@ async function completeSavePostProcess(runId = "", ownerTabId = null) {
 
 async function cancelSavePostProcess(runId = "", ownerTabId = null) {
   return clearSavePostProcess({
-    resetInputs: true,
+    resetInputs: false,
     reason: "cancelled",
     runId,
     ownerTabId: Number.isInteger(ownerTabId)
@@ -2328,7 +2335,51 @@ async function isSidePanelOpen() {
   }
 }
 
-// A closed tab can no longer show status, so drop its run and progress entry.
+async function forgetPersistedTabSession(tabId) {
+  if (!Number.isInteger(tabId)) {
+    return;
+  }
+
+  const stored = await chrome.storage.session.get(TAB_SESSION_STORAGE_KEY);
+  const session = stored[TAB_SESSION_STORAGE_KEY];
+  if (!session || typeof session !== "object") {
+    return;
+  }
+
+  const tabKey = String(tabId);
+  let changed = false;
+
+  if (session.workspaces && Object.prototype.hasOwnProperty.call(session.workspaces, tabKey)) {
+    delete session.workspaces[tabKey];
+    changed = true;
+  }
+
+  if (session.tabStates && Object.prototype.hasOwnProperty.call(session.tabStates, tabKey)) {
+    delete session.tabStates[tabKey];
+    changed = true;
+  }
+
+  if (!changed) {
+    return;
+  }
+
+  const hasWorkspaces =
+    session.workspaces && Object.keys(session.workspaces).length > 0;
+  const hasTabStates =
+    session.tabStates && Object.keys(session.tabStates).length > 0;
+
+  if (!hasWorkspaces && !hasTabStates) {
+    await chrome.storage.session.remove(TAB_SESSION_STORAGE_KEY);
+    return;
+  }
+
+  await chrome.storage.session.set({
+    [TAB_SESSION_STORAGE_KEY]: session
+  });
+}
+
+// A closed tab can no longer show status, so drop its run, progress, and
+// persisted workspace/process details.
 chrome.tabs.onRemoved.addListener((tabId) => {
   sidePanelDisabledTabIds.delete(tabId);
 
@@ -2340,6 +2391,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     activeSaveProcessControllers.get(runId)?.abort();
     activeSaveProcessControllers.delete(runId);
     releaseRunOwnerTab(runId);
+  });
+
+  forgetPersistedTabSession(tabId).catch((error) => {
+    console.error("Could not clear persisted tab session for the closed tab:", error);
   });
 
   getSavePostProcessStates()
@@ -3098,7 +3153,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
   } catch (error) {
     if (isSaveProcessCancelledError(error)) {
       await clearSavePostProcess({
-        resetInputs: true,
+        resetInputs: false,
         reason: "cancelled",
         runId,
         ownerTabId
