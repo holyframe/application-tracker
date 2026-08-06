@@ -6734,13 +6734,19 @@ updateDeletedRowsState();
 loadProfileSelection();
 loadSheetConfig();
 loadPromptSelection();
-loadJobDescriptionSelection();
-restoreTabSession()
+Promise.all([loadJobDescriptionSelection(), restoreTabSession()])
   .catch((error) => {
-    console.error("Could not restore per-tab session state:", error);
+    console.error("Could not restore side panel startup state:", error);
   })
   .then(() => initActiveTabTracking())
   .then(() => loadSavePostProcessState())
   .finally(() => {
     refreshMakeResumeButtonAvailability();
+    if (
+      getCurrentSidePanelView() === "home" &&
+      !isSplitWindowsDialogOpen &&
+      !readOpenManagedModalId()
+    ) {
+      openEditJobDescriptionModal();
+    }
   });
