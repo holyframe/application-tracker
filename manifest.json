@@ -3,7 +3,7 @@
   "name": "Application Helper",
   "description": "A Chrome extension that opens a partial-width UI and saves the current tab URL to Google Sheets.",
   "version": "1.0.0",
-  "permissions": ["sidePanel", "storage", "identity", "tabs", "tabGroups", "scripting", "alarms", "downloads", "clipboardWrite"],
+  "permissions": ["sidePanel", "storage", "identity", "tabs", "scripting", "alarms", "downloads", "clipboardWrite"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -37,15 +37,9 @@
     }
   },
   "commands": {
-    "apply-now": {
-      "suggested_key": {
-        "default": "Ctrl+Q"
-      },
-      "description": "Apply Now"
-    },
     "save-app": {
       "suggested_key": {
-        "default": "Ctrl+Shift+E"
+        "default": "Ctrl+Q"
       },
       "description": "Save App to Google Sheet"
     }

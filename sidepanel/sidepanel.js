@@ -1,5 +1,4 @@
 const saveButton = document.querySelector("#saveButton");
-const applyNowButton = document.querySelector("#applyNowButton");
 const openSplitWindowsButton = document.querySelector("#openSplitWindowsButton");
 const splitWindowsModal = document.querySelector("#splitWindowsModal");
 const splitWindowsModalBackdrop = document.querySelector("#splitWindowsModalBackdrop");
@@ -3668,7 +3667,7 @@ async function refreshApplicationInputsAfterSave() {
   await Promise.all([loadProfileSelection(), loadJobDescriptionSelection()]);
 }
 
-function validateSaveCurrentTabInputs(mode = "save") {
+function validateSaveCurrentTabInputs() {
   const missing = [];
 
   if (!promptState.content?.trim()) {
@@ -3703,14 +3702,6 @@ function validateSaveCurrentTabInputs(mode = "save") {
     );
   }
 
-  if (mode === "apply" && selectedProfiles.length > 1) {
-    return {
-      ok: false,
-      error:
-        "Apply Now currently supports one profile. Keep one profile checked or use Save App for the selected profiles."
-    };
-  }
-
   if (missing.length === 0) {
     return { ok: true };
   }
@@ -3723,7 +3714,7 @@ function validateSaveCurrentTabInputs(mode = "save") {
   return { ok: false, error: message, missing };
 }
 
-async function validateActiveBrowserTabForAppAction(mode = "save") {
+async function validateActiveBrowserTabForAppAction() {
   const [tab] = await chrome.tabs.query({
     active: true,
     lastFocusedWindow: true
@@ -3745,34 +3736,21 @@ async function validateActiveBrowserTabForAppAction(mode = "save") {
     };
   }
 
-  if (
-    mode === "apply" &&
-    typeof tab.groupId === "number" &&
-    tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE
-  ) {
-    return {
-      ok: false,
-      error:
-        "Grouped tabs are not supported. Ungroup the tab or open it outside a tab group and try again."
-    };
-  }
-
   return { ok: true };
 }
 
-async function runCurrentAppAction(mode = "save") {
-
+async function runCurrentAppAction() {
   clearStatus();
   clearDeletedRows();
 
-  const validation = validateSaveCurrentTabInputs(mode);
+  const validation = validateSaveCurrentTabInputs();
   if (!validation.ok) {
     showStatus("error", validation.error);
     addLog("error", validation.error);
     return;
   }
 
-  const tabValidation = await validateActiveBrowserTabForAppAction(mode);
+  const tabValidation = await validateActiveBrowserTabForAppAction();
   if (!tabValidation.ok) {
     showStatus("error", tabValidation.error);
     addLog("error", tabValidation.error);
@@ -3783,17 +3761,14 @@ async function runCurrentAppAction(mode = "save") {
 
   beginButtonProcessForTab(
     ownerTabId,
-    mode === "apply"
-      ? "Apply Now clicked. Starting process..."
-      : "Save App clicked. Starting process..."
+    "Save App clicked. Starting process..."
   );
 
   try {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_CURRENT_TAB_URL_TO_SHEET",
       runId,
-      ownerTabId,
-      mode
+      ownerTabId
     });
 
     if (!response?.ok) {
@@ -3806,9 +3781,7 @@ async function runCurrentAppAction(mode = "save") {
     addLogForTab(
       ownerTabId,
       "success",
-      mode === "apply"
-        ? "Application tabs grouped successfully."
-        : "Process completed successfully."
+      "Process completed successfully."
     );
   } catch (error) {
     if (error.cancelled) {
@@ -3833,11 +3806,7 @@ async function runCurrentAppAction(mode = "save") {
 }
 
 async function saveCurrentTabUrl() {
-  await runCurrentAppAction("save");
-}
-
-async function applyNow() {
-  await runCurrentAppAction("apply");
+  await runCurrentAppAction();
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -6345,7 +6314,6 @@ async function closeSplitWindowsAndReturn() {
   }
 }
 
-applyNowButton?.addEventListener("click", applyNow);
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 openSplitWindowsButton?.addEventListener("click", openSplitWindowsModal);
 splitWindowsModalBackdrop?.addEventListener(

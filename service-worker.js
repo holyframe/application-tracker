@@ -145,8 +145,7 @@ function buildApplicationSheetRow({
   profileName,
   jobUrl,
   chatGptUrl,
-  resumeUrl,
-  applyNow = false
+  resumeUrl
 }) {
   return [
     String(timestamp || ""),
@@ -155,7 +154,7 @@ function buildApplicationSheetRow({
     String(chatGptUrl || ""),
     String(jobUrl || ""),
     String(resumeUrl || ""),
-    applyNow ? "Yes" : ""
+    ""
   ];
 }
 
@@ -1351,10 +1350,7 @@ async function sendFillAndSendToTab(tabId, text, runId, options = {}) {
 }
 
 function isTabInGroup(tab) {
-  return (
-    typeof tab?.groupId === "number" &&
-    tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE
-  );
+  return typeof tab?.groupId === "number" && tab.groupId !== -1;
 }
 
 function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
@@ -1506,7 +1502,7 @@ function formatSaveValidationError(missing) {
   return `These are required before saving: ${missing.join(", ")}.`;
 }
 
-async function validateApplicationInputsForSave({ groupTabs = false } = {}) {
+async function validateApplicationInputsForSave() {
   const [promptState, jobDescriptionState, profileState] = await Promise.all([
     getPromptSelectionState(),
     getJobDescriptionSelectionState(),
@@ -1545,14 +1541,6 @@ async function validateApplicationInputsForSave({ groupTabs = false } = {}) {
         ? `prompt resume for ${profileNames[0]}`
         : `one prompt resume for each of ${profileNames.join(", ")}`
     );
-  }
-
-  if (groupTabs && selectedProfiles.length > 1) {
-    return {
-      ok: false,
-      error:
-        "Apply Now currently supports one profile. Keep one profile checked or use Save App for the selected profiles."
-    };
   }
 
   if (missing.length === 0) {
@@ -2123,7 +2111,7 @@ async function scheduleSavePostProcess(
   const state = {
     runId: normalizedRunId,
     ownerTabId: resolvedOwnerTabId,
-    mode: mode === "apply" ? "apply" : "save",
+    mode: "save",
     profileCount: Math.max(1, Number(profileCount) || 1),
     completedCount: 0,
     involvedTabIds: Number.isInteger(resolvedOwnerTabId)
@@ -2278,8 +2266,7 @@ configureSidePanelBehavior().catch((error) => {
 });
 
 const APP_ACTION_COMMANDS = {
-  "apply-now": { groupTabs: true },
-  "save-app": { groupTabs: false }
+  "save-app": {}
 };
 
 async function notifyExtensionPages(message) {
@@ -2451,9 +2438,7 @@ chrome.commands.onCommand.addListener((command) => {
     registerRunOwnerTab(runId, tab?.id);
     const ownerTabId = getRunOwnerTabId(runId);
 
-    const validation = await validateApplicationInputsForSave({
-      groupTabs: action.groupTabs
-    });
+    const validation = await validateApplicationInputsForSave();
     if (!validation.ok) {
       sendLog(runId, "error", validation.error);
       await notifyExtensionPages({
@@ -2468,7 +2453,7 @@ chrome.commands.onCommand.addListener((command) => {
 
     try {
       assertActiveJobTabUsable(tab, {
-        allowGrouped: !action.groupTabs
+        allowGrouped: true
       });
     } catch (error) {
       sendLog(runId, "error", error.message);
@@ -2489,7 +2474,6 @@ chrome.commands.onCommand.addListener((command) => {
     });
 
     const result = await saveCurrentTabUrlToSheet(runId, {
-      groupTabs: action.groupTabs,
       ownerTabId
     });
 
@@ -2714,7 +2698,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const runPromise =
     message.type === "SAVE_CURRENT_TAB_URL_TO_SHEET"
       ? run(message.runId, {
-          groupTabs: message.mode === "apply",
           ownerTabId: message.ownerTabId
         })
       : message.type === "CANCEL_SAVE_POST_PROCESS"
@@ -2784,77 +2767,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-async function groupApplicationTabs({
-  jobTabId,
-  resumeUrl,
-  chatGptUrl,
-  chatGptTabId,
-  groupTitle,
-  runId
-}) {
-  if (typeof jobTabId !== "number") {
-    throw new Error("Job tab does not have a valid tab ID.");
-  }
-
-  const jobTab = await chrome.tabs.get(jobTabId);
-
-  sendLog(runId, "info", "Opening resume copy in a new tab...");
-  const resumeTab = await chrome.tabs.create({
-    url: resumeUrl,
-    active: false,
-    windowId: jobTab.windowId
-  });
-
-  let gptTabId = chatGptTabId;
-
-  if (typeof gptTabId !== "number") {
-    sendLog(runId, "info", "Opening ChatGPT in a new tab...");
-    const gptTab = await chrome.tabs.create({
-      url: chatGptUrl || CHATGPT_URL,
-      active: false,
-      windowId: jobTab.windowId
-    });
-    gptTabId = gptTab.id;
-  } else {
-    try {
-      const gptTab = await chrome.tabs.get(gptTabId);
-
-      if (chatGptUrl && gptTab.url !== chatGptUrl) {
-        await chrome.tabs.update(gptTabId, { url: chatGptUrl });
-      }
-
-      if (gptTab.windowId !== jobTab.windowId) {
-        await chrome.tabs.move(gptTabId, { windowId: jobTab.windowId, index: -1 });
-      }
-    } catch (_error) {
-      const gptTab = await chrome.tabs.create({
-        url: chatGptUrl || CHATGPT_URL,
-        active: false,
-        windowId: jobTab.windowId
-      });
-      gptTabId = gptTab.id;
-    }
-  }
-
-  const tabIds = [jobTabId, resumeTab.id, gptTabId].filter((id) => typeof id === "number");
-
-  if (tabIds.length < 3) {
-    throw new Error("Could not group all application tabs.");
-  }
-
-  sendLog(runId, "info", "Grouping job, resume, and ChatGPT tabs...");
-  const groupId = await chrome.tabs.group({ tabIds });
-
-  await chrome.tabGroups.update(groupId, {
-    title: String(groupTitle || "Application").trim().slice(0, 100) || "Application",
-    color: "green"
-  });
-
-  sendLog(runId, "success", "Application tabs grouped.");
-
-  return groupId;
-}
-
 async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId, options = {}) {
   const { signal } = options;
   if (typeof sourceTab?.id !== "number") {
@@ -2900,22 +2812,12 @@ async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId, opt
 }
 
 async function saveCurrentTabUrlToSheet(runId, options = {}) {
-  const groupTabsInsteadOfClosing = options.groupTabs === true;
   const ownerTabId = Number.isInteger(options.ownerTabId)
     ? options.ownerTabId
     : getRunOwnerTabId(runId);
-  sendLog(
-    runId,
-    "info",
-    groupTabsInsteadOfClosing
-      ? "Starting apply process..."
-      : "Starting save process..."
-  );
+  sendLog(runId, "info", "Starting save process...");
 
-
-  const validation = await validateApplicationInputsForSave({
-    groupTabs: groupTabsInsteadOfClosing
-  });
+  const validation = await validateApplicationInputsForSave();
   if (!validation.ok) {
     throw new Error(validation.error);
   }
@@ -2926,13 +2828,13 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
   });
 
   assertActiveJobTabUsable(tab, {
-    allowGrouped: !groupTabsInsteadOfClosing
+    allowGrouped: true
   });
 
   const selectedProfiles = validation.selectedProfiles;
   await scheduleSavePostProcess(
     {
-      mode: groupTabsInsteadOfClosing ? "apply" : "save",
+      mode: "save",
       profileCount: selectedProfiles.length,
       ownerTabId
     },
@@ -2968,22 +2870,14 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       throw new Error("Current tab does not have a valid tab ID.");
     }
 
-    const targetTabIds = groupTabsInsteadOfClosing
-      ? []
-      : await createSaveProfileTargetTabIds(
-          tab,
-          selectedProfiles.length,
-          runId,
-          { signal }
-        );
+    const targetTabIds = await createSaveProfileTargetTabIds(
+      tab,
+      selectedProfiles.length,
+      runId,
+      { signal }
+    );
     const results = [];
-    const involvedTabIds = groupTabsInsteadOfClosing
-      ? Number.isInteger(ownerTabId)
-        ? [ownerTabId]
-        : Number.isInteger(tab.id)
-          ? [tab.id]
-          : []
-      : targetTabIds;
+    const involvedTabIds = targetTabIds;
 
     await updateSavePostProcessProgress({
       runId,
@@ -3018,7 +2912,8 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         token,
         docTitle,
         resumeTemplateId,
-        runId, { signal }
+        runId,
+        { signal }
       );
       sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
 
@@ -3027,32 +2922,26 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       throwIfSaveProcessCancelled(signal);
       let chatGptUrl = CHATGPT_URL;
       let chatGptTabId = null;
-      const targetTabId = groupTabsInsteadOfClosing
-        ? null
-        : targetTabIds[index];
+      const targetTabId = targetTabIds[index];
 
-      if (!groupTabsInsteadOfClosing) {
-        await notifyExtensionPages({
-          type: "SHOW_SAVE_WORKSPACE",
-          runId,
-          ownerTabId,
-          batchIndex: index,
-          batchCount: selectedProfiles.length,
-          jobTitle,
-          jobUrl,
-          profileName,
-          resumeUrl,
-          chatGptTabId: targetTabId
-        });
-      }
+      await notifyExtensionPages({
+        type: "SHOW_SAVE_WORKSPACE",
+        runId,
+        ownerTabId,
+        batchIndex: index,
+        batchCount: selectedProfiles.length,
+        jobTitle,
+        jobUrl,
+        profileName,
+        resumeUrl,
+        chatGptTabId: targetTabId
+      });
 
       if (chatGptMessage) {
         const chatGptResult = await sendToChatGptAndGetUrl(
           chatGptMessage,
           runId,
-          groupTabsInsteadOfClosing
-            ? { signal }
-            : { tabId: targetTabId, signal }
+          { tabId: targetTabId, signal }
         );
         chatGptUrl = chatGptResult.url;
         chatGptTabId = chatGptResult.tabId;
@@ -3062,9 +2951,11 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
           "info",
           `No ChatGPT message content was available for "${profileName}".`
         );
-        const chatGptResult = groupTabsInsteadOfClosing
-          ? await openNewChatGptTab(runId, { signal })
-          : await openChatGptInExistingTab(targetTabId, runId, { signal });
+        const chatGptResult = await openChatGptInExistingTab(
+          targetTabId,
+          runId,
+          { signal }
+        );
         chatGptUrl = chatGptResult.url;
         chatGptTabId = chatGptResult.tabId;
       }
@@ -3075,8 +2966,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         profileName,
         jobUrl: urlForSheet,
         chatGptUrl,
-        resumeUrl,
-        applyNow: groupTabsInsteadOfClosing
+        resumeUrl
       });
 
       sendLog(
@@ -3095,16 +2985,14 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         `URL saved to profile sheet tab "${profileName}".`
       );
 
-      if (!groupTabsInsteadOfClosing) {
-        await notifyExtensionPages({
-          type: "SAVE_WORKSPACE_READY",
-          runId,
-          ownerTabId,
-          profileName,
-          chatGptUrl,
-          chatGptTabId
-        });
-      }
+      await notifyExtensionPages({
+        type: "SAVE_WORKSPACE_READY",
+        runId,
+        ownerTabId,
+        profileName,
+        chatGptUrl,
+        chatGptTabId
+      });
 
       results.push({
         profileId: profile.id,
@@ -3113,7 +3001,11 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
         chatGptUrl,
         chatGptTabId
       });
-      sendLog(runId, "success", `Finished profile ${positionLabel}: ${profileName}`);
+      sendLog(
+        runId,
+        "success",
+        `Finished profile ${positionLabel}: ${profileName}`
+      );
 
       const nextInvolvedTabIds = [
         ...new Set(
@@ -3138,32 +3030,14 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
     // second tab's sidebar was still binding, so it looked like data loss.
     await completeSavePostProcess(runId, ownerTabId);
 
-
-    let applicationGroupId = null;
-
-    if (groupTabsInsteadOfClosing) {
-      const result = results[0];
-      applicationGroupId = await groupApplicationTabs({
-        jobTabId: tab.id,
-        resumeUrl: result.resumeUrl,
-        chatGptUrl: result.chatGptUrl,
-        chatGptTabId: result.chatGptTabId,
-        groupTitle: jobTitle || "Application",
-        runId
-      });
-    }
-
     const finalResult = results[results.length - 1];
-
 
     sendLog(
       runId,
       "success",
-      groupTabsInsteadOfClosing
-        ? "Finished. Application tabs grouped."
-        : `Finished. Opened ${selectedProfiles.length} ChatGPT ${
-            selectedProfiles.length === 1 ? "tab" : "tabs"
-          } for the selected profiles; no tab group was created.`
+      `Finished. Opened ${selectedProfiles.length} ChatGPT ${
+        selectedProfiles.length === 1 ? "tab" : "tabs"
+      } for the selected profiles; no tab group was created.`
     );
 
     return {
@@ -3176,7 +3050,7 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       resumeUrl: finalResult.resumeUrl,
       profileCount: selectedProfiles.length,
       results,
-      grouped: groupTabsInsteadOfClosing
+      grouped: false
     };
   } catch (error) {
     if (isSaveProcessCancelledError(error)) {

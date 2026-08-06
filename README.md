@@ -10,7 +10,7 @@ It combines:
 - Google Docs template copying and resume generation
 - ChatGPT prompt submission
 - Google Sheets application tracking
-- Chrome tab grouping, keyboard shortcuts, in-panel save progress, and Google Docs PDF downloads
+- Chrome keyboard shortcuts, in-panel save progress, and Google Docs PDF downloads
 
 ## Main workflow
 
@@ -21,12 +21,11 @@ choice. A new application starts with every profile and prompt-resume selection
 clear. Every checked profile remains expanded so all selected resume variants
 stay visible. Then provide a base GPT prompt and job description.
 
-Both actions normalize the active job URL, copy the relevant profile's
-configured Google Docs resume template, submit the prepared message to ChatGPT,
-and save the seven-column application record. An in-panel save progress
+`Save App` normalizes the active job URL, copies each checked profile's
+configured Google Docs resume template, submits the prepared message to ChatGPT,
+and saves the seven-column application record. An in-panel save progress
 indicator starts with the action and ends as soon as the final Google Sheet row
-is saved. `Save App` repeats that process once per checked profile. `Apply Now`
-currently requires exactly one checked profile.
+is saved. It repeats that process once per checked profile.
 
 `Save App` creates one ChatGPT workflow per checked profile. It reuses the
 original job tab for the first profile and creates one additional target tab
@@ -85,9 +84,6 @@ side panel is closed and reopened. Each workspace and its process details are
 removed only when its bound tab closes; after the final bound tab closes, the
 empty Application workspace remains available.
 
-`Apply Now` requires an ungrouped job tab and immediately groups the job page,
-resume document, and ChatGPT conversation.
-
 ## Google Sheet columns
 
 Each profile uses its own sheet tab. Missing profile tabs are created
@@ -101,7 +97,7 @@ automatically. The extension appends seven columns:
 | D | ChatGPT conversation URL |
 | E | Normalized job URL |
 | F | Copied resume-document URL |
-| G | `Yes` for Apply Now; otherwise blank |
+| G | Reserved (left blank by Save App) |
 
 When a profile tab is created, these column labels are written to row 1 before
 the first application is appended. The header row is bold, and cells in columns
@@ -129,11 +125,10 @@ columns C-F shift to D-G.
 
 ## Keyboard shortcuts
 
-- `Ctrl+Q`: Apply Now
-- `Ctrl+Shift+E`: Save App
+- `Ctrl+Q`: Save App
 
-The shortcuts are handled only while the side panel is open. If the panel is
-closed, Chrome ignores these application actions.
+The shortcut is handled only while the side panel is open. If the panel is
+closed, Chrome ignores this application action.
 
 Pinned tabs keep the side panel closed automatically, except for Google Sheets
 (where Make a resume needs it). Switching back to another pinned tab closes
