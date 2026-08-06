@@ -377,6 +377,14 @@ function createProfileId() {
   return `profile-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function createPromptId() {
+  if (crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return `prompt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function normalizeUpdatedAt(value) {
   const date = new Date(value ?? "");
   if (Number.isNaN(date.getTime())) {
@@ -720,61 +728,178 @@ async function resetApplicationInputsAfterSave(runId = "") {
 
 async function loadPromptSelectionRecord() {
   const stored = await chrome.storage.local.get(PROMPT_SELECTION_STORAGE_KEY);
-  const selection = stored[PROMPT_SELECTION_STORAGE_KEY];
+  return normalizePromptSelectionState(stored[PROMPT_SELECTION_STORAGE_KEY]);
+}
 
-  if (!selection) {
+function normalizePromptEntry(entry) {
+  const content = normalizePromptContent(entry?.content);
+  if (!content) {
     return null;
   }
 
-  if (typeof selection.content === "string") {
+  return {
+    id: String(entry?.id || createPromptId()),
+    content,
+    updatedAt: normalizeUpdatedAt(entry?.updatedAt) || new Date().toISOString(),
+    label: String(entry?.label || "").trim() || "GPT Prompt"
+  };
+}
+
+function normalizePromptSelectionState(selection) {
+  if (!selection || typeof selection !== "object") {
     return {
-      content: normalizePromptContent(selection.content),
-      updatedAt: normalizeUpdatedAt(selection.updatedAt)
+      prompts: [],
+      selectedPromptId: "",
+      content: "",
+      updatedAt: ""
     };
   }
 
-  const prompts = Array.isArray(selection.prompts) ? selection.prompts : [];
-  const selected =
-    prompts.find((entry) => entry.id === selection.selectedPromptId) || prompts[0];
+  let prompts = [];
 
-  if (!selected) {
-    return { content: "", updatedAt: "" };
+  if (Array.isArray(selection.prompts)) {
+    prompts = selection.prompts
+      .map((entry) => normalizePromptEntry(entry))
+      .filter(Boolean);
+  } else if (typeof selection.content === "string" && selection.content.trim()) {
+    prompts = [
+      normalizePromptEntry({
+        id: selection.selectedPromptId || createPromptId(),
+        content: selection.content,
+        updatedAt: selection.updatedAt,
+        label: "GPT Prompt"
+      })
+    ].filter(Boolean);
   }
 
-  const migrated = {
-    content: normalizePromptContent(selected.content),
-    updatedAt: normalizeUpdatedAt(selected.updatedAt)
+  let selectedPromptId = String(selection.selectedPromptId || "").trim();
+  if (!prompts.some((entry) => entry.id === selectedPromptId)) {
+    selectedPromptId = prompts[0]?.id || "";
+  }
+
+  const selected =
+    prompts.find((entry) => entry.id === selectedPromptId) || null;
+
+  return {
+    prompts,
+    selectedPromptId,
+    content: selected?.content || "",
+    updatedAt: selected?.updatedAt || ""
   };
-
-  await chrome.storage.local.set({
-    [PROMPT_SELECTION_STORAGE_KEY]: migrated
-  });
-
-  return migrated;
 }
 
 async function getPromptSelectionState() {
-  const selection = await loadPromptSelectionRecord();
+  return loadPromptSelectionRecord();
+}
 
-  if (selection) {
-    return selection;
-  }
-
-  return { content: "", updatedAt: "" };
+async function persistPromptSelectionState(state) {
+  const normalized = normalizePromptSelectionState(state);
+  await chrome.storage.local.set({
+    [PROMPT_SELECTION_STORAGE_KEY]: {
+      prompts: normalized.prompts,
+      selectedPromptId: normalized.selectedPromptId
+    }
+  });
+  return normalized;
 }
 
 async function savePromptSelectionState(contentInput) {
   const content = normalizePromptContent(contentInput);
-  const state = {
+  const current = await loadPromptSelectionRecord();
+
+  if (!content) {
+    if (!current.selectedPromptId) {
+      return persistPromptSelectionState({ prompts: [], selectedPromptId: "" });
+    }
+
+    const prompts = current.prompts.filter(
+      (entry) => entry.id !== current.selectedPromptId
+    );
+    return persistPromptSelectionState({
+      prompts,
+      selectedPromptId: prompts[0]?.id || ""
+    });
+  }
+
+  const updatedAt = new Date().toISOString();
+  if (current.selectedPromptId) {
+    const prompts = current.prompts.map((entry) =>
+      entry.id === current.selectedPromptId
+        ? { ...entry, content, updatedAt }
+        : entry
+    );
+    return persistPromptSelectionState({
+      prompts,
+      selectedPromptId: current.selectedPromptId
+    });
+  }
+
+  const prompt = {
+    id: createPromptId(),
     content,
-    updatedAt: content ? new Date().toISOString() : ""
+    updatedAt,
+    label: "GPT Prompt"
+  };
+  return persistPromptSelectionState({
+    prompts: [prompt],
+    selectedPromptId: prompt.id
+  });
+}
+
+async function forkPromptSelectionState(contentInput) {
+  const content = normalizePromptContent(contentInput);
+  if (!content) {
+    throw new Error("Prompt text is required.");
+  }
+
+  const current = await loadPromptSelectionRecord();
+  const selected = current.prompts.find(
+    (entry) => entry.id === current.selectedPromptId
+  );
+
+  if (selected && selected.content === content) {
+    return current;
+  }
+
+  const prompt = {
+    id: createPromptId(),
+    content,
+    updatedAt: new Date().toISOString(),
+    label: `GPT Prompt ${current.prompts.length + 1}`
   };
 
-  await chrome.storage.local.set({
-    [PROMPT_SELECTION_STORAGE_KEY]: state
+  return persistPromptSelectionState({
+    prompts: [...current.prompts, prompt],
+    selectedPromptId: prompt.id
   });
+}
 
-  return state;
+async function selectPromptSelectionState(promptId) {
+  const current = await loadPromptSelectionRecord();
+  const nextId = String(promptId || "").trim();
+  if (!current.prompts.some((entry) => entry.id === nextId)) {
+    throw new Error("That GPT prompt could not be found.");
+  }
+
+  return persistPromptSelectionState({
+    prompts: current.prompts,
+    selectedPromptId: nextId
+  });
+}
+
+async function removePromptSelectionState(promptId) {
+  const current = await loadPromptSelectionRecord();
+  const removeId = String(promptId || "").trim();
+  const prompts = current.prompts.filter((entry) => entry.id !== removeId);
+  const selectedPromptId =
+    current.selectedPromptId === removeId
+      ? prompts[0]?.id || ""
+      : current.selectedPromptId;
+
+  return persistPromptSelectionState({
+    prompts,
+    selectedPromptId
+  });
 }
 
 async function loadJobDescriptionSelectionRecord() {
@@ -924,6 +1049,10 @@ function mergeProfilesPreservingPromptResumes(incomingSelection, currentSelectio
   });
 }
 
+function buildPromptSelectionState(selection) {
+  return normalizePromptSelectionState(selection);
+}
+
 function buildTextSelectionState(selection) {
   const content = normalizePromptContent(selection?.content);
   return {
@@ -995,9 +1124,13 @@ async function importAppData(payload, { includePromptResumes = true } = {}) {
   }
 
   if (payload.promptSelection) {
-    storagePayload[PROMPT_SELECTION_STORAGE_KEY] = buildTextSelectionState(
+    const normalizedPromptSelection = buildPromptSelectionState(
       payload.promptSelection
     );
+    storagePayload[PROMPT_SELECTION_STORAGE_KEY] = {
+      prompts: normalizedPromptSelection.prompts,
+      selectedPromptId: normalizedPromptSelection.selectedPromptId
+    };
   }
 
   if (payload.jobDescriptionSelection) {
@@ -2612,6 +2745,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           ok: false,
           error: error.message || "Could not save prompt selection."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "FORK_PROMPT_SELECTION") {
+    forkPromptSelectionState(message.content)
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not save the updated prompt."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SELECT_PROMPT_SELECTION") {
+    selectPromptSelectionState(message.promptId)
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not select that prompt."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "REMOVE_PROMPT_SELECTION") {
+    removePromptSelectionState(message.promptId)
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not remove that prompt."
         });
       });
     return true;

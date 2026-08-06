@@ -214,6 +214,17 @@ input {
   gap: 6px;
 }
 
+.workspace-header-actions .workspace-prompt-info-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+}
+
+.workspace-header-actions .workspace-prompt-info-button svg {
+  width: 16px;
+  height: 16px;
+}
+
 .workspace-header-actions .workspace-view-exchange-button,
 .workspace-header-actions .modal-close-button {
   grid-column: auto;

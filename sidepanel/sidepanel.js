@@ -185,7 +185,14 @@ const promptFormModalBackdrop = document.querySelector("#promptFormModalBackdrop
 const promptFormModalCloseButton = document.querySelector("#promptFormModalCloseButton");
 const promptFormModalCancelButton = document.querySelector("#promptFormModalCancelButton");
 const promptFormModalSubmitButton = document.querySelector("#promptFormModalSubmitButton");
+const promptFormModalTitle = document.querySelector("#promptFormModalTitle");
 const promptContentInput = document.querySelector("#promptContentInput");
+const applicationWorkspacePromptInfoButton = document.querySelector(
+  "#applicationWorkspacePromptInfoButton"
+);
+const homeWorkspacePromptInfoButton = document.querySelector(
+  "#homeWorkspacePromptInfoButton"
+);
 const jobDescriptionList = document.querySelector("#jobDescriptionList");
 const jobDescriptionFormModal = document.querySelector("#jobDescriptionFormModal");
 const jobDescriptionFormModalBackdrop = document.querySelector("#jobDescriptionFormModalBackdrop");
@@ -2909,17 +2916,58 @@ async function submitPromptResumeForm() {
 }
 
 let promptState = {
+  prompts: [],
+  selectedPromptId: "",
   content: "",
   updatedAt: ""
 };
+let promptFormMode = "edit";
 
-function setPromptFormModalOpen(isOpen) {
+function applyPromptSelectionState(state) {
+  const prompts = Array.isArray(state?.prompts)
+    ? state.prompts
+        .map((entry) => ({
+          id: String(entry?.id || ""),
+          content: typeof entry?.content === "string" ? entry.content : "",
+          updatedAt: entry?.updatedAt || "",
+          label: String(entry?.label || "").trim() || "GPT Prompt"
+        }))
+        .filter((entry) => entry.id && entry.content)
+    : [];
+  let selectedPromptId = String(state?.selectedPromptId || "").trim();
+  if (!prompts.some((entry) => entry.id === selectedPromptId)) {
+    selectedPromptId = prompts[0]?.id || "";
+  }
+  const selected =
+    prompts.find((entry) => entry.id === selectedPromptId) || null;
+
+  promptState = {
+    prompts,
+    selectedPromptId,
+    content:
+      selected?.content ||
+      (typeof state?.content === "string" ? state.content : ""),
+    updatedAt: selected?.updatedAt || state?.updatedAt || ""
+  };
+}
+
+function setPromptFormModalOpen(isOpen, { mode = promptFormMode } = {}) {
   if (!promptFormModal) return;
 
+  promptFormMode = mode === "fork" ? "fork" : "edit";
   promptFormModal.classList.toggle("is-hidden", !isOpen);
   promptFormModal.setAttribute("aria-hidden", String(!isOpen));
 
   if (isOpen) {
+    if (promptFormModalTitle) {
+      promptFormModalTitle.textContent =
+        promptFormMode === "fork" ? "Update GPT Prompt" : "Edit Prompt";
+    }
+    const submitLabel = promptFormModalSubmitButton?.querySelector("span");
+    if (submitLabel) {
+      submitLabel.textContent =
+        promptFormMode === "fork" ? "Save Updated Prompt" : "Save Changes";
+    }
     if (promptContentInput) {
       promptContentInput.value = promptState.content || "";
     }
@@ -2928,13 +2976,29 @@ function setPromptFormModalOpen(isOpen) {
   }
 
   if (promptContentInput) promptContentInput.value = "";
+  if (promptFormModalTitle) {
+    promptFormModalTitle.textContent = "Edit Prompt";
+  }
+  const submitLabel = promptFormModalSubmitButton?.querySelector("span");
+  if (submitLabel) {
+    submitLabel.textContent = "Save Changes";
+  }
+  promptFormMode = "edit";
   promptList
     ?.querySelector(".prompt-selection-edit, .prompt-selection-list-empty-action")
     ?.focus();
 }
 
 function openEditPromptModal() {
-  setPromptFormModalOpen(true);
+  setPromptFormModalOpen(true, { mode: "edit" });
+}
+
+function openWorkspacePromptInfoModal() {
+  if (!promptState.content?.trim()) {
+    showStatus("error", "No GPT prompt is selected yet. Add one in App settings.");
+    return;
+  }
+  setPromptFormModalOpen(true, { mode: "fork" });
 }
 
 function renderPromptCard() {
@@ -2942,7 +3006,7 @@ function renderPromptCard() {
 
   promptList.innerHTML = "";
 
-  if (!promptState.content) {
+  if (promptState.prompts.length === 0) {
     const empty = document.createElement("p");
     empty.className = "prompt-selection-list-empty prompt-selection-list-empty-action";
     empty.textContent = "No GPT prompt yet.";
@@ -2951,87 +3015,133 @@ function renderPromptCard() {
     return;
   }
 
-  const item = document.createElement("li");
-  item.className = "prompt-selection-item is-selected";
+  promptState.prompts.forEach((prompt, index) => {
+    const isSelected = prompt.id === promptState.selectedPromptId;
+    const item = document.createElement("li");
+    item.className = "prompt-selection-item";
+    item.classList.toggle("is-selected", isSelected);
 
-  const radio = document.createElement("input");
-  radio.type = "radio";
-  radio.name = "prompt";
-  radio.value = "gpt-prompt";
-  radio.checked = true;
-  radio.setAttribute("aria-label", "Use GPT Prompt");
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "prompt";
+    radio.value = prompt.id;
+    radio.checked = isSelected;
+    radio.setAttribute(
+      "aria-label",
+      `Use ${prompt.label || `GPT Prompt ${index + 1}`}`
+    );
+    radio.addEventListener("change", () => {
+      if (radio.checked) {
+        selectPrompt(prompt.id);
+      }
+    });
 
-  const copy = document.createElement("div");
-  copy.className = "prompt-selection-copy";
+    const copy = document.createElement("div");
+    copy.className = "prompt-selection-copy";
 
-  const label = document.createElement("span");
-  label.className = "prompt-selection-label";
-  label.textContent = "GPT Prompt";
+    const label = document.createElement("span");
+    label.className = "prompt-selection-label";
+    label.textContent = prompt.label || `GPT Prompt ${index + 1}`;
+    copy.append(label);
 
-  copy.append(label);
+    const updatedAtText = formatPromptResumeUpdatedAt(prompt.updatedAt);
+    if (updatedAtText) {
+      const updated = document.createElement("span");
+      updated.className = "prompt-selection-updated";
+      updated.textContent = updatedAtText;
+      copy.append(updated);
+    }
 
-  const updatedAtText = formatPromptResumeUpdatedAt(promptState.updatedAt);
-  if (updatedAtText) {
-    const updated = document.createElement("span");
-    updated.className = "prompt-selection-updated";
-    updated.textContent = updatedAtText;
-    copy.append(updated);
-  }
+    const actions = document.createElement("div");
+    actions.className = "prompt-selection-actions";
 
-  const actions = document.createElement("div");
-  actions.className = "prompt-selection-actions";
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "prompt-selection-edit";
+    editButton.setAttribute("aria-label", `View or edit ${label.textContent}`);
+    editButton.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    `;
+    editButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      if (!isSelected) {
+        await selectPrompt(prompt.id);
+      }
+      openEditPromptModal();
+    });
+    actions.append(editButton);
 
-  const editButton = document.createElement("button");
-  editButton.type = "button";
-  editButton.className = "prompt-selection-edit";
-  editButton.setAttribute("aria-label", "View or edit GPT Prompt");
-  editButton.innerHTML = `
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  `;
-  editButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    openEditPromptModal();
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.className = "prompt-selection-remove";
+    clearButton.textContent = "×";
+    clearButton.setAttribute("aria-label", `Remove ${label.textContent}`);
+    clearButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      removePrompt(prompt.id);
+    });
+    actions.append(clearButton);
+
+    item.addEventListener("click", (event) => {
+      if (
+        event.target === radio ||
+        event.target.closest(".prompt-selection-edit") ||
+        event.target.closest(".prompt-selection-remove")
+      ) {
+        return;
+      }
+      selectPrompt(prompt.id);
+    });
+
+    item.append(radio, copy, actions);
+    promptList.appendChild(item);
   });
-
-  actions.append(editButton);
-
-  const clearButton = document.createElement("button");
-  clearButton.type = "button";
-  clearButton.className = "prompt-selection-remove";
-  clearButton.textContent = "×";
-  clearButton.setAttribute("aria-label", "Clear GPT Prompt");
-  clearButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    clearPrompt();
-  });
-  actions.append(clearButton);
-
-  item.append(radio, copy, actions);
-  promptList.appendChild(item);
 }
 
-async function clearPrompt() {
+async function selectPrompt(promptId) {
   try {
     const response = await chrome.runtime.sendMessage({
-      type: "SAVE_PROMPT_SELECTION",
-      content: ""
+      type: "SELECT_PROMPT_SELECTION",
+      promptId
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error || "Could not clear prompt.");
+      throw new Error(response?.error || "Could not select prompt.");
     }
 
-    promptState = {
-      content: "",
-      updatedAt: ""
-    };
+    applyPromptSelectionState(response);
     renderPromptCard();
   } catch (error) {
     console.error(error);
   }
+}
+
+async function removePrompt(promptId) {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "REMOVE_PROMPT_SELECTION",
+      promptId
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not remove prompt.");
+    }
+
+    applyPromptSelectionState(response);
+    renderPromptCard();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function clearPrompt() {
+  if (!promptState.selectedPromptId) {
+    return;
+  }
+  await removePrompt(promptState.selectedPromptId);
 }
 
 async function loadPromptSelection() {
@@ -3044,11 +3154,9 @@ async function loadPromptSelection() {
       throw new Error(response?.error || "Could not load prompt.");
     }
 
-    promptState = {
-      content: typeof response.content === "string" ? response.content : "",
-      updatedAt: response.updatedAt || ""
-    };
+    applyPromptSelectionState(response);
     renderPromptCard();
+    updateWorkspacePromptInfoButtons();
   } catch (error) {
     console.error(error);
   }
@@ -3056,6 +3164,7 @@ async function loadPromptSelection() {
 
 async function submitPromptForm() {
   const content = promptContentInput?.value.trim() || "";
+  const isFork = promptFormMode === "fork";
 
   if (!content) {
     promptContentInput?.focus();
@@ -3068,7 +3177,7 @@ async function submitPromptForm() {
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: "SAVE_PROMPT_SELECTION",
+      type: isFork ? "FORK_PROMPT_SELECTION" : "SAVE_PROMPT_SELECTION",
       content
     });
 
@@ -3076,20 +3185,40 @@ async function submitPromptForm() {
       throw new Error(response?.error || "Could not save prompt.");
     }
 
-    promptState = {
-      content: typeof response.content === "string" ? response.content : content,
-      updatedAt: response.updatedAt || ""
-    };
-
+    applyPromptSelectionState(response);
     setPromptFormModalOpen(false);
     renderPromptCard();
+    updateWorkspacePromptInfoButtons();
+    addLog(
+      "success",
+      isFork
+        ? "Updated GPT prompt saved and selected. Previous prompt kept in settings."
+        : "GPT prompt saved."
+    );
   } catch (error) {
     console.error(error);
+    showStatus("error", error.message || "Could not save prompt.");
   } finally {
     if (promptFormModalSubmitButton) {
       promptFormModalSubmitButton.disabled = false;
     }
   }
+}
+
+function updateWorkspacePromptInfoButtons() {
+  const showButton =
+    !isSplitWindowsDialogOpen && Boolean(promptState.content?.trim());
+  const disabled = !showButton || areActionButtonsDisabled;
+
+  [applicationWorkspacePromptInfoButton, homeWorkspacePromptInfoButton].forEach(
+    (button) => {
+      if (!button) {
+        return;
+      }
+      button.classList.toggle("is-hidden", !showButton);
+      button.disabled = disabled;
+    }
+  );
 }
 
 let jobDescriptionState = {
@@ -5114,6 +5243,8 @@ function renderSaveWorkspaceSidePanelView({ focus = false } = {}) {
       homeWorkspaceExchangeButton?.focus();
     }
   }
+
+  updateWorkspacePromptInfoButtons();
 }
 
 function setSaveWorkspaceSidePanelView(view, { focus = true } = {}) {
@@ -5194,6 +5325,7 @@ function setSplitWindowsModalOpen(isOpen) {
 
   splitWindowsModal.classList.toggle("is-hidden", !isOpen);
   splitWindowsModal.setAttribute("aria-hidden", String(!isOpen));
+  updateWorkspacePromptInfoButtons();
 
   if (isOpen) {
     resetSplitWindowsSession();
@@ -5937,6 +6069,7 @@ function updateSaveWorkspaceActions() {
     saveWorkspaceExchangeButton.disabled = actionsDisabled;
   }
   updateApplicationWorkspaceUrlControls();
+  updateWorkspacePromptInfoButtons();
 }
 
 function showSaveWorkspacePreview({
@@ -6361,6 +6494,14 @@ applicationWorkspaceClosePickupButton?.addEventListener(
 applicationWorkspaceNotesButton?.addEventListener(
   "click",
   openApplicationWorkspaceNotesModal
+);
+applicationWorkspacePromptInfoButton?.addEventListener(
+  "click",
+  openWorkspacePromptInfoModal
+);
+homeWorkspacePromptInfoButton?.addEventListener(
+  "click",
+  openWorkspacePromptInfoModal
 );
 applicationWorkspaceCopyUrlButton?.addEventListener(
   "click",
