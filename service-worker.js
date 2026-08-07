@@ -420,22 +420,59 @@ function normalizeLabeledTextEntry(entry, createId) {
 }
 
 function normalizePromptResume(entry) {
-  return normalizeLabeledTextEntry(entry, createPromptResumeId);
+  const normalized = normalizeLabeledTextEntry(entry, createPromptResumeId);
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    ...normalized,
+    autoSelect: Boolean(entry?.autoSelect)
+  };
 }
 
-function normalizePromptResumeSelection(selection) {
-  const promptResumes = (
+function enforceSingleAutoSelectPromptResume(promptResumes) {
+  let foundAuto = false;
+
+  return promptResumes.map((entry) => {
+    if (!entry.autoSelect) {
+      return entry;
+    }
+
+    if (foundAuto) {
+      return { ...entry, autoSelect: false };
+    }
+
+    foundAuto = true;
+    return entry;
+  });
+}
+
+function getAutoSelectedPromptResumeId(promptResumes) {
+  return (
+    promptResumes.find((entry) => entry.autoSelect)?.id || ""
+  );
+}
+
+function normalizePromptResumeSelection(selection, { applyAutoSelect = false } = {}) {
+  let promptResumes = (
     Array.isArray(selection?.promptResumes) ? selection.promptResumes : []
   )
     .map(normalizePromptResume)
     .filter(Boolean);
 
-  const selectedPromptResumeId =
+  promptResumes = enforceSingleAutoSelectPromptResume(promptResumes);
+
+  let selectedPromptResumeId =
     promptResumes.some(
       (entry) => entry.id === selection?.selectedPromptResumeId
     )
       ? selection.selectedPromptResumeId
       : "";
+
+  if (applyAutoSelect && !selectedPromptResumeId) {
+    selectedPromptResumeId = getAutoSelectedPromptResumeId(promptResumes);
+  }
 
   return { promptResumes, selectedPromptResumeId };
 }
@@ -658,16 +695,14 @@ async function savePromptResumeSelectionState(
   promptResumesInput,
   selectedPromptResumeIdInput
 ) {
-  const promptResumes = (
-    Array.isArray(promptResumesInput) ? promptResumesInput : []
-  )
-    .map(normalizePromptResume)
-    .filter(Boolean);
-
-  const selectedPromptResumeId =
-    promptResumes.some((entry) => entry.id === selectedPromptResumeIdInput)
-      ? selectedPromptResumeIdInput
-      : "";
+  const { promptResumes, selectedPromptResumeId } =
+    normalizePromptResumeSelection(
+      {
+        promptResumes: promptResumesInput,
+        selectedPromptResumeId: selectedPromptResumeIdInput
+      },
+      { applyAutoSelect: true }
+    );
 
   const profileState = await getProfileSelectionState();
   const selectedProfile = getSelectedProfileFromState(profileState);
@@ -701,16 +736,26 @@ async function resetApplicationInputsAfterSave(runId = "") {
   const profileState = await getProfileSelectionState();
   await saveProfileSelectionState({
     ...profileState,
-    selectedProfileIds: [],
-    profiles: profileState.profiles.map((profile) => ({
-      ...profile,
-      selectedPromptResumeId: ""
-    }))
+    profiles: profileState.profiles.map((profile) => {
+      const resumes = normalizePromptResumeSelection(
+        {
+          promptResumes: profile.promptResumes,
+          selectedPromptResumeId: ""
+        },
+        { applyAutoSelect: true }
+      );
+
+      return {
+        ...profile,
+        promptResumes: resumes.promptResumes,
+        selectedPromptResumeId: resumes.selectedPromptResumeId
+      };
+    })
   });
   await saveJobDescriptionSelectionState("");
 
   const message =
-    "Cleared saved profile selections, prompt resume selections, and job description.";
+    "Cleared job description and restored auto-selected prompt resumes for the next application.";
 
   if (runId) {
     sendLog(runId, "info", message);

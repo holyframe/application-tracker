@@ -1049,6 +1049,7 @@ h1 {
 
 .prompt-resume-edit,
 .prompt-resume-remove,
+.prompt-resume-auto-select,
 .prompt-selection-edit,
 .prompt-selection-remove,
 .job-description-selection-edit,
@@ -1063,6 +1064,32 @@ h1 {
   cursor: pointer;
   color: #5f6b8d;
   background: rgba(84, 87, 255, 0.1);
+}
+
+.prompt-resume-auto-select {
+  width: auto;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.prompt-resume-auto-select.is-active {
+  color: #0f6b3c;
+  background: rgba(23, 140, 71, 0.16);
+}
+
+.prompt-resume-auto-select:hover {
+  color: var(--primary-dark);
+  background: rgba(84, 87, 255, 0.2);
+}
+
+.prompt-resume-auto-select.is-active:hover {
+  color: #0c5731;
+  background: rgba(23, 140, 71, 0.24);
 }
 
 .prompt-resume-edit svg,

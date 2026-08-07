@@ -948,23 +948,51 @@ function normalizePromptResumeEntry(entry) {
     id: String(entry?.id || createProfileId()),
     label,
     content,
-    updatedAt: String(entry?.updatedAt || "")
+    updatedAt: String(entry?.updatedAt || ""),
+    autoSelect: Boolean(entry?.autoSelect)
   };
 }
 
-function normalizePromptResumeSelection(selection) {
-  const promptResumes = (
+function enforceSingleAutoSelectPromptResume(promptResumes) {
+  let foundAuto = false;
+
+  return promptResumes.map((entry) => {
+    if (!entry.autoSelect) {
+      return entry;
+    }
+
+    if (foundAuto) {
+      return { ...entry, autoSelect: false };
+    }
+
+    foundAuto = true;
+    return entry;
+  });
+}
+
+function getAutoSelectedPromptResumeId(promptResumes) {
+  return promptResumes.find((entry) => entry.autoSelect)?.id || "";
+}
+
+function normalizePromptResumeSelection(selection, { applyAutoSelect = false } = {}) {
+  let promptResumes = (
     Array.isArray(selection?.promptResumes) ? selection.promptResumes : []
   )
     .map(normalizePromptResumeEntry)
     .filter(Boolean);
 
-  const selectedPromptResumeId =
+  promptResumes = enforceSingleAutoSelectPromptResume(promptResumes);
+
+  let selectedPromptResumeId =
     promptResumes.some(
       (entry) => entry.id === selection?.selectedPromptResumeId
     )
       ? selection.selectedPromptResumeId
       : "";
+
+  if (applyAutoSelect && !selectedPromptResumeId) {
+    selectedPromptResumeId = getAutoSelectedPromptResumeId(promptResumes);
+  }
 
   return { promptResumes, selectedPromptResumeId };
 }
@@ -1428,9 +1456,36 @@ function renderProfilePromptResumeMirror(profile, body) {
       copy.append(updated);
     }
 
-    const actions = document.createElement("span");
+    const actions = document.createElement("div");
     actions.className = "prompt-resume-actions";
-    actions.setAttribute("aria-hidden", "true");
+
+    const autoButton = document.createElement("button");
+    autoButton.type = "button";
+    autoButton.className = "prompt-resume-auto-select";
+    autoButton.classList.toggle("is-active", Boolean(promptResume.autoSelect));
+    autoButton.textContent = "Auto";
+    autoButton.setAttribute(
+      "aria-pressed",
+      String(Boolean(promptResume.autoSelect))
+    );
+    autoButton.setAttribute(
+      "aria-label",
+      promptResume.autoSelect
+        ? `Stop auto-selecting ${promptResume.label} for ${profile.name}`
+        : `Auto-select ${promptResume.label} for ${profile.name}`
+    );
+    autoButton.title = promptResume.autoSelect
+      ? "Auto-select on for next applications"
+      : "Auto-select this resume after each save";
+    autoButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setPromptResumeAutoSelect(
+        profile.id,
+        promptResume.id,
+        !promptResume.autoSelect
+      );
+    });
+    actions.append(autoButton);
 
     item.addEventListener("click", () => {
       activateProfilePromptResume(profile.id, promptResume.id);
@@ -2638,6 +2693,38 @@ function renderPromptResumeList() {
     const actions = document.createElement("div");
     actions.className = "prompt-resume-actions";
 
+    const autoButton = document.createElement("button");
+    autoButton.type = "button";
+    autoButton.className = "prompt-resume-auto-select";
+    autoButton.classList.toggle("is-active", Boolean(promptResume.autoSelect));
+    autoButton.textContent = "Auto";
+    autoButton.setAttribute(
+      "aria-pressed",
+      String(Boolean(promptResume.autoSelect))
+    );
+    autoButton.setAttribute(
+      "aria-label",
+      promptResume.autoSelect
+        ? `Stop auto-selecting ${promptResume.label}`
+        : `Auto-select ${promptResume.label}`
+    );
+    autoButton.title = promptResume.autoSelect
+      ? "Auto-select on for next applications"
+      : "Auto-select this resume after each save";
+    autoButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const selectedProfile = getSelectedProfile();
+      if (!selectedProfile) {
+        return;
+      }
+      setPromptResumeAutoSelect(
+        selectedProfile.id,
+        promptResume.id,
+        !promptResume.autoSelect
+      );
+    });
+    actions.append(autoButton);
+
     const isSelected =
       promptResume.id === promptResumeSelectionState.selectedPromptResumeId;
 
@@ -2801,6 +2888,75 @@ async function selectPromptResume(promptResumeId) {
   }
 }
 
+async function setPromptResumeAutoSelect(profileId, promptResumeId, enabled) {
+  const profile = profileSelectionState.profiles.find(
+    (entry) => entry.id === profileId
+  );
+  if (!profile) {
+    return;
+  }
+
+  const promptResume = profile.promptResumes.find(
+    (entry) => entry.id === promptResumeId
+  );
+  if (!promptResume) {
+    addLog("error", "Could not find that prompt resume.");
+    return;
+  }
+
+  const promptResumes = enforceSingleAutoSelectPromptResume(
+    profile.promptResumes.map((entry) => ({
+      ...entry,
+      autoSelect: enabled ? entry.id === promptResumeId : false
+    }))
+  );
+
+  let selectedPromptResumeId = profile.selectedPromptResumeId;
+  if (enabled && !selectedPromptResumeId) {
+    selectedPromptResumeId = promptResumeId;
+  }
+
+  profileSelectionState.profiles = profileSelectionState.profiles.map(
+    (entry) =>
+      entry.id === profileId
+        ? {
+            ...entry,
+            promptResumes,
+            selectedPromptResumeId
+          }
+        : entry
+  );
+  profileSelectionState.selectedProfileIds = profileSelectionState.profiles
+    .filter((entry) => Boolean(entry.selectedPromptResumeId))
+    .map((entry) => entry.id);
+
+  if (profileSelectionState.selectedProfileId === profileId) {
+    promptResumeSelectionState = {
+      promptResumes,
+      selectedPromptResumeId
+    };
+  }
+
+  if (enabled && selectedPromptResumeId === promptResumeId) {
+    profileSelectionState.selectedProfileId = profileId;
+    expandedProfileIds.add(profileId);
+  }
+
+  try {
+    await persistProfileSelection(
+      enabled
+        ? `Auto-select enabled for "${promptResume.label}".`
+        : `Auto-select disabled for "${promptResume.label}".`
+    );
+    renderPromptResumeList();
+    renderProfileList();
+  } catch (error) {
+    console.error(error);
+    addLog("error", error.message || "Could not update auto-select.");
+    await loadProfileSelection();
+  }
+}
+
 async function removePromptResume(promptResumeId) {
   const removed = promptResumeSelectionState.promptResumes.find(
     (entry) => entry.id === promptResumeId
@@ -2866,10 +3022,19 @@ async function submitPromptResumeForm() {
   const promptResumes = isEdit
     ? promptResumeSelectionState.promptResumes.map((entry) =>
         entry.id === editingPromptResumeId
-          ? { id: entry.id, label, content, updatedAt }
+          ? {
+              id: entry.id,
+              label,
+              content,
+              updatedAt,
+              autoSelect: Boolean(entry.autoSelect)
+            }
           : entry
       )
-    : [...promptResumeSelectionState.promptResumes, { label, content, updatedAt }];
+    : [
+        ...promptResumeSelectionState.promptResumes,
+        { label, content, updatedAt, autoSelect: false }
+      ];
 
   try {
     const response = await chrome.runtime.sendMessage({
