@@ -15,21 +15,38 @@
         aria-label="Home workspace"
         aria-hidden="true"
       >
-        <button
-          id="configToggleButton"
-          type="button"
-          class="workspace-settings-button"
-          aria-label="Open app settings"
-          title="App settings"
-          aria-expanded="false"
-          aria-controls="configModal"
-          aria-haspopup="dialog"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-        </button>
+        <div class="workspace-header-leading-actions">
+          <button
+            id="configToggleButton"
+            type="button"
+            class="workspace-settings-button"
+            aria-label="Open app settings"
+            title="App settings"
+            aria-expanded="false"
+            aria-controls="configModal"
+            aria-haspopup="dialog"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+          <button
+            id="exportAppDataIconButton"
+            type="button"
+            class="workspace-export-button"
+            aria-label="Export app data"
+            title="Export app data"
+            aria-haspopup="dialog"
+            aria-controls="exportAppDataModal"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <path d="M7 10l5 5 5-5" />
+              <path d="M12 15V3" />
+            </svg>
+          </button>
+        </div>
 
         <h2>Home workspace</h2>
         <p
@@ -59,6 +76,21 @@
           <div class="workspace-save-progress-bar-fill"></div>
         </div>
         <div class="workspace-header-actions">
+          <button
+            id="homeWorkspaceImportButton"
+            type="button"
+            class="workspace-url-icon-button workspace-import-button"
+            aria-label="Import app data"
+            title="Import app data"
+            aria-haspopup="dialog"
+            aria-controls="importAppDataModal"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <path d="M17 8l-5-5-5 5" />
+              <path d="M12 3v12" />
+            </svg>
+          </button>
           <button
             id="homeWorkspacePromptInfoButton"
             type="button"
@@ -328,43 +360,9 @@
           <div class="app-data-transfer-section">
             <h3 class="app-data-transfer-title">Backup &amp; restore</h3>
             <p class="app-data-transfer-help">
-              Export or import sheet settings, prompts, job description, and
-              profiles. Use the checkbox to include prompt resume text.
+              Use the header export and import icons to back up or restore sheet
+              settings, prompts, job description, and profiles.
             </p>
-
-            <label class="app-data-transfer-option" for="includePromptResumeInfoCheckbox">
-              <input
-                id="includePromptResumeInfoCheckbox"
-                type="checkbox"
-                class="app-data-transfer-checkbox"
-              />
-              <span>Include prompt resume info</span>
-            </label>
-
-            <div class="app-data-transfer-actions">
-              <button
-                id="exportAppDataButton"
-                type="button"
-                class="secondary-button modal-action-button"
-              >
-                <span>Export data</span>
-              </button>
-              <button
-                id="importAppDataButton"
-                type="button"
-                class="secondary-button modal-action-button"
-              >
-                <span>Import data</span>
-              </button>
-              <input
-                id="importAppDataFileInput"
-                type="file"
-                accept="application/json,.json"
-                hidden
-                tabindex="-1"
-                aria-hidden="true"
-              />
-            </div>
 
             <p id="appDataTransferStatus" class="config-status is-hidden" aria-live="polite"></p>
           </div>
@@ -732,6 +730,21 @@
             <div class="workspace-save-progress-bar-fill"></div>
           </div>
           <div class="workspace-header-actions split-windows-header-actions">
+            <button
+              id="applicationWorkspaceImportButton"
+              type="button"
+              class="workspace-url-icon-button workspace-import-button"
+              aria-label="Import app data"
+              title="Import app data"
+              aria-haspopup="dialog"
+              aria-controls="importAppDataModal"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <path d="M17 8l-5-5-5 5" />
+                <path d="M12 3v12" />
+              </svg>
+            </button>
             <button
               id="applicationWorkspacePromptInfoButton"
               type="button"
@@ -1143,6 +1156,148 @@
             class="primary-button modal-action-button"
           >
             <span>OK</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="importAppDataModal"
+      class="modal import-app-data-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="importAppDataModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="importAppDataModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Cancel import app data"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="importAppDataModalTitle">Import app data?</h2>
+          <button
+            id="importAppDataModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <p class="modal-help">
+          Restore sheet settings, prompts, job description, and profiles for
+          this app from a backup JSON file.
+        </p>
+
+        <label
+          class="app-data-transfer-option export-app-data-option"
+          for="importIncludePromptResumeInfoCheckbox"
+        >
+          <input
+            id="importIncludePromptResumeInfoCheckbox"
+            type="checkbox"
+            class="app-data-transfer-checkbox"
+            checked
+          />
+          <span>Include prompt resume info</span>
+        </label>
+
+        <div class="modal-actions">
+          <button
+            id="importAppDataModalCancelButton"
+            type="button"
+            class="secondary-button modal-action-button"
+          >
+            <span>Cancel</span>
+          </button>
+
+          <button
+            id="importAppDataModalConfirmButton"
+            type="button"
+            class="primary-button modal-action-button"
+          >
+            <span>Choose file</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <input
+      id="importAppDataFileInput"
+      type="file"
+      accept="application/json,.json"
+      hidden
+      tabindex="-1"
+      aria-hidden="true"
+    />
+
+    <div
+      id="exportAppDataModal"
+      class="modal export-app-data-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="exportAppDataModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="exportAppDataModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Cancel export app data"
+      ></button>
+
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="exportAppDataModalTitle">Export app data?</h2>
+          <button
+            id="exportAppDataModalCloseButton"
+            type="button"
+            class="modal-close-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <p class="modal-help">
+          Save sheet settings, prompts, job description, and profiles into this
+          project's <code>data</code> folder. The first export asks you to choose
+          that folder; later exports reuse it.
+        </p>
+
+        <label
+          class="app-data-transfer-option export-app-data-option"
+          for="exportIncludePromptResumeInfoCheckbox"
+        >
+          <input
+            id="exportIncludePromptResumeInfoCheckbox"
+            type="checkbox"
+            class="app-data-transfer-checkbox"
+            checked
+          />
+          <span>Include prompt resume info</span>
+        </label>
+
+        <div class="modal-actions">
+          <button
+            id="exportAppDataModalCancelButton"
+            type="button"
+            class="secondary-button modal-action-button"
+          >
+            <span>Cancel</span>
+          </button>
+
+          <button
+            id="exportAppDataModalConfirmButton"
+            type="button"
+            class="primary-button modal-action-button"
+          >
+            <span>Export</span>
           </button>
         </div>
       </div>

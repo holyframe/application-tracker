@@ -80,7 +80,7 @@ input {
   top: 8px;
   z-index: 20;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: auto auto auto;
   align-items: center;
   column-gap: 10px;
@@ -214,13 +214,15 @@ input {
   gap: 6px;
 }
 
-.workspace-header-actions .workspace-prompt-info-button {
+.workspace-header-actions .workspace-prompt-info-button,
+.workspace-header-actions .workspace-import-button {
   width: 30px;
   height: 30px;
   border-radius: 999px;
 }
 
-.workspace-header-actions .workspace-prompt-info-button svg {
+.workspace-header-actions .workspace-prompt-info-button svg,
+.workspace-header-actions .workspace-import-button svg {
   width: 16px;
   height: 16px;
 }
@@ -235,10 +237,17 @@ input {
   display: none;
 }
 
-.workspace-settings-button {
+.workspace-header-leading-actions {
   grid-column: 1;
   grid-row: 1;
   justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-settings-button,
+.workspace-export-button {
   display: grid;
   place-items: center;
   width: 30px;
@@ -251,23 +260,36 @@ input {
   background: rgba(143, 147, 255, 0.2);
 }
 
-.workspace-settings-button svg {
+.workspace-settings-button svg,
+.workspace-export-button svg {
   width: 16px;
   height: 16px;
 }
 
-.workspace-settings-button:hover {
+.workspace-settings-button:hover,
+.workspace-export-button:hover:not(:disabled) {
   background: rgba(143, 147, 255, 0.34);
 }
 
-.workspace-settings-button:focus-visible {
+.workspace-settings-button:focus-visible,
+.workspace-export-button:focus-visible {
   outline: 3px solid rgba(175, 178, 255, 0.38);
   outline-offset: 2px;
 }
 
-.workspace-settings-button:disabled {
+.workspace-settings-button:disabled,
+.workspace-export-button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.export-app-data-option {
+  margin: 0 0 4px;
+}
+
+.export-app-data-modal .modal-help code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95em;
 }
 
 .workspace-view-exchange-button,

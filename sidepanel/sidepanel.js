@@ -153,6 +153,7 @@ const logsList = document.querySelector("#logsList");
 const emptyLogs = document.querySelector("#emptyLogs");
 const clearLogsButton = document.querySelector("#clearLogsButton");
 const configToggleButton = document.querySelector("#configToggleButton");
+const exportAppDataIconButton = document.querySelector("#exportAppDataIconButton");
 const configModal = document.querySelector("#configModal");
 const configModalBackdrop = document.querySelector("#configModalBackdrop");
 const configModalCloseButton = document.querySelector("#configModalCloseButton");
@@ -161,13 +162,51 @@ const spreadsheetIdInput = document.querySelector("#spreadsheetIdInput");
 const sheetNameInput = document.querySelector("#sheetNameInput");
 const resumeTemplateInput = document.querySelector("#resumeTemplateInput");
 const saveConfigButton = document.querySelector("#saveConfigButton");
-const includePromptResumeInfoCheckbox = document.querySelector(
-  "#includePromptResumeInfoCheckbox"
+const exportAppDataModal = document.querySelector("#exportAppDataModal");
+const exportAppDataModalBackdrop = document.querySelector(
+  "#exportAppDataModalBackdrop"
 );
-const exportAppDataButton = document.querySelector("#exportAppDataButton");
-const importAppDataButton = document.querySelector("#importAppDataButton");
+const exportAppDataModalCloseButton = document.querySelector(
+  "#exportAppDataModalCloseButton"
+);
+const exportAppDataModalCancelButton = document.querySelector(
+  "#exportAppDataModalCancelButton"
+);
+const exportAppDataModalConfirmButton = document.querySelector(
+  "#exportAppDataModalConfirmButton"
+);
+const exportIncludePromptResumeInfoCheckbox = document.querySelector(
+  "#exportIncludePromptResumeInfoCheckbox"
+);
+const importAppDataModal = document.querySelector("#importAppDataModal");
+const importAppDataModalBackdrop = document.querySelector(
+  "#importAppDataModalBackdrop"
+);
+const importAppDataModalCloseButton = document.querySelector(
+  "#importAppDataModalCloseButton"
+);
+const importAppDataModalCancelButton = document.querySelector(
+  "#importAppDataModalCancelButton"
+);
+const importAppDataModalConfirmButton = document.querySelector(
+  "#importAppDataModalConfirmButton"
+);
+const importIncludePromptResumeInfoCheckbox = document.querySelector(
+  "#importIncludePromptResumeInfoCheckbox"
+);
 const importAppDataFileInput = document.querySelector("#importAppDataFileInput");
+const homeWorkspaceImportButton = document.querySelector(
+  "#homeWorkspaceImportButton"
+);
+const applicationWorkspaceImportButton = document.querySelector(
+  "#applicationWorkspaceImportButton"
+);
 const appDataTransferStatus = document.querySelector("#appDataTransferStatus");
+const APP_DATA_EXPORT_DIRECTORY_IDB = {
+  name: "application-helper-export",
+  store: "handles",
+  key: "dataDirectory"
+};
 const promptResumeList = document.querySelector("#promptResumeList");
 const promptResumeFormModal = document.querySelector("#promptResumeFormModal");
 const promptResumeFormModalTitle = document.querySelector("#promptResumeFormModalTitle");
@@ -783,6 +822,18 @@ function getManagedModals() {
       id: "deleteApplication",
       element: deleteApplicationModal,
       setOpen: (isOpen) => setDeleteApplicationModalOpen(isOpen, { returnFocus: false }),
+      fields: []
+    },
+    {
+      id: "exportAppData",
+      element: exportAppDataModal,
+      setOpen: (isOpen) => setExportAppDataModalOpen(isOpen, { returnFocus: false }),
+      fields: []
+    },
+    {
+      id: "importAppData",
+      element: importAppDataModal,
+      setOpen: (isOpen) => setImportAppDataModalOpen(isOpen, { returnFocus: false }),
       fields: []
     }
   ];
@@ -2065,10 +2116,22 @@ function setSaveButtonsDisabled(disabled) {
     splitWindowsPreviewDownloadButton.disabled = disabled;
   }
   if (saveConfigButton) saveConfigButton.disabled = disabled;
-  if (exportAppDataButton) exportAppDataButton.disabled = disabled;
-  if (importAppDataButton) importAppDataButton.disabled = disabled;
-  if (includePromptResumeInfoCheckbox) {
-    includePromptResumeInfoCheckbox.disabled = disabled;
+  if (exportAppDataIconButton) exportAppDataIconButton.disabled = disabled;
+  if (exportAppDataModalConfirmButton) {
+    exportAppDataModalConfirmButton.disabled = disabled;
+  }
+  if (exportIncludePromptResumeInfoCheckbox) {
+    exportIncludePromptResumeInfoCheckbox.disabled = disabled;
+  }
+  if (homeWorkspaceImportButton) homeWorkspaceImportButton.disabled = disabled;
+  if (applicationWorkspaceImportButton) {
+    applicationWorkspaceImportButton.disabled = disabled;
+  }
+  if (importAppDataModalConfirmButton) {
+    importAppDataModalConfirmButton.disabled = disabled;
+  }
+  if (importIncludePromptResumeInfoCheckbox) {
+    importIncludePromptResumeInfoCheckbox.disabled = disabled;
   }
   if (addProfileButton) addProfileButton.disabled = disabled;
   profileList
@@ -3384,6 +3447,23 @@ function updateWorkspacePromptInfoButtons() {
       button.disabled = disabled;
     }
   );
+
+  updateWorkspaceImportButtons();
+}
+
+function updateWorkspaceImportButtons() {
+  const showButton = !isSplitWindowsDialogOpen;
+  const disabled = !showButton || areActionButtonsDisabled;
+
+  [homeWorkspaceImportButton, applicationWorkspaceImportButton].forEach(
+    (button) => {
+      if (!button) {
+        return;
+      }
+      button.classList.toggle("is-hidden", !showButton);
+      button.disabled = disabled;
+    }
+  );
 }
 
 let jobDescriptionState = {
@@ -3623,7 +3703,11 @@ async function saveSheetConfig() {
 }
 
 function shouldIncludePromptResumeInfo() {
-  return includePromptResumeInfoCheckbox?.checked !== false;
+  return importIncludePromptResumeInfoCheckbox?.checked !== false;
+}
+
+function shouldExportIncludePromptResumeInfo() {
+  return exportIncludePromptResumeInfoCheckbox?.checked !== false;
 }
 
 function setAppDataTransferStatus(type, message) {
@@ -3636,25 +3720,212 @@ function setAppDataTransferStatus(type, message) {
   appDataTransferStatus.classList.toggle("is-error", type === "error");
 }
 
-function downloadAppDataBackup(data) {
-  const stamp = new Date().toISOString().slice(0, 10);
-  const filename = `application-helper-backup-${stamp}.json`;
+function setExportAppDataModalOpen(isOpen, { returnFocus = true } = {}) {
+  if (!exportAppDataModal) return;
+
+  exportAppDataModal.classList.toggle("is-hidden", !isOpen);
+  exportAppDataModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    if (exportIncludePromptResumeInfoCheckbox) {
+      exportIncludePromptResumeInfoCheckbox.checked = true;
+    }
+    exportAppDataModalConfirmButton?.focus();
+    return;
+  }
+
+  if (returnFocus) {
+    exportAppDataIconButton?.focus();
+  }
+}
+
+function openExportAppDataModal() {
+  if (exportAppDataIconButton?.disabled) {
+    return;
+  }
+  setExportAppDataModalOpen(true);
+}
+
+function setImportAppDataModalOpen(isOpen, { returnFocus = true } = {}) {
+  if (!importAppDataModal) return;
+
+  importAppDataModal.classList.toggle("is-hidden", !isOpen);
+  importAppDataModal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    if (importIncludePromptResumeInfoCheckbox) {
+      importIncludePromptResumeInfoCheckbox.checked = true;
+    }
+    importAppDataModalConfirmButton?.focus();
+    return;
+  }
+
+  if (returnFocus) {
+    const focusTarget =
+      (!homeWorkspaceSwitcher?.classList.contains("is-hidden") &&
+        homeWorkspaceImportButton) ||
+      applicationWorkspaceImportButton ||
+      homeWorkspaceImportButton;
+    focusTarget?.focus();
+  }
+}
+
+function openImportAppDataModal() {
+  if (
+    homeWorkspaceImportButton?.disabled &&
+    applicationWorkspaceImportButton?.disabled
+  ) {
+    return;
+  }
+  setImportAppDataModalOpen(true);
+}
+
+function confirmImportAppDataModal() {
+  if (importAppDataModalConfirmButton?.disabled) {
+    return;
+  }
+  importAppDataFileInput?.click();
+}
+
+function openExportDirectoryIdb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(APP_DATA_EXPORT_DIRECTORY_IDB.name, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(APP_DATA_EXPORT_DIRECTORY_IDB.store)) {
+        db.createObjectStore(APP_DATA_EXPORT_DIRECTORY_IDB.store);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () =>
+      reject(request.error || new Error("Could not open export storage."));
+  });
+}
+
+async function loadExportDataDirectoryHandle() {
+  const db = await openExportDirectoryIdb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(APP_DATA_EXPORT_DIRECTORY_IDB.store, "readonly");
+      const store = tx.objectStore(APP_DATA_EXPORT_DIRECTORY_IDB.store);
+      const request = store.get(APP_DATA_EXPORT_DIRECTORY_IDB.key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () =>
+        reject(request.error || new Error("Could not read export folder."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function saveExportDataDirectoryHandle(handle) {
+  const db = await openExportDirectoryIdb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(APP_DATA_EXPORT_DIRECTORY_IDB.store, "readwrite");
+      const store = tx.objectStore(APP_DATA_EXPORT_DIRECTORY_IDB.store);
+      const request = store.put(handle, APP_DATA_EXPORT_DIRECTORY_IDB.key);
+      request.onsuccess = () => resolve();
+      request.onerror = () =>
+        reject(request.error || new Error("Could not save export folder."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function ensureExportDataDirectoryHandle() {
+  if (typeof window.showDirectoryPicker !== "function") {
+    return null;
+  }
+
+  let handle = null;
+  try {
+    handle = await loadExportDataDirectoryHandle();
+  } catch (error) {
+    console.error(error);
+  }
+
+  if (handle) {
+    const permission =
+      (await handle.queryPermission?.({ mode: "readwrite" })) || "prompt";
+    if (permission === "granted") {
+      return handle;
+    }
+    const requested =
+      (await handle.requestPermission?.({ mode: "readwrite" })) || "denied";
+    if (requested === "granted") {
+      return handle;
+    }
+  }
+
+  handle = await window.showDirectoryPicker({
+    id: "application-helper-data",
+    mode: "readwrite",
+    startIn: "documents"
+  });
+  await saveExportDataDirectoryHandle(handle);
+  return handle;
+}
+
+async function writeAppDataBackupToDirectory(handle, filename, data) {
+  const fileHandle = await handle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(JSON.stringify(data, null, 2));
+  await writable.close();
+  return `data/${filename}`;
+}
+
+async function downloadAppDataBackupFallback(data, filename) {
+  const relativePath = `data/${filename}`;
   const blob = new Blob([JSON.stringify(data, null, 2)], {
     type: "application/json"
   });
   const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-  return filename;
+
+  try {
+    const downloadId = await chrome.downloads.download({
+      url,
+      filename: relativePath,
+      saveAs: false,
+      conflictAction: "uniquify"
+    });
+
+    if (typeof downloadId !== "number") {
+      throw new Error("Could not start the export download.");
+    }
+
+    return relativePath;
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+}
+
+function buildAppDataBackupFilename() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  return `application-helper-backup-${stamp}.json`;
+}
+
+async function downloadAppDataBackup(data) {
+  const filename = buildAppDataBackupFilename();
+
+  try {
+    const handle = await ensureExportDataDirectoryHandle();
+    if (handle) {
+      return await writeAppDataBackupToDirectory(handle, filename, data);
+    }
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Export canceled.");
+    }
+    console.error(error);
+  }
+
+  return downloadAppDataBackupFallback(data, filename);
 }
 
 async function exportAppData() {
-  const includePromptResumes = shouldIncludePromptResumeInfo();
+  const includePromptResumes = shouldExportIncludePromptResumeInfo();
   setAppDataTransferStatus("", "");
   addLog(
     "info",
@@ -3662,6 +3933,10 @@ async function exportAppData() {
       ? "Exporting app data with prompt resume info..."
       : "Exporting app data without prompt resume info..."
   );
+
+  if (exportAppDataModalConfirmButton) {
+    exportAppDataModalConfirmButton.disabled = true;
+  }
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -3673,15 +3948,22 @@ async function exportAppData() {
       throw new Error(response?.error || "Could not export app data.");
     }
 
-    const filename = downloadAppDataBackup(response.data);
+    const filename = await downloadAppDataBackup(response.data);
     const message = `Exported ${filename}.`;
+    setExportAppDataModalOpen(false);
     setAppDataTransferStatus("success", message);
     addLog("success", message);
+    showStatus("success", message);
   } catch (error) {
     console.error(error);
     const message = error.message || "Could not export app data.";
     setAppDataTransferStatus("error", message);
     addLog("error", message);
+    showStatus("error", message);
+  } finally {
+    if (exportAppDataModalConfirmButton) {
+      exportAppDataModalConfirmButton.disabled = false;
+    }
   }
 }
 
@@ -3708,6 +3990,10 @@ async function importAppDataFromFile(file) {
       : `Importing app data from ${file.name} without prompt resume info...`
   );
 
+  if (importAppDataModalConfirmButton) {
+    importAppDataModalConfirmButton.disabled = true;
+  }
+
   try {
     const text = await file.text();
     let payload;
@@ -3729,20 +4015,26 @@ async function importAppDataFromFile(file) {
     }
 
     await refreshUiAfterAppDataImport();
+    setImportAppDataModalOpen(false);
 
     const message = response.includesPromptResumes
       ? "Imported app data, including prompt resume info."
       : "Imported app data. Existing prompt resume info was kept.";
     setAppDataTransferStatus("success", message);
     addLog("success", message);
+    showStatus("success", message);
   } catch (error) {
     console.error(error);
     const message = error.message || "Could not import app data.";
     setAppDataTransferStatus("error", message);
     addLog("error", message);
+    showStatus("error", message);
   } finally {
     if (importAppDataFileInput) {
       importAppDataFileInput.value = "";
+    }
+    if (importAppDataModalConfirmButton) {
+      importAppDataModalConfirmButton.disabled = false;
     }
   }
 }
@@ -6784,20 +7076,46 @@ configToggleButton?.addEventListener("click", () => {
   setConfigModalOpen(true);
 });
 
+exportAppDataIconButton?.addEventListener("click", openExportAppDataModal);
+exportAppDataModalBackdrop?.addEventListener("click", () =>
+  setExportAppDataModalOpen(false)
+);
+exportAppDataModalCloseButton?.addEventListener("click", () =>
+  setExportAppDataModalOpen(false)
+);
+exportAppDataModalCancelButton?.addEventListener("click", () =>
+  setExportAppDataModalOpen(false)
+);
+exportAppDataModalConfirmButton?.addEventListener("click", exportAppData);
+
+homeWorkspaceImportButton?.addEventListener("click", openImportAppDataModal);
+applicationWorkspaceImportButton?.addEventListener(
+  "click",
+  openImportAppDataModal
+);
+importAppDataModalBackdrop?.addEventListener("click", () =>
+  setImportAppDataModalOpen(false)
+);
+importAppDataModalCloseButton?.addEventListener("click", () =>
+  setImportAppDataModalOpen(false)
+);
+importAppDataModalCancelButton?.addEventListener("click", () =>
+  setImportAppDataModalOpen(false)
+);
+importAppDataModalConfirmButton?.addEventListener(
+  "click",
+  confirmImportAppDataModal
+);
+importAppDataFileInput?.addEventListener("change", () => {
+  const file = importAppDataFileInput.files?.[0];
+  importAppDataFromFile(file);
+});
+
 configModalBackdrop?.addEventListener("click", () => setConfigModalOpen(false));
 configModalCloseButton?.addEventListener("click", () => setConfigModalOpen(false));
 configModalCancelButton?.addEventListener("click", () => setConfigModalOpen(false));
 
 saveConfigButton?.addEventListener("click", saveSheetConfig);
-
-exportAppDataButton?.addEventListener("click", exportAppData);
-importAppDataButton?.addEventListener("click", () => {
-  importAppDataFileInput?.click();
-});
-importAppDataFileInput?.addEventListener("change", () => {
-  const file = importAppDataFileInput.files?.[0];
-  importAppDataFromFile(file);
-});
 
 promptResumeFormModalBackdrop?.addEventListener("click", () =>
   setPromptResumeFormModalOpen(false)
@@ -6875,6 +7193,16 @@ document.addEventListener("keydown", (event) => {
 
   if (deleteApplicationModal && !deleteApplicationModal.classList.contains("is-hidden")) {
     setDeleteApplicationModalOpen(false);
+    return;
+  }
+
+  if (exportAppDataModal && !exportAppDataModal.classList.contains("is-hidden")) {
+    setExportAppDataModalOpen(false);
+    return;
+  }
+
+  if (importAppDataModal && !importAppDataModal.classList.contains("is-hidden")) {
+    setImportAppDataModalOpen(false);
     return;
   }
 
