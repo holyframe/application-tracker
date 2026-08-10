@@ -702,6 +702,38 @@
 
       <div class="modal-panel">
         <header class="modal-header workspace-header-panel">
+          <div class="workspace-header-leading-actions">
+            <button
+              id="applicationWorkspaceExportButton"
+              type="button"
+              class="workspace-export-button"
+              aria-label="Export app data"
+              title="Export app data"
+              aria-haspopup="dialog"
+              aria-controls="exportAppDataModal"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <path d="M7 10l5 5 5-5" />
+                <path d="M12 15V3" />
+              </svg>
+            </button>
+            <button
+              id="applicationWorkspaceNotesButton"
+              type="button"
+              class="workspace-notes-button"
+              aria-label="Open profile notes"
+              title="Profile notes"
+              disabled
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 4h16v12l-4 4H4z" />
+                <path d="M16 20v-4h4" />
+                <path d="M8 8h8" />
+                <path d="M8 12h5" />
+              </svg>
+            </button>
+          </div>
           <h2 id="splitWindowsModalTitle">Open Tab + Sidebar</h2>
           <p
             id="applicationWorkspaceLastStatus"
@@ -798,7 +830,7 @@
             URLs or Markdown links such as [**URL**](URL). Job URLs open in the
             main tabs. The Application workspace shows the profile resume;
             Pickup opens the remaining Chat URL in a new right-side window.
-            Use the Notes icon beside Refresh to open matching profile notes.
+            Use the Notes icon beside Export to open matching profile notes.
           </p>
 
           <div class="modal-form">
@@ -999,21 +1031,6 @@
               placeholder="Enter a URL"
             />
             <div class="application-workspace-url-actions">
-              <button
-                id="applicationWorkspaceNotesButton"
-                type="button"
-                class="workspace-url-icon-button"
-                aria-label="Open profile notes"
-                title="Profile notes"
-                disabled
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 4h16v12l-4 4H4z" />
-                  <path d="M16 20v-4h4" />
-                  <path d="M8 8h8" />
-                  <path d="M8 12h5" />
-                </svg>
-              </button>
               <button
                 id="applicationWorkspaceRefreshButton"
                 type="button"

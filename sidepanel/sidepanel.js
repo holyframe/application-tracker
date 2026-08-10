@@ -154,6 +154,9 @@ const emptyLogs = document.querySelector("#emptyLogs");
 const clearLogsButton = document.querySelector("#clearLogsButton");
 const configToggleButton = document.querySelector("#configToggleButton");
 const exportAppDataIconButton = document.querySelector("#exportAppDataIconButton");
+const applicationWorkspaceExportButton = document.querySelector(
+  "#applicationWorkspaceExportButton"
+);
 const configModal = document.querySelector("#configModal");
 const configModalBackdrop = document.querySelector("#configModalBackdrop");
 const configModalCloseButton = document.querySelector("#configModalCloseButton");
@@ -2117,6 +2120,9 @@ function setSaveButtonsDisabled(disabled) {
   }
   if (saveConfigButton) saveConfigButton.disabled = disabled;
   if (exportAppDataIconButton) exportAppDataIconButton.disabled = disabled;
+  if (applicationWorkspaceExportButton) {
+    applicationWorkspaceExportButton.disabled = disabled;
+  }
   if (exportAppDataModalConfirmButton) {
     exportAppDataModalConfirmButton.disabled = disabled;
   }
@@ -3735,12 +3741,20 @@ function setExportAppDataModalOpen(isOpen, { returnFocus = true } = {}) {
   }
 
   if (returnFocus) {
-    exportAppDataIconButton?.focus();
+    const focusTarget =
+      (!splitWindowsModal?.classList.contains("is-hidden") &&
+        !isSplitWindowsDialogOpen &&
+        applicationWorkspaceExportButton) ||
+      exportAppDataIconButton;
+    focusTarget?.focus();
   }
 }
 
 function openExportAppDataModal() {
-  if (exportAppDataIconButton?.disabled) {
+  if (
+    exportAppDataIconButton?.disabled &&
+    applicationWorkspaceExportButton?.disabled
+  ) {
     return;
   }
   setExportAppDataModalOpen(true);
@@ -6151,8 +6165,16 @@ function updateApplicationWorkspaceUrlControls() {
     setPickupCloseButtonVisible(applicationWorkspaceClosePickupButton, false);
   }
   if (applicationWorkspaceNotesButton) {
+    const showNotes = showPickup;
+    applicationWorkspaceNotesButton.classList.toggle("is-hidden", !showNotes);
     applicationWorkspaceNotesButton.disabled =
-      !showPickup || !hasActiveWorkspace;
+      !showNotes || !hasActiveWorkspace || areActionButtonsDisabled;
+  }
+  if (applicationWorkspaceExportButton) {
+    const showExport = showPickup;
+    applicationWorkspaceExportButton.classList.toggle("is-hidden", !showExport);
+    applicationWorkspaceExportButton.disabled =
+      !showExport || areActionButtonsDisabled;
   }
   if (applicationWorkspaceCopyUrlButton) {
     applicationWorkspaceCopyUrlButton.disabled = !hasUrl;
@@ -6303,9 +6325,7 @@ function renderApplicationWorkspaceProfileNote(workspace, activeTab) {
 }
 function getApplicationWorkspaceTitle(workspace = currentSaveWorkspace) {
   const profileName = String(workspace?.profileName || "").trim();
-  return profileName
-    ? `Application workspace ${profileName}`
-    : "Application workspace";
+  return profileName || "Application workspace";
 }
 
 function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
@@ -6410,7 +6430,7 @@ function showBlockedInformationPagePreview() {
   }
 
   setSplitWindowsPreview(previewUrl, {
-    title: "Application workspace",
+    title: getApplicationWorkspaceTitle(currentSaveWorkspace),
     frameTitle: currentSaveWorkspace.jobTitle,
     downloadUrl: currentSaveWorkspace.resumeUrl,
     unavailableTitle: "Information page preview unavailable",
@@ -7077,6 +7097,10 @@ configToggleButton?.addEventListener("click", () => {
 });
 
 exportAppDataIconButton?.addEventListener("click", openExportAppDataModal);
+applicationWorkspaceExportButton?.addEventListener(
+  "click",
+  openExportAppDataModal
+);
 exportAppDataModalBackdrop?.addEventListener("click", () =>
   setExportAppDataModalOpen(false)
 );

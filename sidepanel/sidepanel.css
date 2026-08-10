@@ -247,7 +247,8 @@ input {
 }
 
 .workspace-settings-button,
-.workspace-export-button {
+.workspace-export-button,
+.workspace-notes-button {
   display: grid;
   place-items: center;
   width: 30px;
@@ -261,24 +262,28 @@ input {
 }
 
 .workspace-settings-button svg,
-.workspace-export-button svg {
+.workspace-export-button svg,
+.workspace-notes-button svg {
   width: 16px;
   height: 16px;
 }
 
 .workspace-settings-button:hover,
-.workspace-export-button:hover:not(:disabled) {
+.workspace-export-button:hover:not(:disabled),
+.workspace-notes-button:hover:not(:disabled) {
   background: rgba(143, 147, 255, 0.34);
 }
 
 .workspace-settings-button:focus-visible,
-.workspace-export-button:focus-visible {
+.workspace-export-button:focus-visible,
+.workspace-notes-button:focus-visible {
   outline: 3px solid rgba(175, 178, 255, 0.38);
   outline-offset: 2px;
 }
 
 .workspace-settings-button:disabled,
-.workspace-export-button:disabled {
+.workspace-export-button:disabled,
+.workspace-notes-button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
@@ -2273,6 +2278,11 @@ textarea:focus {
 .build-resume-context-modal .build-resume-context-input,
 .profile-notes-modal .profile-notes-input {
   min-height: 400px;
+}
+
+.prompt-form-modal .prompt-content-input {
+  font-size: 15px;
+  line-height: 1.55;
 }
 
 .prompt-resume-form-modal .config-label,
