@@ -2984,6 +2984,9 @@ async function setPromptResumeAutoSelect(profileId, promptResumeId, enabled) {
   if (enabled && !selectedPromptResumeId) {
     selectedPromptResumeId = promptResumeId;
   }
+  if (!enabled && selectedPromptResumeId === promptResumeId) {
+    selectedPromptResumeId = "";
+  }
 
   profileSelectionState.profiles = profileSelectionState.profiles.map(
     (entry) =>
@@ -3015,7 +3018,9 @@ async function setPromptResumeAutoSelect(profileId, promptResumeId, enabled) {
     await persistProfileSelection(
       enabled
         ? `Auto-select enabled for "${promptResume.label}".`
-        : `Auto-select disabled for "${promptResume.label}".`
+        : selectedPromptResumeId
+          ? `Auto-select disabled for "${promptResume.label}".`
+          : `Auto-select disabled for "${promptResume.label}". Prompt resume and profile deselected.`
     );
     renderPromptResumeList();
     renderProfileList();
