@@ -18,6 +18,7 @@ const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
 // tab closes so reopening the panel still restores each tab's details.
 const TAB_SESSION_STORAGE_KEY = "tabSessionById";
 const activeSaveProcessControllers = new Map();
+let activeSaveRunId = "";
 // Every run is owned by the tab it was started from, so the side panel can file
 // its logs and progress against that tab instead of a single global slot.
 const runOwnerTabIds = new Map();
@@ -66,6 +67,7 @@ function findSavePostProcessEntry(states, runId, ownerTabId) {
   return match ? { tabId: Number(match[0]), state: match[1] } : null;
 }
 const SAVE_PROCESS_CANCELLED_CODE = "SAVE_PROCESS_CANCELLED";
+const SAVE_PROCESS_BUSY_CODE = "SAVE_PROCESS_BUSY";
 const PROFILE_SELECTION_VERSION = 3;
 const GOOGLE_DOC_WRITABLE_TEXT_STYLE_FIELDS = Object.freeze([
   "backgroundColor",
@@ -323,6 +325,48 @@ async function checkOpenGoogleSheet() {
     tabId: isCurrentTabGoogleSheet ? sheetTab.id : null,
     url: isCurrentTabGoogleSheet ? sheetTab.url || "" : ""
   };
+}
+
+function parseSelectedGoogleSheetUrl(url) {
+  const rawUrl = String(url || "").trim();
+  if (!isGoogleSheetsDocumentUrl(rawUrl)) {
+    throw new Error("Current tab is not a Google Sheets spreadsheet.");
+  }
+
+  const parsed = new URL(rawUrl);
+  const spreadsheetId = parseSpreadsheetId(rawUrl);
+  if (!spreadsheetId) {
+    throw new Error("Could not identify the current spreadsheet.");
+  }
+
+  const hashParams = new URLSearchParams(parsed.hash.replace(/^#/, ""));
+  const rawSheetId =
+    parsed.searchParams.get("gid") ?? hashParams.get("gid");
+  let sheetId = null;
+  if (rawSheetId !== null && rawSheetId !== "") {
+    if (!/^\d+$/.test(rawSheetId)) {
+      throw new Error("The selected Google Sheet tab ID is not valid.");
+    }
+    sheetId = Number(rawSheetId);
+  }
+
+  return { spreadsheetId, sheetId };
+}
+
+function isChatOrClaudeUrl(url = "") {
+  try {
+    const hostname = new URL(String(url || "")).hostname.toLowerCase();
+    return (
+      hostname === "chatgpt.com" ||
+      hostname.endsWith(".chatgpt.com") ||
+      hostname === "chat.openai.com" ||
+      hostname.endsWith(".chat.openai.com") ||
+      hostname === "claude.ai" ||
+      hostname.endsWith(".claude.ai")
+    );
+  } catch (_error) {
+    return false;
+  }
 }
 
 function sanitizeDownloadFilename(name) {
@@ -1739,7 +1783,13 @@ async function validateApplicationInputsForSave() {
   }
 
   if (missing.length === 0) {
-    return { ok: true, profileState, selectedProfiles };
+    return {
+      ok: true,
+      profileState,
+      selectedProfiles,
+      promptContent: promptState.content.trim(),
+      jobDescriptionContent: jobDescriptionState.content.trim()
+    };
   }
 
   return {
@@ -1749,11 +1799,16 @@ async function validateApplicationInputsForSave() {
   };
 }
 
-async function buildChatGptMessageFromStorage(profile = null) {
-  const [promptState, jobDescriptionState] = await Promise.all([
-    getPromptSelectionState(),
-    getJobDescriptionSelectionState()
-  ]);
+async function buildChatGptMessageFromStorage(profile = null, snapshot = null) {
+  const [promptState, jobDescriptionState] = snapshot
+    ? [
+        { content: String(snapshot.promptContent || "") },
+        { content: String(snapshot.jobDescriptionContent || "") }
+      ]
+    : await Promise.all([
+        getPromptSelectionState(),
+        getJobDescriptionSelectionState()
+      ]);
 
   let targetProfile = profile;
   if (!targetProfile) {
@@ -2480,15 +2535,18 @@ async function notifyExtensionPages(message) {
   }
 }
 
-async function isSidePanelOpen() {
+async function getSidePanelStatus() {
   try {
     const response = await chrome.runtime.sendMessage({
       type: "SIDE_PANEL_PING"
     });
-    return response?.open === true;
+    return {
+      open: response?.open === true,
+      saveActionPending: response?.saveActionPending === true
+    };
   } catch (error) {
     if (isReceivingEndMissingError(error)) {
-      return false;
+      return { open: false, saveActionPending: false };
     }
 
     throw error;
@@ -2623,8 +2681,14 @@ chrome.commands.onCommand.addListener((command) => {
 
   const runId = `shortcut-${Date.now()}`;
   (async () => {
-    if (!(await isSidePanelOpen())) {
+    const sidePanelStatus = await getSidePanelStatus();
+    if (!sidePanelStatus.open) {
       console.info(`Ignoring "${command}" because the side panel is closed.`);
+      return;
+    }
+
+    if (action === "save-app" && sidePanelStatus.saveActionPending) {
+      console.info("Ignoring Save App hotkey because a save action is already pending.");
       return;
     }
 
@@ -2647,7 +2711,7 @@ chrome.commands.onCommand.addListener((command) => {
     if (!validation.ok) {
       sendLog(runId, "error", validation.error);
       await notifyExtensionPages({
-        type: "HOTKEY_SAVE_FINISHED",
+        type: "HOTKEY_SAVE_REJECTED",
         runId,
         ownerTabId,
         ok: false,
@@ -2663,7 +2727,7 @@ chrome.commands.onCommand.addListener((command) => {
     } catch (error) {
       sendLog(runId, "error", error.message);
       await notifyExtensionPages({
-        type: "HOTKEY_SAVE_FINISHED",
+        type: "HOTKEY_SAVE_REJECTED",
         runId,
         ownerTabId,
         ok: false,
@@ -2672,14 +2736,9 @@ chrome.commands.onCommand.addListener((command) => {
       return;
     }
 
-    await notifyExtensionPages({
-      type: "HOTKEY_SAVE_STARTED",
-      runId,
-      ownerTabId
-    });
-
     const result = await saveCurrentTabUrlToSheet(runId, {
-      ownerTabId
+      ownerTabId,
+      notifyHotkeyStarted: true
     });
 
     await notifyExtensionPages({
@@ -2690,14 +2749,21 @@ chrome.commands.onCommand.addListener((command) => {
       url: result?.url || ""
     });
   })().catch((error) => {
-    console.error("Hotkey app action failed:", error);
-    sendLog(runId, "error", error.message || "Hotkey app action failed.");
+    const isBusy = isSaveProcessBusyError(error);
+    if (isBusy) {
+      console.info(error.message);
+    } else {
+      console.error("Hotkey app action failed:", error);
+      sendLog(runId, "error", error.message || "Hotkey app action failed.");
+    }
 
     notifyExtensionPages({
-      type: "HOTKEY_SAVE_FINISHED",
+      type: isBusy ? "HOTKEY_SAVE_REJECTED" : "HOTKEY_SAVE_FINISHED",
       runId,
       ownerTabId: getRunOwnerTabId(runId),
       ok: false,
+      code: error.code || "",
+      activeOwnerTabId: error.activeOwnerTabId ?? null,
       error: error.message || "Hotkey app action failed."
     }).catch((notificationError) => {
       console.error("Could not notify extension pages:", notificationError);
@@ -2916,6 +2982,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     DELETE_APPLICATION_RECORD: deleteApplicationRecord,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
+    READ_MAKE_RESUME_ROWS: readMakeResumeRowsFromSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
     OPEN_URL_IN_RIGHT_WINDOW: openUrlInRightWindow,
     CLOSE_TABS_AND_RETURN: closeTabsAndReturn,
@@ -2957,6 +3024,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               chatGptUrl: message.chatGptUrl,
               trashResume: message.trashResume
             })
+        : message.type === "READ_MAKE_RESUME_ROWS"
+          ? run(message.runId, {
+              sheetUrl: message.sheetUrl,
+              limit: message.limit
+            })
         : message.type === "OPEN_URL_IN_NEW_TAB"
           ? run(message.runId, {
               url: message.url
@@ -2986,21 +3058,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     .then((result) => sendResponse({ ok: true, ...result }))
     .catch((error) => {
       const cancelled = isSaveProcessCancelledError(error);
+      const busy = isSaveProcessBusyError(error);
       if (cancelled) {
         console.info(error.message || "Save process cancelled.");
+      } else if (busy) {
+        console.info(error.message);
       } else {
         console.error(error);
       }
 
       sendLog(
         message.runId,
-        cancelled ? "info" : "error",
+        cancelled || busy ? "info" : "error",
         error.message || "Unknown error"
       );
 
       sendResponse({
         ok: false,
         cancelled,
+        code: error.code || "",
+        activeOwnerTabId: error.activeOwnerTabId ?? null,
         error: error.message || "Unknown error"
       });
     });
@@ -3053,6 +3130,24 @@ async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId, opt
 }
 
 async function saveCurrentTabUrlToSheet(runId, options = {}) {
+  const lockedRunId = acquireSaveProcessLock(runId);
+
+  try {
+    if (options.notifyHotkeyStarted === true) {
+      await notifyExtensionPages({
+        type: "HOTKEY_SAVE_STARTED",
+        runId,
+        ownerTabId: options.ownerTabId
+      });
+    }
+
+    return await runSaveCurrentTabUrlToSheet(runId, options);
+  } finally {
+    releaseSaveProcessLock(lockedRunId);
+  }
+}
+
+async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
   const ownerTabId = Number.isInteger(options.ownerTabId)
     ? options.ownerTabId
     : getRunOwnerTabId(runId);
@@ -3063,16 +3158,26 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
     throw new Error(validation.error);
   }
 
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true
-  });
+  if (!Number.isInteger(ownerTabId)) {
+    throw new Error("Could not identify the tab that started Save App.");
+  }
+
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(ownerTabId);
+  } catch (_error) {
+    throw new Error("The tab that started Save App is no longer open.");
+  }
 
   assertActiveJobTabUsable(tab, {
     allowGrouped: true
   });
 
   const selectedProfiles = validation.selectedProfiles;
+  const inputSnapshot = {
+    promptContent: validation.promptContent,
+    jobDescriptionContent: validation.jobDescriptionContent
+  };
   await scheduleSavePostProcess(
     {
       mode: "save",
@@ -3159,7 +3264,10 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
 
       sendLog(runId, "info", `Preparing ChatGPT prompt for "${profileName}"...`);
-      const chatGptMessage = await buildChatGptMessageFromStorage(profile);
+      const chatGptMessage = await buildChatGptMessageFromStorage(
+        profile,
+        inputSnapshot
+      );
       throwIfSaveProcessCancelled(signal);
       let chatGptUrl = CHATGPT_URL;
       let chatGptTabId = null;
@@ -3566,6 +3674,145 @@ async function readSheetValues(token, runId, sheetConfig, options = {}) {
 
   const data = await response.json();
   return data.values ?? [];
+}
+
+function normalizeMakeResumeRowLimit(value) {
+  if (String(value || "").trim().toLowerCase() === "all") {
+    return "all";
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return [5, 10, 20, 50].includes(parsed) ? parsed : 5;
+}
+
+async function readMakeResumeRowsFromSheet(runId, options = {}) {
+  const { spreadsheetId, sheetId } = parseSelectedGoogleSheetUrl(
+    options.sheetUrl
+  );
+  const rowLimit = normalizeMakeResumeRowLimit(options.limit);
+
+  sendLog(runId, "info", "Requesting Google authorization for the current spreadsheet...");
+  const token = await getGoogleAccessToken();
+  sendLog(runId, "success", "Google authorization token received.");
+
+  const fields = encodeURIComponent(
+    "sheets(properties(sheetId,title,index))"
+  );
+  const metadataUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
+    `?fields=${fields}`;
+  const metadataResponse = await fetch(metadataUrl, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!metadataResponse.ok) {
+    const errorText = await metadataResponse.text();
+    throw new Error(`Google Sheets API error: ${errorText}`);
+  }
+
+  const metadata = await metadataResponse.json();
+  const sheets = (Array.isArray(metadata.sheets) ? metadata.sheets : [])
+    .map((sheet) => sheet?.properties)
+    .filter(
+      (properties) =>
+        Number.isInteger(properties?.sheetId) &&
+        String(properties?.title || "").trim()
+    )
+    .sort(
+      (left, right) =>
+        (Number(left.index) || 0) - (Number(right.index) || 0)
+    );
+  const selectedSheet =
+    sheetId === null
+      ? sheets[0]
+      : sheets.find((sheet) => sheet.sheetId === sheetId);
+
+  if (!selectedSheet) {
+    throw new Error(
+      sheetId === null
+        ? "This spreadsheet does not contain a readable sheet tab."
+        : "Could not find the sheet tab selected in the current Google Sheets URL."
+    );
+  }
+
+  const profileName = String(selectedSheet.title).trim();
+  const values = await readSheetValues(token, runId, {
+    spreadsheetId,
+    sheetName: profileName
+  });
+
+  if (values.length === 0 || !hasApplicationSheetHeaders(values[0])) {
+    throw new Error(
+      `Sheet tab "${profileName}" does not use the seven-column Application Helper layout.`
+    );
+  }
+
+  const eligibleRows = [];
+  for (let index = 1; index < values.length; index += 1) {
+    const row = Array.isArray(values[index]) ? values[index] : [];
+    const hasAllStoredValues = Array.from({ length: 6 }, (_, cellIndex) =>
+      String(row[cellIndex] ?? "").trim()
+    ).every(Boolean);
+    const hasApplyNowValue = Boolean(String(row[6] ?? "").trim());
+
+    if (hasAllStoredValues && !hasApplyNowValue) {
+      eligibleRows.push({ row, rowNumber: index + 1 });
+    }
+  }
+
+  if (eligibleRows.length === 0) {
+    throw new Error(
+      `No eligible rows were found in "${profileName}". Columns A-F must have values and column G must be empty.`
+    );
+  }
+
+  const selectedRows =
+    rowLimit === "all" ? eligibleRows : eligibleRows.slice(0, rowLimit);
+  const pairs = selectedRows.map(({ row, rowNumber }) => {
+    const chatUrl = normalizeHttpUrl(row[3], `Row ${rowNumber} Chat`);
+    const jobUrl = normalizeHttpUrl(row[4], `Row ${rowNumber} Job`);
+    const resumeUrl = normalizeHttpUrl(
+      row[5],
+      `Row ${rowNumber} Google Doc`
+    );
+
+    if (!isChatOrClaudeUrl(chatUrl)) {
+      throw new Error(
+        `Row ${rowNumber} column D must be a ChatGPT or Claude URL.`
+      );
+    }
+    if (isChatOrClaudeUrl(jobUrl) || isGoogleDocsDocumentUrl(jobUrl)) {
+      throw new Error(`Row ${rowNumber} column E must be a job-page URL.`);
+    }
+    if (!isGoogleDocsDocumentUrl(resumeUrl)) {
+      throw new Error(
+        `Row ${rowNumber} column F must be a Google Docs document URL.`
+      );
+    }
+
+    return {
+      profileName,
+      jobTitle: String(row[1] || "").trim(),
+      chatUrl,
+      jobUrl,
+      resumeUrl,
+      rowNumber
+    };
+  });
+
+  sendLog(
+    runId,
+    "success",
+    `Found ${eligibleRows.length} eligible row(s) in "${profileName}"; selected ${pairs.length}.`
+  );
+  return {
+    spreadsheetId,
+    sheetName: profileName,
+    eligibleCount: eligibleRows.length,
+    pairs
+  };
 }
 
 async function batchDeleteSheetRows(token, spreadsheetId, sheetId, rowIndicesZeroBased, runId) {
@@ -4576,5 +4823,38 @@ async function sendLog(runId, level, message) {
     });
   } catch (error) {
     console.log(`[${level}] ${message}`);
+  }
+}
+
+function createSaveProcessBusyError() {
+  const error = new Error(
+    "Save App is already running. Wait for it to finish or cancel it before starting another save."
+  );
+  error.code = SAVE_PROCESS_BUSY_CODE;
+  error.activeRunId = activeSaveRunId;
+  error.activeOwnerTabId = getRunOwnerTabId(activeSaveRunId);
+  return error;
+}
+
+function isSaveProcessBusyError(error) {
+  return error?.code === SAVE_PROCESS_BUSY_CODE;
+}
+
+function acquireSaveProcessLock(runId) {
+  const normalizedRunId = String(runId || "");
+  if (!normalizedRunId) {
+    throw new Error("Save App run ID is required.");
+  }
+  if (activeSaveRunId) {
+    throw createSaveProcessBusyError();
+  }
+  activeSaveRunId = normalizedRunId;
+  return normalizedRunId;
+}
+
+function releaseSaveProcessLock(runId) {
+  const normalizedRunId = String(runId || "");
+  if (activeSaveRunId === normalizedRunId) {
+    activeSaveRunId = "";
   }
 }

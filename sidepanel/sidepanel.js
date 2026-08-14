@@ -68,7 +68,9 @@ const applicationSavePostProcessBar = document.querySelector(
 );
 const splitWindowsModalCancelButton = document.querySelector("#splitWindowsModalCancelButton");
 const splitWindowsModalOpenButton = document.querySelector("#splitWindowsModalOpenButton");
-const splitWindowUrlsInput = document.querySelector("#splitWindowUrlsInput");
+const makeResumeRowLimitSelect = document.querySelector(
+  "#makeResumeRowLimitSelect"
+);
 const splitWindowsModalTitle = document.querySelector("#splitWindowsModalTitle");
 const splitWindowsInputView = document.querySelector("#splitWindowsInputView");
 const splitWindowsPreviewView = document.querySelector("#splitWindowsPreviewView");
@@ -313,6 +315,7 @@ const appRoot = document.querySelector(".app");
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
+const SAVE_PROCESS_BUSY_CODE = "SAVE_PROCESS_BUSY";
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
 const DEFAULT_PROFILE_NAME = "Default";
@@ -342,11 +345,12 @@ let isCurrentTabJobright = false;
 let makeResumeAvailabilityRequestId = 0;
 let isMakeResumeOpening = false;
 let isJobrightOpening = false;
+let isSaveActionRunning = false;
 let isBuildResumeContextModalOpen = false;
 let logEntries = [];
 let deletedRowEntries = [];
 let headerStatusState = null;
-let splitWindowsDraft = "";
+let makeResumeRowLimit = "5";
 let buildResumeContextDraft = "";
 let openManagedModalId = "";
 let managedModalDrafts = {};
@@ -381,7 +385,7 @@ function createTabState() {
     isSplitWindowsDialogOpen: false,
     isBuildResumeContextModalOpen: false,
     isMakeResumeOpening: false,
-    splitWindowsDraft: "",
+    makeResumeRowLimit: "5",
     buildResumeContextDraft: "",
     openManagedModalId: "",
     managedModalDrafts: {},
@@ -582,7 +586,9 @@ function captureActiveTabState() {
   state.isSplitWindowsDialogOpen = isSplitWindowsDialogOpen;
   state.isBuildResumeContextModalOpen = isBuildResumeContextModalOpen;
   state.isMakeResumeOpening = isMakeResumeOpening;
-  state.splitWindowsDraft = splitWindowUrlsInput?.value ?? splitWindowsDraft;
+  state.makeResumeRowLimit = normalizeMakeResumeRowLimit(
+    makeResumeRowLimitSelect?.value ?? makeResumeRowLimit
+  );
   state.buildResumeContextDraft =
     buildResumeContextInput?.value ?? buildResumeContextDraft;
   state.openManagedModalId = readOpenManagedModalId();
@@ -615,7 +621,7 @@ function loadTabStateIntoRegisters(tabId) {
   isSplitWindowsDialogOpen = state.isSplitWindowsDialogOpen;
   isBuildResumeContextModalOpen = state.isBuildResumeContextModalOpen;
   isMakeResumeOpening = state.isMakeResumeOpening;
-  splitWindowsDraft = state.splitWindowsDraft;
+  makeResumeRowLimit = normalizeMakeResumeRowLimit(state.makeResumeRowLimit);
   buildResumeContextDraft = state.buildResumeContextDraft;
   openManagedModalId = state.openManagedModalId;
   managedModalDrafts = state.managedModalDrafts;
@@ -704,16 +710,19 @@ function setRunIdForTab(tabId, runId) {
   return runId;
 }
 
-// Starts a run owned by the tab the user is looking at and returns that tab id
-// so async handlers keep reporting to it even if the user switches tabs.
-function beginRunForActiveTab() {
-  const ownerTabId = activeTabId;
+// Starts a run owned by a specific tab and returns that tab id so async handlers
+// keep reporting to it even if the user switches tabs.
+function beginRunForTab(ownerTabId) {
   const runId = createRunId();
 
   registerRunTab(runId, ownerTabId);
   setRunIdForTab(ownerTabId, runId);
 
   return { ownerTabId, runId };
+}
+
+function beginRunForActiveTab() {
+  return beginRunForTab(activeTabId);
 }
 
 function renderActiveTabState() {
@@ -727,7 +736,9 @@ function renderActiveTabState() {
     setSplitWindowsPreview("");
     splitWindowsPreviewTabs?.classList.add("is-hidden");
   }
-  if (splitWindowUrlsInput) splitWindowUrlsInput.value = splitWindowsDraft;
+  if (makeResumeRowLimitSelect) {
+    makeResumeRowLimitSelect.value = makeResumeRowLimit;
+  }
   if (buildResumeContextInput) {
     buildResumeContextInput.value = buildResumeContextDraft;
   }
@@ -2283,6 +2294,9 @@ function setSaveButtonsDisabled(disabled) {
   updateSaveButtonDisabledState();
   updateMakeResumeButtonDisabledState();
   updateJobrightOpenControlsDisabledState();
+  if (makeResumeRowLimitSelect) {
+    makeResumeRowLimitSelect.disabled = Boolean(disabled);
+  }
   updateSaveWorkspaceActions();
   renderSavePostProcessControls();
   if (splitWindowsModalOpenButton) splitWindowsModalOpenButton.disabled = disabled;
@@ -4495,11 +4509,24 @@ function validateSaveCurrentTabInputs() {
   return { ok: false, error: message, missing };
 }
 
-async function validateActiveBrowserTabForAppAction() {
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true
-  });
+async function validateActiveBrowserTabForAppAction(tabId = null) {
+  let tab = null;
+
+  try {
+    if (Number.isInteger(tabId)) {
+      tab = await chrome.tabs.get(tabId);
+    } else {
+      [tab] = await chrome.tabs.query({
+        active: true,
+        lastFocusedWindow: true
+      });
+    }
+  } catch (_error) {
+    return {
+      ok: false,
+      error: "The tab that started Save App is no longer open."
+    };
+  }
 
   if (!tab) {
     return { ok: false, error: "No active tab found." };
@@ -4517,10 +4544,29 @@ async function validateActiveBrowserTabForAppAction() {
     };
   }
 
-  return { ok: true };
+  return { ok: true, tabId: tab.id };
 }
 
 async function runCurrentAppAction() {
+  if (isSaveActionRunning) {
+    const message = "Save App is already starting or running.";
+    showStatus("info", message, "Status:");
+    addLog("info", message);
+    return;
+  }
+
+  isSaveActionRunning = true;
+  try {
+    await runCurrentAppActionOnce();
+  } finally {
+    isSaveActionRunning = false;
+  }
+}
+
+async function runCurrentAppActionOnce() {
+  // Capture the source tab before any async validation so a tab switch cannot
+  // redirect this save to a different page.
+  const requestedOwnerTabId = activeTabId;
   clearStatus();
   clearDeletedRows();
 
@@ -4531,20 +4577,23 @@ async function runCurrentAppAction() {
     return;
   }
 
-  const tabValidation = await validateActiveBrowserTabForAppAction();
+  const tabValidation = await validateActiveBrowserTabForAppAction(
+    requestedOwnerTabId
+  );
   if (!tabValidation.ok) {
     showStatus("error", tabValidation.error);
     addLog("error", tabValidation.error);
     return;
   }
 
-  const { ownerTabId, runId } = beginRunForActiveTab();
+  const { ownerTabId, runId } = beginRunForTab(tabValidation.tabId);
 
   beginButtonProcessForTab(
     ownerTabId,
     "Save App clicked. Starting process..."
   );
 
+  let preserveButtonLock = false;
   try {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_CURRENT_TAB_URL_TO_SHEET",
@@ -4555,6 +4604,10 @@ async function runCurrentAppAction() {
     if (!response?.ok) {
       const error = new Error(response?.error || "Could not save URL.");
       error.cancelled = response?.cancelled === true;
+      error.code = response?.code || "";
+      error.activeOwnerTabId = response?.activeOwnerTabId ?? null;
+      preserveButtonLock =
+        error.code === SAVE_PROCESS_BUSY_CODE && error.activeOwnerTabId === ownerTabId;
       throw error;
     }
 
@@ -4568,6 +4621,11 @@ async function runCurrentAppAction() {
     if (error.cancelled) {
       showStatusForTab(ownerTabId, "info", "Save process cancelled.", "Status:");
       addLogForTab(ownerTabId, "info", "Save process ended by Cancel Process.");
+    } else if (error.code === SAVE_PROCESS_BUSY_CODE) {
+      if (!preserveButtonLock) {
+        showStatusForTab(ownerTabId, "info", error.message, "Status:");
+      }
+      addLogForTab(ownerTabId, "info", error.message);
     } else {
       console.error(error);
       showStatusForTab(
@@ -4582,7 +4640,9 @@ async function runCurrentAppAction() {
       );
     }
   } finally {
-    finishButtonProcessForTab(ownerTabId);
+    if (!preserveButtonLock) {
+      finishButtonProcessForTab(ownerTabId);
+    }
   }
 }
 
@@ -4592,7 +4652,10 @@ async function saveCurrentTabUrl() {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "SIDE_PANEL_PING") {
-    sendResponse({ open: true });
+    sendResponse({
+      open: true,
+      saveActionPending: isSaveActionRunning || areActionButtonsDisabled
+    });
     return;
   }
 
@@ -4620,6 +4683,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
     return;
   }
+  if (message.type === "HOTKEY_SAVE_REJECTED") {
+    const ownerTabId = Number.isInteger(message.ownerTabId)
+      ? message.ownerTabId
+      : activeTabId;
+    const rejectionMessage = message.error || "Save App could not be started.";
+    showStatusForTab(ownerTabId, "info", rejectionMessage, "Status:");
+    addLogForTab(ownerTabId, "info", rejectionMessage);
+    return;
+  }
+
   if (message.type === "HOTKEY_SAVE_STARTED") {
     const ownerTabId = Number.isInteger(message.ownerTabId)
       ? message.ownerTabId
@@ -5736,7 +5809,9 @@ async function confirmDeleteApplicationWorkspace() {
   const ownerTabId = workspace.chatGptTabId;
   const snapshot = {
     profileName: String(workspace.profileName || "").trim(),
-    jobUrl: String(workspace.jobUrl || "").trim(),
+    jobUrl: String(
+      workspace.recordJobUrl || workspace.jobUrl || ""
+    ).trim(),
     resumeUrl: String(workspace.resumeUrl || "").trim(),
     chatGptUrl: String(workspace.chatGptUrl || "").trim(),
     sessionType: workspace.sessionType,
@@ -5992,14 +6067,15 @@ function setSplitWindowsModalOpen(isOpen) {
   if (isOpen) {
     resetSplitWindowsSession();
     setSplitWindowsPreview("");
-    splitWindowUrlsInput?.focus();
+    if (makeResumeRowLimitSelect) {
+      makeResumeRowLimitSelect.value = makeResumeRowLimit;
+      makeResumeRowLimitSelect.focus();
+    }
     return;
   }
 
   setSplitWindowsPreview("");
   resetSplitWindowsSession();
-  splitWindowsDraft = "";
-  if (splitWindowUrlsInput) splitWindowUrlsInput.value = "";
   openSplitWindowsButton?.focus();
 }
 
@@ -6451,112 +6527,45 @@ async function openJobrightJobs() {
   }
 }
 
-function normalizeSplitWindowUrl(value, label) {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    throw new Error(`${label} URL is required.`);
+function normalizeMakeResumeRowLimit(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "all") {
+    return "all";
   }
 
-  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw);
-  if (hasScheme && !/^https?:\/\//i.test(raw)) {
-    throw new Error(`${label} URL must use http:// or https://.`);
-  }
-
-  let parsed;
-  try {
-    parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
-  } catch (_error) {
-    throw new Error(`${label} URL is not valid.`);
-  }
-
-  if (!parsed.hostname || !["http:", "https:"].includes(parsed.protocol)) {
-    throw new Error(`${label} URL must be a valid web address.`);
-  }
-
-  return parsed.href;
+  const parsed = Number.parseInt(normalized, 10);
+  return [5, 10, 20, 50].includes(parsed) ? String(parsed) : "5";
 }
 
-function unwrapMarkdownEmphasis(value) {
-  const raw = String(value || "").trim();
-  const wrappedMatch = raw.match(/^(\*\*|__)([\s\S]+)\1$/);
-  return wrappedMatch ? wrappedMatch[2].trim() : raw;
-}
-
-function parseSplitWindowUrlField(value, label) {
-  const raw = String(value || "").trim();
-  const markdownLinkMatch = raw.match(
-    /\]\(\s*(https?:\/\/[\s\S]+)\s*\)\s*$/i
-  );
-  const candidate = markdownLinkMatch
-    ? markdownLinkMatch[1].trim()
-    : unwrapMarkdownEmphasis(raw);
-
-  return normalizeSplitWindowUrl(candidate.replace(/\\_/g, "_"), label);
-}
-
-function parseSplitWindowUrls(value) {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    throw new Error("Drop or paste application details before continuing.");
-  }
-
-  const rows = raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line && !line.startsWith("#") && !/^[-=_]{3,}$/.test(line)
-    );
-
-  const pairs = rows.map((row, index) => {
-    const entryNumber = index + 1;
-    const fields = row.split(/\t+/).map((field) => field.trim());
-    if (fields.length !== 4) {
-      throw new Error(
-        `Entry ${entryNumber} must be one line with exactly four tab-separated fields in Profile name, Chat, Job, Google Doc order.`
-      );
-    }
-
-    const profileName = unwrapMarkdownEmphasis(
-      fields[0].replace(/^[-+]\s+/, "")
-    );
-    if (!profileName) {
-      throw new Error(`Entry ${entryNumber}'s profile name is required.`);
-    }
-
-    const chatUrl = parseSplitWindowUrlField(
-      fields[1],
-      `Entry ${entryNumber} Chat`
-    );
-    const jobUrl = parseSplitWindowUrlField(
-      fields[2],
-      `Entry ${entryNumber} Job`
-    );
-    const resumeUrl = parseSplitWindowUrlField(
-      fields[3],
-      `Entry ${entryNumber} Google Doc`
-    );
-
-    if (!isChatOrClaudeUrl(chatUrl)) {
-      throw new Error(
-        `Entry ${entryNumber}'s second field must be a ChatGPT or Claude URL.`
-      );
-    }
-    if (isChatOrClaudeUrl(jobUrl) || isGoogleDocsUrl(jobUrl)) {
-      throw new Error(
-        `Entry ${entryNumber}'s third field must be the job page URL.`
-      );
-    }
-    if (!isGoogleDocsUrl(resumeUrl)) {
-      throw new Error(
-        `Entry ${entryNumber}'s fourth field must be a Google Docs document URL.`
-      );
-    }
-
-    return { profileName, chatUrl, jobUrl, resumeUrl };
+async function requestMakeResumeRowsFromSheet({
+  runId,
+  ownerTabId,
+  sheetUrl,
+  limit
+}) {
+  const response = await chrome.runtime.sendMessage({
+    type: "READ_MAKE_RESUME_ROWS",
+    runId,
+    ownerTabId,
+    sheetUrl,
+    limit
   });
 
-  return { pairs };
+  if (!response?.ok) {
+    throw new Error(
+      response?.error || "Could not read eligible rows from the selected sheet."
+    );
+  }
+
+  if (!Array.isArray(response.pairs) || response.pairs.length === 0) {
+    throw new Error("The selected sheet did not return any eligible rows.");
+  }
+
+  return {
+    pairs: response.pairs,
+    sheetName: String(response.sheetName || "").trim(),
+    eligibleCount: Number(response.eligibleCount) || response.pairs.length
+  };
 }
 
 function isChatOrClaudeUrl(url = "") {
@@ -6573,45 +6582,6 @@ function isChatOrClaudeUrl(url = "") {
   } catch (_error) {
     return false;
   }
-}
-
-function isGoogleDocsUrl(url = "") {
-  try {
-    const parsed = new URL(String(url || ""));
-    return (
-      parsed.hostname === "docs.google.com" &&
-      /\/document\/(?:u\/\d+\/)?d\/[a-zA-Z0-9-_]+/.test(parsed.pathname)
-    );
-  } catch (_error) {
-    return false;
-  }
-}
-
-function getDroppedUrlText(dataTransfer) {
-  const uriList = String(dataTransfer?.getData("text/uri-list") || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"))
-    .join("\n");
-
-  return uriList || String(dataTransfer?.getData("text/plain") || "").trim();
-}
-
-function appendDroppedUrls(dataTransfer) {
-  if (!splitWindowUrlsInput) {
-    return;
-  }
-
-  const droppedText = getDroppedUrlText(dataTransfer);
-  if (!droppedText) {
-    return;
-  }
-
-  const existingText = splitWindowUrlsInput.value.trim();
-  splitWindowUrlsInput.value = [existingText, droppedText]
-    .filter(Boolean)
-    .join("\n");
-  splitWindowUrlsInput.focus();
 }
 
 function getApplicationWorkspaceJobOrGptUrl(workspace) {
@@ -7152,6 +7122,7 @@ function showSaveWorkspacePreview({
   batchCount = 1,
   jobTitle = "Job page",
   jobUrl = "",
+  recordJobUrl = "",
   profileName = DEFAULT_PROFILE_NAME,
   resumeUrl = "",
   profileNotes = "",
@@ -7173,6 +7144,7 @@ function showSaveWorkspacePreview({
     sessionType: normalizedSessionType,
     jobTitle: String(jobTitle || "Job page").trim() || "Job page",
     jobUrl: String(jobUrl).trim(),
+    recordJobUrl: String(recordJobUrl || jobUrl).trim(),
     profileName:
       String(profileName || DEFAULT_PROFILE_NAME).trim() || DEFAULT_PROFILE_NAME,
     resumeUrl: String(resumeUrl).trim(),
@@ -7278,8 +7250,10 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId) {
       runId,
       batchIndex: index,
       batchCount: openedPairs.length,
-      jobTitle: `Information page ${index + 1}`,
+      jobTitle:
+        String(pair.jobTitle || "").trim() || `Information page ${index + 1}`,
       jobUrl: pair.chatUrl,
+      recordJobUrl: pair.jobUrl,
       profileName: pair.profileName,
       profileNotes: pair.profileNotes,
       profileFound: pair.profileFound,
@@ -7308,13 +7282,8 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId) {
     const returnState = getTabState(returnTabId);
     if (returnState) {
       returnState.isSplitWindowsDialogOpen = false;
-      returnState.splitWindowsDraft = "";
+      returnState.makeResumeRowLimit = makeResumeRowLimit;
     }
-  }
-
-  splitWindowsDraft = "";
-  if (splitWindowUrlsInput) {
-    splitWindowUrlsInput.value = "";
   }
 
   const focusTabId = openedPairs.some((pair) => pair.tabId === activeTabId)
@@ -7329,23 +7298,13 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId) {
 }
 
 async function openSplitWindows() {
-
   if (splitWindowsModalOpenButton?.disabled) {
     return;
   }
 
-  let batch;
-  try {
-    batch = parseSplitWindowUrls(splitWindowUrlsInput?.value);
-  } catch (error) {
-    const message =
-      error.message || "Add valid Profile, Chat, Job, and Google Doc entries.";
-    showStatus("error", message);
-    addLog("error", message);
-    splitWindowUrlsInput?.focus();
-    return;
-  }
-
+  makeResumeRowLimit = normalizeMakeResumeRowLimit(
+    makeResumeRowLimitSelect?.value
+  );
   const { ownerTabId, runId } = beginRunForActiveTab();
   clearStatus();
   clearDeletedRowsForTab(ownerTabId);
@@ -7358,13 +7317,22 @@ async function openSplitWindows() {
   let returnTabId = null;
 
   try {
-    await requireOpenGoogleSheet();
+    const sheet = await requireOpenGoogleSheet();
     addLogForTab(
       ownerTabId,
       "info",
-      `Google Sheet found. Opening ${batch.pairs.length} job/resume workspace${
-        batch.pairs.length === 1 ? "" : "s"
-      }...`
+      "Reading eligible rows from the currently selected sheet tab..."
+    );
+    const batch = await requestMakeResumeRowsFromSheet({
+      runId,
+      ownerTabId,
+      sheetUrl: sheet.url,
+      limit: makeResumeRowLimit
+    });
+    addLogForTab(
+      ownerTabId,
+      "info",
+      `Using profile "${batch.sheetName}". Opening ${batch.pairs.length} of ${batch.eligibleCount} eligible row${batch.eligibleCount === 1 ? "" : "s"}...`
     );
 
     for (const [index, pair] of batch.pairs.entries()) {
@@ -7385,7 +7353,7 @@ async function openSplitWindows() {
       addLogForTab(
         ownerTabId,
         "info",
-        `Opening job ${index + 1} of ${batch.pairs.length}: ${pair.jobUrl}`
+        `Opening Sheet row ${pair.rowNumber || index + 2} (${index + 1} of ${batch.pairs.length}): ${pair.jobUrl}`
       );
       const response = await requestOpenUrlInNewTab(pair.jobUrl, runId, ownerTabId);
 
@@ -7398,6 +7366,8 @@ async function openSplitWindows() {
         chatUrl: pair.chatUrl,
         jobUrl: pair.jobUrl,
         resumeUrl: pair.resumeUrl,
+        jobTitle: pair.jobTitle,
+        rowNumber: pair.rowNumber,
         profileName,
         profileNotes,
         profileFound,
@@ -7570,6 +7540,12 @@ applicationCancelProcessButton?.addEventListener(
 );
 splitWindowsModalCancelButton?.addEventListener("click", () => setSplitWindowsModalOpen(false));
 splitWindowsModalOpenButton?.addEventListener("click", openSplitWindows);
+makeResumeRowLimitSelect?.addEventListener("change", () => {
+  makeResumeRowLimit = normalizeMakeResumeRowLimit(
+    makeResumeRowLimitSelect.value
+  );
+  schedulePersistTabSession();
+});
 splitWindowsPreviewBackButton?.addEventListener("click", closeSplitWindowsAndReturn);
 splitWindowsPreviewDownloadButton?.addEventListener("click", downloadSplitWindowResume);
 splitWindowsJobTabButton?.addEventListener("click", () =>
@@ -7680,32 +7656,6 @@ buildResumeContextInput?.addEventListener("keydown", (event) => {
     submitBuildResumeContext();
   }
 });
-splitWindowUrlsInput?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-    event.preventDefault();
-    openSplitWindows();
-  }
-});
-splitWindowUrlsInput?.addEventListener("dragenter", (event) => {
-  event.preventDefault();
-  splitWindowUrlsInput.classList.add("is-drag-over");
-});
-splitWindowUrlsInput?.addEventListener("dragover", (event) => {
-  event.preventDefault();
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = "copy";
-  }
-  splitWindowUrlsInput.classList.add("is-drag-over");
-});
-splitWindowUrlsInput?.addEventListener("dragleave", () => {
-  splitWindowUrlsInput.classList.remove("is-drag-over");
-});
-splitWindowUrlsInput?.addEventListener("drop", (event) => {
-  event.preventDefault();
-  splitWindowUrlsInput.classList.remove("is-drag-over");
-  appendDroppedUrls(event.dataTransfer);
-});
-
 addProfileButton?.addEventListener("click", openAddProfileModal);
 profileFormModalBackdrop?.addEventListener("click", () => setProfileFormModalOpen(false));
 profileFormModalCloseButton?.addEventListener("click", () => setProfileFormModalOpen(false));

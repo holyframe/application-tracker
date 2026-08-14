@@ -25,7 +25,9 @@ stay visible. Then provide a base GPT prompt and job description.
 configured Google Docs resume template, submits the prepared message to ChatGPT,
 and saves the seven-column application record. An in-panel save progress
 indicator starts with the action and ends as soon as the final Google Sheet row
-is saved. It repeats that process once per checked profile.
+is saved. It repeats that process once per checked profile, using the prompt and
+job-description snapshot captured when the run starts. Only one Save App run can
+be active at a time.
 
 `Save App` creates one ChatGPT workflow per checked profile. It reuses the
 original job tab for the first profile and creates one additional target tab
@@ -69,7 +71,8 @@ never rolled back. No Chrome notification is created.
 
 While save progress is active, only the Chrome tabs involved in that run
 show a progress bar in the workspace header and keep the Home/Application
-workspace switch icon disabled. Other tabs stay unlocked.
+workspace switch icon disabled. Other tabs stay unlocked for non-save work, but
+another Save App request is rejected until the active run finishes or is cancelled.
 
 Outside save progress, the matching workspace headers show an Exchange icon
 for switching between the two views. The compact line below each title retains
@@ -113,18 +116,22 @@ columns C-F shift to D-G.
   **Apply with Autofill** or **APPLY NOW**, confirms the new application tab,
   keeps Jobright active, and selects **Already Applied** from that job's
   dislike menu.
-- **Make a resume** accepts one application per line, with four tab-separated
-  fields in Profile name, ChatGPT/Claude, job-page, and Google Docs order. URL
-  fields can be plain URLs or Markdown links such as `[**URL**](URL)`. It opens
-  every job URL in a new main tab and registers each tab in the same full-page
-  Application workspace used by Save App. The profile name labels the paired
-  Google Docs resume and retrieves that profile's locally saved note.
-- Pickup opens the imported ChatGPT or Claude URL in a new right-side Chrome
+- **Make a resume** reads the spreadsheet and selected sheet tab from the
+  current Google Sheets URL. The selected sheet tab name becomes the profile.
+  It scans rows from top to bottom and selects rows where columns A through F
+  all have values while column G (**Apply Now**) is empty. Choose 5, 10, 20,
+  50, or All eligible rows.
+- For each selected row, Make Resume reverses the Save App layout: column D is
+  the ChatGPT/Claude URL, E is the job-page URL, and F is the Google Docs resume.
+  It opens every selected job URL in a new main tab and registers each tab in
+  the same full-page Application workspace used by Save App. The selected sheet
+  name labels the paired resume and retrieves that profile's locally saved note.
+- Pickup opens the row's ChatGPT or Claude URL in a new right-side Chrome
   window while leaving the job URL in the main tab. Exchange can still swap the
   stored main-tab job/chat URLs. The Notes icon displays the matched profile
   note in a modal. Switching among imported job tabs restores each tab's
   workspace. Make Resume is available only while the current tab is a Google
-  Sheets spreadsheet.
+  Sheets spreadsheet. Reading rows does not modify the sheet.
 - Profile notes are stored locally for reference and are not sent to ChatGPT or
   written to the Google Sheet.
 
