@@ -184,7 +184,7 @@ const emptyDeletedRows = document.querySelector("#emptyDeletedRows");
 const logsList = document.querySelector("#logsList");
 const emptyLogs = document.querySelector("#emptyLogs");
 const clearLogsButton = document.querySelector("#clearLogsButton");
-const configToggleButton = document.querySelector("#configToggleButton");
+
 const exportAppDataIconButton = document.querySelector("#exportAppDataIconButton");
 const applicationWorkspaceExportButton = document.querySelector(
   "#applicationWorkspaceExportButton"
@@ -3799,9 +3799,8 @@ async function submitJobDescriptionForm() {
 }
 
 function setConfigModalOpen(isOpen, { returnFocus = true } = {}) {
-  if (!configToggleButton || !configModal) return;
+  if (!configModal) return;
 
-  configToggleButton.setAttribute("aria-expanded", String(isOpen));
   configModal.classList.toggle("is-hidden", !isOpen);
   configModal.setAttribute("aria-hidden", String(!isOpen));
 
@@ -3813,7 +3812,7 @@ function setConfigModalOpen(isOpen, { returnFocus = true } = {}) {
   }
 
   if (returnFocus) {
-    configToggleButton.focus();
+    saveOptionsButton?.focus();
   }
 }
 
@@ -7695,10 +7694,6 @@ profileNotesModalCloseButton?.addEventListener("click", () => setProfileNotesMod
 profileNotesModalCancelButton?.addEventListener("click", () => setProfileNotesModalOpen(false));
 profileNotesModalSubmitButton?.addEventListener("click", submitProfileNotesForm);
 
-configToggleButton?.addEventListener("click", () => {
-
-  setConfigModalOpen(true);
-});
 
 exportAppDataIconButton?.addEventListener("click", openExportAppDataModal);
 applicationWorkspaceExportButton?.addEventListener(
