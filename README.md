@@ -109,10 +109,10 @@ columns C-F shift to D-G.
 ## Other actions
 
 - **Open** in the Home workspace accepts a count from 1 to 25 on Jobright's
-  `/jobs/recommend` page. For each eligible recommendation, it reproduces the
-  Ctrl-click on **Apply with Autofill**, opens the captured application URL in
-  a background tab, and then selects **Already Applied** from that job's
-  dislike menu. Cards labeled **APPLY NOW** are skipped.
+  `/jobs/recommend` page. For each eligible recommendation, it Ctrl-clicks
+  **Apply with Autofill** or **APPLY NOW**, confirms the new application tab,
+  keeps Jobright active, and selects **Already Applied** from that job's
+  dislike menu.
 - **Make a resume** accepts one application per line, with four tab-separated
   fields in Profile name, ChatGPT/Claude, job-page, and Google Docs order. URL
   fields can be plain URLs or Markdown links such as `[**URL**](URL)`. It opens

@@ -2084,11 +2084,9 @@ function updateSaveButtonDisabledState() {
   saveButton.disabled = isDisabled;
   saveButton.setAttribute("aria-disabled", String(isDisabled));
 
-  if (isCurrentTabGoogleSheet) {
-    saveButton.title = "Save App is unavailable while the current tab is a Google Sheet.";
-  } else {
-    saveButton.removeAttribute("title");
-  }
+  saveButton.title = isCurrentTabGoogleSheet
+    ? "Save App is unavailable while the current tab is a Google Sheet."
+    : "Save App";
 }
 
 function updateMakeResumeButtonDisabledState() {
@@ -2101,12 +2099,9 @@ function updateMakeResumeButtonDisabledState() {
   openSplitWindowsButton.disabled = isDisabled;
   openSplitWindowsButton.setAttribute("aria-disabled", String(isDisabled));
 
-  if (isCurrentTabGoogleSheet) {
-    openSplitWindowsButton.removeAttribute("title");
-  } else {
-    openSplitWindowsButton.title =
-      "Make a resume is available only when the current tab is a Google Sheet.";
-  }
+  openSplitWindowsButton.title = isCurrentTabGoogleSheet
+    ? "Make a resume"
+    : "Make a resume is available only when the current tab is a Google Sheet.";
 }
 
 function updateJobrightOpenControlsDisabledState() {
@@ -2123,12 +2118,9 @@ function updateJobrightOpenControlsDisabledState() {
   openJobrightJobsButton.disabled = isDisabled;
   openJobrightJobsButton.setAttribute("aria-disabled", String(isDisabled));
 
-  if (isCurrentTabJobright) {
-    openJobrightJobsButton.removeAttribute("title");
-  } else {
-    openJobrightJobsButton.title =
-      "Open is available only on Jobright Recommendations.";
-  }
+  openJobrightJobsButton.title = isCurrentTabJobright
+    ? "Open Jobright applications"
+    : "Open is available only on Jobright Recommendations.";
 }
 
 async function refreshMakeResumeButtonAvailability() {
@@ -5958,11 +5950,12 @@ async function clickNextJobrightApplication(processedJobIds = []) {
     );
   };
 
-  const findApplyButton = (card) =>
+  const supportedApplyLabels = new Set(["apply with autofill", "apply now"]);
+  const findApplicationButton = (card) =>
     Array.from(card.querySelectorAll("button")).find(
       (button) =>
         isVisible(button) &&
-        normalizeText(button.textContent) === "Apply with Autofill"
+        supportedApplyLabels.has(normalizeText(button.textContent).toLowerCase())
     );
 
   const findCandidate = () =>
@@ -5972,7 +5965,7 @@ async function clickNextJobrightApplication(processedJobIds = []) {
       .filter(isVisible)
       .find(
         (card) =>
-          !processed.has(String(card.id || "")) && Boolean(findApplyButton(card))
+          !processed.has(String(card.id || "")) && Boolean(findApplicationButton(card))
       );
 
   let card = findCandidate();
@@ -6000,26 +5993,27 @@ async function clickNextJobrightApplication(processedJobIds = []) {
   if (!card) {
     return {
       found: false,
-      error: "No more visible Apply with Autofill recommendations were found."
+      error:
+        "No more visible Apply with Autofill or APPLY NOW recommendations were found."
     };
   }
 
   const jobId = String(card.id || "");
-  const applyButton = findApplyButton(card);
-  if (!applyButton) {
+  const applicationButton = findApplicationButton(card);
+  if (!applicationButton) {
     return {
       found: true,
       ok: false,
       jobId,
-      error: "The Apply with Autofill button is no longer available."
+      error: "The job's application button is no longer available."
     };
   }
 
-  applyButton.scrollIntoView({ block: "center", inline: "nearest" });
+  applicationButton.scrollIntoView({ block: "center", inline: "nearest" });
   await sleep(120);
 
   try {
-    applyButton.dispatchEvent(
+    applicationButton.dispatchEvent(
       new MouseEvent("click", {
         view: window,
         bubbles: true,
@@ -6034,7 +6028,7 @@ async function clickNextJobrightApplication(processedJobIds = []) {
       found: true,
       ok: false,
       jobId,
-      error: error.message || "Could not activate Apply with Autofill."
+      error: error.message || "Could not activate the job application button."
     };
   }
 
@@ -6225,7 +6219,7 @@ async function openJobrightJobs() {
 
       if (!clicked.ok) {
         const message =
-          clicked.error || `Could not activate Apply with Autofill for ${jobId}.`;
+          clicked.error || `Could not activate the application button for ${jobId}.`;
         failures.push(message);
         addLogForTab(tab.id, "error", message);
         continue;
@@ -6238,7 +6232,7 @@ async function openJobrightJobs() {
       );
       if (!applicationTab) {
         const message =
-          `Apply with Autofill did not open a new application tab for ${jobId} within 8 seconds.`;
+          `The application button did not open a new tab for ${jobId} within 8 seconds.`;
         failures.push(message);
         addLogForTab(tab.id, "error", message);
         continue;
@@ -6288,7 +6282,7 @@ async function openJobrightJobs() {
     if (openedJobs.length === 0) {
       throw new Error(
         failures[0] ||
-          "No eligible Apply with Autofill recommendations were opened."
+          "No eligible Jobright application recommendations were opened."
       );
     }
 

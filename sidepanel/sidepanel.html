@@ -134,6 +134,88 @@
         </div>
       </header>
 
+      <section class="card prompt-resume-selection-card">
+        <div class="application-actions-grid">
+          <div class="application-save-section">
+            <div class="application-action-buttons">
+              <button
+                id="saveButton"
+                type="button"
+                class="primary-button action-icon-button"
+                aria-label="Save App"
+                title="Save App"
+              >
+                <span class="button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 16V8" />
+                    <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
+                    <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
+                  </svg>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="application-duplicate-section">
+            <div class="sheet-duplicate-actions">
+              <button
+                id="openSplitWindowsButton"
+                type="button"
+                class="split-windows-button action-icon-button"
+                aria-label="Make a resume"
+                disabled
+                title="Make a resume is available only when the current tab is a Google Sheet."
+              >
+                <span class="button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <rect x="3" y="5" width="8" height="14" rx="1.5" />
+                    <rect x="13" y="5" width="8" height="14" rx="1.5" />
+                  </svg>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="jobright-open-section">
+            <div
+              class="jobright-open-controls"
+              role="group"
+              aria-label="Open Jobright applications"
+            >
+              <input
+                id="jobrightOpenCountInput"
+                class="jobright-open-count-input"
+                type="number"
+                inputmode="numeric"
+                min="1"
+                max="25"
+                step="1"
+                value="1"
+                aria-label="Number of Jobright applications to open"
+                disabled
+              />
+              <button
+                id="openJobrightJobsButton"
+                type="button"
+                class="jobright-open-button"
+                aria-label="Open Jobright applications"
+                disabled
+                title="Open is available only on Jobright Recommendations."
+              >
+                <span class="button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M7 17 17 7" />
+                    <path d="M9 7h8v8" />
+                    <path d="M17 13v6H5V7h6" />
+                  </svg>
+                </span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
       <section class="card job-description-card">
         <div class="card-title-row">
           <span class="prompt-resume-icon" aria-hidden="true">
@@ -191,86 +273,6 @@
           hidden
         >
           <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
-        </div>
-      </section>
-
-      <section class="card prompt-resume-selection-card">
-        <div class="application-actions-grid">
-          <div class="application-save-section">
-            <div class="application-action-buttons">
-              <button id="saveButton" type="button" class="primary-button">
-                <span class="button-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 16V8" />
-                    <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
-                    <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
-                  </svg>
-                </span>
-                <span>Save App</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="application-duplicate-section">
-            <div class="sheet-duplicate-actions">
-              <button
-                id="openSplitWindowsButton"
-                type="button"
-                class="split-windows-button"
-                disabled
-                title="Make a resume is available only when the current tab is a Google Sheet."
-              >
-                <span class="button-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <rect x="3" y="5" width="8" height="14" rx="1.5" />
-                    <rect x="13" y="5" width="8" height="14" rx="1.5" />
-                  </svg>
-                </span>
-                <span>Make a resume</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="jobright-open-section">
-            <label class="jobright-open-label" for="jobrightOpenCountInput">
-              Jobright applications to open
-            </label>
-            <div class="jobright-open-controls">
-              <input
-                id="jobrightOpenCountInput"
-                class="jobright-open-count-input"
-                type="number"
-                inputmode="numeric"
-                min="1"
-                max="25"
-                step="1"
-                value="1"
-                aria-label="Number of Jobright applications to open"
-                disabled
-              />
-              <button
-                id="openJobrightJobsButton"
-                type="button"
-                class="jobright-open-button"
-                disabled
-                title="Open is available only on Jobright Recommendations."
-              >
-                <span class="button-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M7 17 17 7" />
-                    <path d="M9 7h8v8" />
-                    <path d="M17 13v6H5V7h6" />
-                  </svg>
-                </span>
-                <span>Open</span>
-              </button>
-            </div>
-            <p class="jobright-open-help">
-              Opens Apply with Autofill links in background tabs, then marks
-              each recommendation Already Applied.
-            </p>
-          </div>
-
         </div>
       </section>
 
