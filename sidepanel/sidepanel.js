@@ -1,5 +1,7 @@
 const saveButton = document.querySelector("#saveButton");
 const openSplitWindowsButton = document.querySelector("#openSplitWindowsButton");
+const jobrightOpenCountInput = document.querySelector("#jobrightOpenCountInput");
+const openJobrightJobsButton = document.querySelector("#openJobrightJobsButton");
 const splitWindowsModal = document.querySelector("#splitWindowsModal");
 const splitWindowsModalBackdrop = document.querySelector("#splitWindowsModalBackdrop");
 const splitWindowsModalCloseButton = document.querySelector("#splitWindowsModalCloseButton");
@@ -291,8 +293,10 @@ let currentEmptyWorkspaceUrls = {
 let isSplitWindowsDialogOpen = false;
 let areActionButtonsDisabled = false;
 let isCurrentTabGoogleSheet = false;
+let isCurrentTabJobright = false;
 let makeResumeAvailabilityRequestId = 0;
 let isMakeResumeOpening = false;
+let isJobrightOpening = false;
 let isBuildResumeContextModalOpen = false;
 let logEntries = [];
 let deletedRowEntries = [];
@@ -2053,6 +2057,20 @@ function isJobrightUrl(url = "") {
   }
 }
 
+function isJobrightRecommendationsUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    return (
+      parsed.protocol === "https:" &&
+      (parsed.hostname === "jobright.ai" ||
+        parsed.hostname.endsWith(".jobright.ai")) &&
+      parsed.pathname.replace(/\/+$/, "") === "/jobs/recommend"
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
 function isPinnedTabSupportedUrl(url = "") {
   return isGoogleSheetsDocumentUrl(url) || isJobrightUrl(url);
 }
@@ -2091,6 +2109,28 @@ function updateMakeResumeButtonDisabledState() {
   }
 }
 
+function updateJobrightOpenControlsDisabledState() {
+  const isDisabled =
+    areActionButtonsDisabled || isJobrightOpening || !isCurrentTabJobright;
+
+  if (jobrightOpenCountInput) {
+    jobrightOpenCountInput.disabled = isDisabled;
+  }
+  if (!openJobrightJobsButton) {
+    return;
+  }
+
+  openJobrightJobsButton.disabled = isDisabled;
+  openJobrightJobsButton.setAttribute("aria-disabled", String(isDisabled));
+
+  if (isCurrentTabJobright) {
+    openJobrightJobsButton.removeAttribute("title");
+  } else {
+    openJobrightJobsButton.title =
+      "Open is available only on Jobright Recommendations.";
+  }
+}
+
 async function refreshMakeResumeButtonAvailability() {
   const requestId = ++makeResumeAvailabilityRequestId;
 
@@ -2107,6 +2147,7 @@ async function refreshMakeResumeButtonAvailability() {
     }
 
     isCurrentTabGoogleSheet = isGoogleSheetsDocumentUrl(tab?.url || "");
+    isCurrentTabJobright = isJobrightRecommendationsUrl(tab?.url || "");
   } catch (error) {
     if (requestId !== makeResumeAvailabilityRequestId) {
       return;
@@ -2114,9 +2155,11 @@ async function refreshMakeResumeButtonAvailability() {
 
     console.error("Could not check the current tab for Google Sheets:", error);
     isCurrentTabGoogleSheet = false;
+    isCurrentTabJobright = false;
   }
 
   updateMakeResumeButtonDisabledState();
+  updateJobrightOpenControlsDisabledState();
   updateSaveButtonDisabledState();
 }
 
@@ -2125,6 +2168,7 @@ function setSaveButtonsDisabled(disabled) {
 
   updateSaveButtonDisabledState();
   updateMakeResumeButtonDisabledState();
+  updateJobrightOpenControlsDisabledState();
   updateSaveWorkspaceActions();
   renderSavePostProcessControls();
   if (splitWindowsModalOpenButton) splitWindowsModalOpenButton.disabled = disabled;
@@ -5876,6 +5920,410 @@ async function openSplitWindowsModal() {
   }
 }
 
+function normalizeJobrightOpenCount() {
+  const parsedCount = Number.parseInt(jobrightOpenCountInput?.value || "", 10);
+  const count = Number.isFinite(parsedCount)
+    ? Math.min(25, Math.max(1, parsedCount))
+    : 1;
+
+  if (jobrightOpenCountInput) {
+    jobrightOpenCountInput.value = String(count);
+  }
+
+  return count;
+}
+
+async function clickNextJobrightApplication(processedJobIds = []) {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const processed = new Set(
+    Array.isArray(processedJobIds)
+      ? processedJobIds.map((value) => String(value || ""))
+      : []
+  );
+  const normalizeText = (value) =>
+    String(value || "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const isVisible = (element) => {
+    if (!(element instanceof Element) || element.getClientRects().length === 0) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      style.opacity !== "0"
+    );
+  };
+
+  const findApplyButton = (card) =>
+    Array.from(card.querySelectorAll("button")).find(
+      (button) =>
+        isVisible(button) &&
+        normalizeText(button.textContent) === "Apply with Autofill"
+    );
+
+  const findCandidate = () =>
+    Array.from(
+      document.querySelectorAll("div.job-card-flag-classname[id]")
+    )
+      .filter(isVisible)
+      .find(
+        (card) =>
+          !processed.has(String(card.id || "")) && Boolean(findApplyButton(card))
+      );
+
+  let card = findCandidate();
+  const scrollContainer = document.querySelector(
+    '[class*="jobs-list-scrollable"]'
+  );
+
+  for (let attempt = 0; !card && attempt < 4; attempt += 1) {
+    if (scrollContainer) {
+      scrollContainer.scrollTo({
+        top: scrollContainer.scrollHeight,
+        behavior: "auto"
+      });
+    } else {
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: "auto"
+      });
+    }
+
+    await sleep(900);
+    card = findCandidate();
+  }
+
+  if (!card) {
+    return {
+      found: false,
+      error: "No more visible Apply with Autofill recommendations were found."
+    };
+  }
+
+  const jobId = String(card.id || "");
+  const applyButton = findApplyButton(card);
+  if (!applyButton) {
+    return {
+      found: true,
+      ok: false,
+      jobId,
+      error: "The Apply with Autofill button is no longer available."
+    };
+  }
+
+  applyButton.scrollIntoView({ block: "center", inline: "nearest" });
+  await sleep(120);
+
+  try {
+    applyButton.dispatchEvent(
+      new MouseEvent("click", {
+        view: window,
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        button: 0,
+        detail: 1
+      })
+    );
+  } catch (error) {
+    return {
+      found: true,
+      ok: false,
+      jobId,
+      error: error.message || "Could not activate Apply with Autofill."
+    };
+  }
+
+  return {
+    found: true,
+    ok: true,
+    jobId
+  };
+}
+
+async function waitForJobrightApplicationTab(
+  sourceTabId,
+  sourceWindowId,
+  knownTabIds,
+  timeoutMs = 8000
+) {
+  const knownIds = new Set(
+    Array.isArray(knownTabIds)
+      ? knownTabIds.filter((value) => Number.isInteger(value))
+      : []
+  );
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const tabs = await chrome.tabs.query({ windowId: sourceWindowId });
+    const newTabs = tabs.filter(
+      (tab) =>
+        Number.isInteger(tab.id) &&
+        tab.id !== sourceTabId &&
+        !knownIds.has(tab.id)
+    );
+    const applicationTab =
+      newTabs.find((tab) => tab.openerTabId === sourceTabId) || newTabs[0];
+
+    if (applicationTab) {
+      await chrome.tabs.update(sourceTabId, { active: true });
+      return applicationTab;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  return null;
+}
+
+async function markJobrightApplicationAlreadyApplied(jobId) {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const normalizeText = (value) =>
+    String(value || "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const isVisible = (element) => {
+    if (!(element instanceof Element) || element.getClientRects().length === 0) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      style.opacity !== "0"
+    );
+  };
+
+  const card = document.getElementById(String(jobId || ""));
+  if (!card?.classList.contains("job-card-flag-classname")) {
+    return {
+      ok: false,
+      error: "The Jobright recommendation card is no longer available."
+    };
+  }
+
+  const dislikeButton = card
+    .querySelector('img[alt="not-interest-job"]')
+    ?.closest("button");
+  if (!dislikeButton) {
+    return {
+      ok: false,
+      error: "The recommendation's dislike menu button was not found."
+    };
+  }
+
+  dislikeButton.scrollIntoView({ block: "center", inline: "nearest" });
+  await sleep(100);
+
+  let alreadyAppliedItem = null;
+  for (let menuAttempt = 0; menuAttempt < 2 && !alreadyAppliedItem; menuAttempt += 1) {
+    dislikeButton.click();
+
+    const menuDeadline = Date.now() + 1800;
+    while (!alreadyAppliedItem && Date.now() < menuDeadline) {
+      alreadyAppliedItem = Array.from(
+        document.querySelectorAll('li[role="menuitem"]')
+      ).find(
+        (item) =>
+          isVisible(item) &&
+          normalizeText(item.textContent) === "Already Applied"
+      );
+      if (!alreadyAppliedItem) {
+        await sleep(100);
+      }
+    }
+  }
+
+  if (!alreadyAppliedItem) {
+    return {
+      ok: false,
+      error: "The Already Applied menu item did not appear."
+    };
+  }
+
+  alreadyAppliedItem.click();
+  await sleep(800);
+
+  return {
+    ok: true,
+    removed: !document.contains(card)
+  };
+}
+
+async function openJobrightJobs() {
+  if (openJobrightJobsButton?.disabled) {
+    return;
+  }
+
+  const count = normalizeJobrightOpenCount();
+  const ownerTabId = activeTabId;
+  const processedJobIds = [];
+  const openedJobs = [];
+  const failures = [];
+  isJobrightOpening = true;
+  updateJobrightOpenControlsDisabledState();
+  clearStatus();
+  addLogForTab(
+    ownerTabId,
+    "info",
+    `Open clicked. Processing ${count} Jobright application${count === 1 ? "" : "s"}...`
+  );
+
+  try {
+    const tab = Number.isInteger(ownerTabId)
+      ? await chrome.tabs.get(ownerTabId)
+      : (
+          await chrome.tabs.query({
+            active: true,
+            lastFocusedWindow: true
+          })
+        )[0];
+
+    if (
+      !Number.isInteger(tab?.id) ||
+      !isJobrightRecommendationsUrl(tab.url || "")
+    ) {
+      throw new Error("Open is available only on Jobright Recommendations.");
+    }
+
+    const maximumCandidates = count + 25;
+    while (
+      openedJobs.length < count &&
+      processedJobIds.length < maximumCandidates
+    ) {
+      const existingTabs = await chrome.tabs.query({ windowId: tab.windowId });
+      const knownTabIds = existingTabs
+        .map((existingTab) => existingTab.id)
+        .filter((tabId) => Number.isInteger(tabId));
+      const clickResults = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: clickNextJobrightApplication,
+        args: [processedJobIds]
+      });
+      const clicked = clickResults?.[0]?.result;
+
+      if (!clicked?.found) {
+        if (clicked?.error) {
+          addLogForTab(tab.id, "info", clicked.error);
+        }
+        break;
+      }
+
+      const jobId = String(clicked.jobId || "");
+      if (!jobId) {
+        failures.push("Jobright returned a recommendation without an ID.");
+        break;
+      }
+      processedJobIds.push(jobId);
+
+      if (!clicked.ok) {
+        const message =
+          clicked.error || `Could not activate Apply with Autofill for ${jobId}.`;
+        failures.push(message);
+        addLogForTab(tab.id, "error", message);
+        continue;
+      }
+
+      const applicationTab = await waitForJobrightApplicationTab(
+        tab.id,
+        tab.windowId,
+        knownTabIds
+      );
+      if (!applicationTab) {
+        const message =
+          `Apply with Autofill did not open a new application tab for ${jobId} within 8 seconds.`;
+        failures.push(message);
+        addLogForTab(tab.id, "error", message);
+        continue;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      let markedAlreadyApplied = false;
+      try {
+        const markResults = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: markJobrightApplicationAlreadyApplied,
+          args: [jobId]
+        });
+        const marked = markResults?.[0]?.result;
+        markedAlreadyApplied = Boolean(marked?.ok);
+
+        if (!markedAlreadyApplied) {
+          const message =
+            marked?.error || `Could not mark ${jobId} as Already Applied.`;
+          failures.push(message);
+          addLogForTab(tab.id, "error", message);
+        }
+      } catch (error) {
+        const message =
+          error.message || `Could not mark ${jobId} as Already Applied.`;
+        failures.push(message);
+        addLogForTab(tab.id, "error", message);
+      }
+
+      openedJobs.push({
+        jobId,
+        tabId: applicationTab.id,
+        url: applicationTab.pendingUrl || applicationTab.url || "",
+        markedAlreadyApplied
+      });
+      addLogForTab(
+        tab.id,
+        "success",
+        `Opened application ${openedJobs.length} of ${count}${
+          markedAlreadyApplied ? " and marked it Already Applied" : ""
+        }.`
+      );
+    }
+
+    if (openedJobs.length === 0) {
+      throw new Error(
+        failures[0] ||
+          "No eligible Apply with Autofill recommendations were opened."
+      );
+    }
+
+    const markedCount = openedJobs.filter(
+      (job) => job.markedAlreadyApplied
+    ).length;
+    const message = `${openedJobs.length} of ${count} application tab${
+      openedJobs.length === 1 ? "" : "s"
+    } opened in the background; ${markedCount} marked Already Applied.`;
+    showStatusForTab(tab.id, "success", message, "Opened:");
+    addLogForTab(tab.id, "success", message);
+
+    if (failures.length > 0) {
+      addLogForTab(
+        tab.id,
+        "error",
+        `${failures.length} Jobright step${failures.length === 1 ? "" : "s"} could not be completed.`
+      );
+    }
+  } catch (error) {
+    console.error(error);
+    const rawMessage =
+      error.message || "Could not process Jobright recommendations.";
+    const message =
+      /Cannot access contents|must request permission/i.test(rawMessage)
+        ? "Jobright access is not active. Reload Application Helper in chrome://extensions, return to Jobright Recommendations, and click the extension icon once before Open."
+        : rawMessage;
+    showStatusForTab(ownerTabId, "error", message);
+    addLogForTab(ownerTabId, "error", message);
+  } finally {
+    isJobrightOpening = false;
+    await refreshMakeResumeButtonAvailability();
+  }
+}
+
 function normalizeSplitWindowUrl(value, label) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -6948,6 +7396,16 @@ async function closeSplitWindowsAndReturn() {
 
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 openSplitWindowsButton?.addEventListener("click", openSplitWindowsModal);
+openJobrightJobsButton?.addEventListener("click", openJobrightJobs);
+jobrightOpenCountInput?.addEventListener("change", normalizeJobrightOpenCount);
+jobrightOpenCountInput?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || openJobrightJobsButton?.disabled) {
+    return;
+  }
+
+  event.preventDefault();
+  openJobrightJobsButton.click();
+});
 splitWindowsModalBackdrop?.addEventListener(
   "click",
   handleSplitWindowsHeaderAction

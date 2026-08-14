@@ -230,6 +230,47 @@
               </button>
             </div>
           </div>
+
+          <div class="jobright-open-section">
+            <label class="jobright-open-label" for="jobrightOpenCountInput">
+              Jobright applications to open
+            </label>
+            <div class="jobright-open-controls">
+              <input
+                id="jobrightOpenCountInput"
+                class="jobright-open-count-input"
+                type="number"
+                inputmode="numeric"
+                min="1"
+                max="25"
+                step="1"
+                value="1"
+                aria-label="Number of Jobright applications to open"
+                disabled
+              />
+              <button
+                id="openJobrightJobsButton"
+                type="button"
+                class="jobright-open-button"
+                disabled
+                title="Open is available only on Jobright Recommendations."
+              >
+                <span class="button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M7 17 17 7" />
+                    <path d="M9 7h8v8" />
+                    <path d="M17 13v6H5V7h6" />
+                  </svg>
+                </span>
+                <span>Open</span>
+              </button>
+            </div>
+            <p class="jobright-open-help">
+              Opens Apply with Autofill links in background tabs, then marks
+              each recommendation Already Applied.
+            </p>
+          </div>
+
         </div>
       </section>
 

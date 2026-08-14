@@ -522,6 +522,105 @@ h1 {
   min-width: 0;
 }
 
+.jobright-open-section {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 7px;
+  min-width: 0;
+  padding-top: var(--section-gap);
+  border-top: 1px solid var(--line);
+}
+
+.jobright-open-label {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 800;
+}
+
+.jobright-open-controls {
+  display: grid;
+  grid-template-columns: minmax(76px, 96px) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.jobright-open-count-input {
+  width: 100%;
+  min-width: 0;
+  height: var(--button-height);
+  border: 1px solid rgba(84, 87, 255, 0.28);
+  border-radius: 10px;
+  outline: none;
+  padding: 6px 10px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-weight: 750;
+}
+
+.jobright-open-count-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(84, 87, 255, 0.12);
+}
+
+.jobright-open-count-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.jobright-open-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.jobright-open-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  height: var(--button-height);
+  border: 0;
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: #ffffff;
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  box-shadow:
+    0 16px 30px rgba(37, 99, 235, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  font-size: var(--text-sm);
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+
+.jobright-open-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 18px 34px rgba(37, 99, 235, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.jobright-open-button:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.96);
+}
+
+.jobright-open-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+  transform: none;
+}
+
+.jobright-open-button .button-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+
 .profile-selection-help {
   margin: -2px 0 0;
   color: var(--muted);
