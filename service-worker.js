@@ -2463,7 +2463,8 @@ configureSidePanelBehavior().catch((error) => {
 const APP_ACTION_COMMANDS = {
   "save-app": "save-app",
   "make-resume": "make-resume",
-  "open-jobright": "open-jobright"
+  "open-jobright": "open-jobright",
+  "download-resume": "download-resume"
 };
 
 async function notifyExtensionPages(message) {

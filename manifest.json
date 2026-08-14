@@ -50,6 +50,9 @@
     },
     "open-jobright": {
       "description": "Open selected Jobright applications"
+    },
+    "download-resume": {
+      "description": "Download the current workspace resume"
     }
   },
   "icons": {

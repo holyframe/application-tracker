@@ -5,6 +5,9 @@ const makeResumeOptionsButton = document.querySelector("#makeResumeOptionsButton
 const jobrightOpenCountInput = document.querySelector("#jobrightOpenCountInput");
 const openJobrightJobsButton = document.querySelector("#openJobrightJobsButton");
 const openJobrightOptionsButton = document.querySelector("#openJobrightOptionsButton");
+const saveWorkspaceDownloadOptionsButton = document.querySelector(
+  "#saveWorkspaceDownloadOptionsButton"
+);
 const saveAssignHotkeyButton = document.querySelector("#saveAssignHotkeyButton");
 const saveHotkeyValue = document.querySelector("#saveHotkeyValue");
 const makeResumeCurrentSettingsButton = document.querySelector(
@@ -30,6 +33,18 @@ const actionSettingsDialogs = {
     doneButton: document.querySelector("#openActionSettingsDoneButton"),
     assignButton: document.querySelector("#openAssignHotkeyButton"),
     hotkeyValue: document.querySelector("#openHotkeyValue")
+  },
+  downloadResume: {
+    command: "download-resume",
+    trigger: saveWorkspaceDownloadOptionsButton,
+    modal: document.querySelector("#downloadResumeActionSettingsModal"),
+    backdrop: document.querySelector("#downloadResumeActionSettingsModalBackdrop"),
+    closeButton: document.querySelector(
+      "#downloadResumeActionSettingsModalCloseButton"
+    ),
+    doneButton: document.querySelector("#downloadResumeActionSettingsDoneButton"),
+    assignButton: document.querySelector("#downloadResumeAssignHotkeyButton"),
+    hotkeyValue: document.querySelector("#downloadResumeHotkeyValue")
   }
 };
 const splitWindowsModal = document.querySelector("#splitWindowsModal");
@@ -2182,13 +2197,18 @@ function updateSaveButtonDisabledState() {
     return;
   }
 
-  const isDisabled = areActionButtonsDisabled || isCurrentTabGoogleSheet;
+  const isDisabled =
+    areActionButtonsDisabled || isCurrentTabGoogleSheet || isCurrentTabJobright;
   saveButton.disabled = isDisabled;
   saveButton.setAttribute("aria-disabled", String(isDisabled));
 
-  saveButton.title = isCurrentTabGoogleSheet
-    ? "Save App is unavailable while the current tab is a Google Sheet."
-    : "Save App";
+  if (isCurrentTabGoogleSheet) {
+    saveButton.title = "Save App is unavailable while the current tab is a Google Sheet.";
+  } else if (isCurrentTabJobright) {
+    saveButton.title = "Save App is unavailable while the current tab is Jobright.";
+  } else {
+    saveButton.title = "Save App";
+  }
 }
 
 function updateMakeResumeButtonDisabledState() {
@@ -3640,10 +3660,11 @@ let jobDescriptionState = {
 function setJobDescriptionFormModalOpen(isOpen) {
   if (!jobDescriptionFormModal) return;
 
-  jobDescriptionFormModal.classList.toggle("is-hidden", !isOpen);
-  jobDescriptionFormModal.setAttribute("aria-hidden", String(!isOpen));
+  const shouldOpen = Boolean(isOpen) && !isCurrentTabJobright;
+  jobDescriptionFormModal.classList.toggle("is-hidden", !shouldOpen);
+  jobDescriptionFormModal.setAttribute("aria-hidden", String(!shouldOpen));
 
-  if (isOpen) {
+  if (shouldOpen) {
     if (jobDescriptionContentInput) {
       jobDescriptionContentInput.value = jobDescriptionState.content || "";
     }
@@ -4594,6 +4615,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       openSplitWindowsModal();
     } else if (message.action === "open-jobright") {
       openJobrightJobs();
+    } else if (message.action === "download-resume") {
+      downloadSaveWorkspaceResume();
     }
     return;
   }

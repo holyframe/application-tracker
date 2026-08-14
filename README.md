@@ -131,7 +131,7 @@ columns C-F shift to D-G.
 ## Keyboard shortcuts
 
 - `Ctrl+Q`: Save App (default Chrome command shortcut)
-- Make Resume and Open are available as unassigned Chrome commands.
+- Make Resume, Open, and Download Resume are available as unassigned Chrome commands.
 - Each action settings modal shows its current shortcut and links to Chrome's
   Extensions Shortcuts page for assignment.
 - `Ctrl+A`: Pick up the Application Workspace resume URL in a right-side

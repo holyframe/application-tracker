@@ -628,7 +628,7 @@ h1 {
   border-top: 0;
 }
 
-.prompt-resume-selection-card .action-icon-button {
+:is(.prompt-resume-selection-card, .save-workspace-actions) .action-icon-button {
   display: grid;
   place-items: center;
   width: 30px;
@@ -646,7 +646,8 @@ h1 {
     background 160ms ease;
 }
 
-.prompt-resume-selection-card .action-icon-button:hover:not(:disabled) {
+:is(.prompt-resume-selection-card, .save-workspace-actions)
+  .action-icon-button:hover:not(:disabled) {
   color: var(--text);
   background: rgba(105, 114, 145, 0.1);
   box-shadow: none;
@@ -654,27 +655,30 @@ h1 {
   filter: none;
 }
 
-.prompt-resume-selection-card .action-icon-button:active:not(:disabled) {
+:is(.prompt-resume-selection-card, .save-workspace-actions)
+  .action-icon-button:active:not(:disabled) {
   background: rgba(105, 114, 145, 0.14);
   transform: none;
   filter: none;
 }
 
 .prompt-resume-selection-card .action-icon-button:focus-visible,
+.save-workspace-actions .action-icon-button:focus-visible,
 .action-settings-button:focus-visible,
 .jobright-open-button:focus-visible {
   outline: 2px solid rgba(105, 114, 145, 0.24);
   outline-offset: -2px;
 }
 
-.prompt-resume-selection-card .action-icon-button:disabled {
+:is(.prompt-resume-selection-card, .save-workspace-actions) .action-icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
   box-shadow: none;
   transform: none;
 }
 
-.prompt-resume-selection-card .action-icon-button .button-icon svg {
+:is(.prompt-resume-selection-card, .save-workspace-actions)
+  .action-icon-button .button-icon svg {
   width: 15px;
   height: 15px;
 }
@@ -2483,18 +2487,33 @@ textarea:focus {
 }
 
 .save-workspace-actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  padding: 12px 30px;
+}
+
+.save-workspace-actions .workspace-action-control {
+  grid-template-columns: 30px;
+}
+
+.save-workspace-actions .workspace-download-control {
+  grid-template-columns: repeat(2, 30px);
+}
+
+.save-workspace-actions .action-icon-button {
+  border-radius: 999px;
+}
+
+.save-workspace-actions .workspace-download-control .action-icon-button {
+  border-radius: 999px 0 0 999px;
 }
 
 .save-workspace-actions.is-hidden,
 #splitWindowsBatchActions.is-hidden {
   display: none;
-}
-
-.save-workspace-actions .modal-action-button {
-  padding-inline: 6px;
-  font-size: 10px;
 }
 
 .modal-action-button {
