@@ -126,14 +126,18 @@ columns C-F shift to D-G.
 ## Keyboard shortcuts
 
 - `Ctrl+Q`: Save App
+- `Ctrl+A`: Pick up the Application Workspace resume URL in a right-side
+  window. Text fields keep the normal Select All behavior.
 
-The shortcut is handled only while the side panel is open. If the panel is
-closed, Chrome ignores this application action.
+`Ctrl+Q` is handled whenever the side panel is open. `Ctrl+A` is handled while
+the side panel has keyboard focus. If the panel is closed, Chrome ignores both
+application actions.
 
 Pinned tabs keep the side panel closed automatically, except for Google Sheets
-(where Make a resume needs it). Switching back to another pinned tab closes
-the panel; per-tab process and workspace details for other open tabs are kept
-until those tabs close.
+(where Make a resume needs it) and Jobright. The side panel and Save App remain
+available while `jobright.ai` is pinned. Switching back to another pinned tab
+closes the panel; per-tab process and workspace details for other open tabs are
+kept until those tabs close.
 
 ## Configuration and storage
 

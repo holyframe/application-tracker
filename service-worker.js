@@ -292,6 +292,23 @@ function isGoogleSheetsDocumentUrl(url = "") {
   }
 }
 
+function isJobrightUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    return (
+      parsed.protocol === "https:" &&
+      (parsed.hostname === "jobright.ai" ||
+        parsed.hostname.endsWith(".jobright.ai"))
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function isPinnedTabSupportedUrl(url = "") {
+  return isGoogleSheetsDocumentUrl(url) || isJobrightUrl(url);
+}
+
 async function checkOpenGoogleSheet() {
   const [sheetTab] = await chrome.tabs.query({
     active: true,
@@ -1540,9 +1557,9 @@ function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
     throw new Error("Current tab does not have a URL.");
   }
 
-  if (tab.pinned && !isGoogleSheetsDocumentUrl(tab.url)) {
+  if (tab.pinned && !isPinnedTabSupportedUrl(tab.url)) {
     throw new Error(
-      "Pinned tabs are not supported unless the tab is a Google Sheet. Unpin the tab and try again."
+      "Pinned tabs are supported only for Google Sheets and Jobright. Unpin this tab and try again."
     );
   }
 
@@ -1558,7 +1575,7 @@ function shouldEnableSidePanelForTab(tab) {
     return true;
   }
 
-  return isGoogleSheetsDocumentUrl(tab.url || "");
+  return isPinnedTabSupportedUrl(tab.url || "");
 }
 
 async function closeSidePanelForWindow(tab) {
@@ -1623,7 +1640,7 @@ async function syncSidePanelForTab(tab, { closeIfDisabled = false } = {}) {
     }
   }
 
-  // Always close when landing on a pinned non-Sheet tab, even if setOptions was
+  // Always close when landing on an unsupported pinned tab, even if setOptions was
   // skipped because that tab was already disabled.
   if (!enabled && closeIfDisabled) {
     await closeSidePanelForWindow(tab);

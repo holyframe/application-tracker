@@ -2040,6 +2040,23 @@ function isGoogleSheetsDocumentUrl(url = "") {
   }
 }
 
+function isJobrightUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    return (
+      parsed.protocol === "https:" &&
+      (parsed.hostname === "jobright.ai" ||
+        parsed.hostname.endsWith(".jobright.ai"))
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function isPinnedTabSupportedUrl(url = "") {
+  return isGoogleSheetsDocumentUrl(url) || isJobrightUrl(url);
+}
+
 function updateSaveButtonDisabledState() {
   if (!saveButton) {
     return;
@@ -4333,11 +4350,11 @@ async function validateActiveBrowserTabForAppAction() {
     return { ok: false, error: "Current tab does not have a URL." };
   }
 
-  if (tab.pinned && !isGoogleSheetsDocumentUrl(tab.url)) {
+  if (tab.pinned && !isPinnedTabSupportedUrl(tab.url)) {
     return {
       ok: false,
       error:
-        "Pinned tabs are not supported unless the tab is a Google Sheet. Unpin the tab and try again."
+        "Pinned tabs are supported only for Google Sheets and Jobright. Unpin this tab and try again."
     };
   }
 
@@ -7172,6 +7189,34 @@ jobDescriptionFormModalCancelButton?.addEventListener("click", () =>
   setJobDescriptionFormModalOpen(false)
 );
 jobDescriptionFormModalSubmitButton?.addEventListener("click", submitJobDescriptionForm);
+
+document.addEventListener("keydown", (event) => {
+  const target = event.target;
+  const isEditableTarget =
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT");
+
+  if (
+    event.defaultPrevented ||
+    event.repeat ||
+    event.altKey ||
+    event.shiftKey ||
+    !(event.ctrlKey || event.metaKey) ||
+    event.key.toLowerCase() !== "a" ||
+    isEditableTarget ||
+    !applicationWorkspacePickupButton ||
+    applicationWorkspacePickupButton.disabled ||
+    applicationWorkspacePickupButton.classList.contains("is-hidden")
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  applicationWorkspacePickupButton.click();
+});
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") {
