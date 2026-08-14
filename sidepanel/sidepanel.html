@@ -138,62 +138,90 @@
         <div class="application-actions-grid">
           <div class="application-save-section">
             <div class="application-action-buttons">
-              <button
-                id="saveButton"
-                type="button"
-                class="primary-button action-icon-button"
-                aria-label="Save App"
-                title="Save App"
-              >
-                <span class="button-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 16V8" />
-                    <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
-                    <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
+              <div class="action-control-group">
+                <button
+                  id="saveButton"
+                  type="button"
+                  class="primary-button action-icon-button"
+                  aria-label="Save App"
+                  title="Save App"
+                >
+                  <span class="button-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M12 16V8" />
+                      <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
+                      <path d="M7 18.5a4.5 4.5 0 0 1-.8-8.92A6 6 0 0 1 17.65 8.4 4.9 4.9 0 0 1 18 18.5z" />
+                    </svg>
+                  </span>
+                </button>
+                <button
+                  id="saveOptionsButton"
+                  type="button"
+                  class="action-settings-button"
+                  aria-label="Save settings"
+                  title="Save settings"
+                  aria-controls="configModal"
+                  aria-haspopup="dialog"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h9" />
+                    <circle cx="16" cy="7" r="2" />
+                    <path d="M18 7h2" />
+                    <path d="M4 17h2" />
+                    <circle cx="9" cy="17" r="2" />
+                    <path d="M11 17h9" />
                   </svg>
-                </span>
-              </button>
+                </button>
+              </div>
             </div>
           </div>
 
           <div class="application-duplicate-section">
             <div class="sheet-duplicate-actions">
-              <button
-                id="openSplitWindowsButton"
-                type="button"
-                class="split-windows-button action-icon-button"
-                aria-label="Make a resume"
-                disabled
-                title="Make a resume is available only when the current tab is a Google Sheet."
-              >
-                <span class="button-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <rect x="3" y="5" width="8" height="14" rx="1.5" />
-                    <rect x="13" y="5" width="8" height="14" rx="1.5" />
+              <div class="action-control-group">
+                <button
+                  id="openSplitWindowsButton"
+                  type="button"
+                  class="split-windows-button action-icon-button"
+                  aria-label="Make a resume"
+                  disabled
+                  title="Make a resume is available only when the current tab is a Google Sheet."
+                >
+                  <span class="button-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <rect x="3" y="5" width="8" height="14" rx="1.5" />
+                      <rect x="13" y="5" width="8" height="14" rx="1.5" />
+                    </svg>
+                  </span>
+                </button>
+                <button
+                  id="makeResumeOptionsButton"
+                  type="button"
+                  class="action-settings-button"
+                  aria-label="Make resume settings"
+                  title="Make resume settings"
+                  aria-controls="makeResumeActionSettingsModal"
+                  aria-haspopup="dialog"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h9" />
+                    <circle cx="16" cy="7" r="2" />
+                    <path d="M18 7h2" />
+                    <path d="M4 17h2" />
+                    <circle cx="9" cy="17" r="2" />
+                    <path d="M11 17h9" />
                   </svg>
-                </span>
-              </button>
+                </button>
+              </div>
             </div>
           </div>
 
           <div class="jobright-open-section">
             <div
-              class="jobright-open-controls"
+              class="jobright-open-controls action-control-group"
               role="group"
               aria-label="Open Jobright applications"
             >
-              <input
-                id="jobrightOpenCountInput"
-                class="jobright-open-count-input"
-                type="number"
-                inputmode="numeric"
-                min="1"
-                max="25"
-                step="1"
-                value="1"
-                aria-label="Number of Jobright applications to open"
-                disabled
-              />
               <button
                 id="openJobrightJobsButton"
                 type="button"
@@ -210,9 +238,26 @@
                   </svg>
                 </span>
               </button>
+              <button
+                id="openJobrightOptionsButton"
+                type="button"
+                class="action-settings-button"
+                aria-label="Open settings"
+                title="Open settings"
+                aria-controls="openActionSettingsModal"
+                aria-haspopup="dialog"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h9" />
+                  <circle cx="16" cy="7" r="2" />
+                  <path d="M18 7h2" />
+                  <path d="M4 17h2" />
+                  <circle cx="9" cy="17" r="2" />
+                  <path d="M11 17h9" />
+                </svg>
+              </button>
             </div>
           </div>
-
         </div>
       </section>
 
@@ -339,6 +384,99 @@
     </main>
 
     <div
+      id="makeResumeActionSettingsModal"
+      class="modal action-settings-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="makeResumeActionSettingsModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="makeResumeActionSettingsModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close Make Resume settings"
+      ></button>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="makeResumeActionSettingsModalTitle">Make Resume settings</h2>
+          <button id="makeResumeActionSettingsModalCloseButton" type="button" class="modal-close-button" aria-label="Close">&times;</button>
+        </div>
+        <p class="modal-help">Configure the Make Resume action and its Chrome keyboard shortcut.</p>
+        <div class="modal-form action-settings-form">
+          <div class="action-setting-block">
+            <h3>Resume configuration</h3>
+            <button id="makeResumeCurrentSettingsButton" type="button" class="secondary-button">
+              <span>Open Make Resume workspace</span>
+            </button>
+          </div>
+          <div class="action-setting-block">
+            <label class="config-label">Assigned hotkey</label>
+            <div class="action-hotkey-row">
+              <output id="makeResumeHotkeyValue" class="action-hotkey-value">Not assigned</output>
+              <button id="makeResumeAssignHotkeyButton" type="button" class="secondary-button">
+                <span>Assign hotkey</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="makeResumeActionSettingsDoneButton" type="button" class="primary-button modal-action-button">
+            <span>Done</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="openActionSettingsModal"
+      class="modal action-settings-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="openActionSettingsModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="openActionSettingsModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close Open settings"
+      ></button>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="openActionSettingsModalTitle">Open settings</h2>
+          <button id="openActionSettingsModalCloseButton" type="button" class="modal-close-button" aria-label="Close">&times;</button>
+        </div>
+        <p class="modal-help">Choose how many Jobright applications to open and configure the Chrome keyboard shortcut.</p>
+        <div class="modal-form action-settings-form">
+          <div class="action-setting-block">
+            <label class="config-label" for="jobrightOpenCountInput">Applications to open</label>
+            <select id="jobrightOpenCountInput" class="config-input">
+              <option value="1" selected>1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </div>
+          <div class="action-setting-block">
+            <label class="config-label">Assigned hotkey</label>
+            <div class="action-hotkey-row">
+              <output id="openHotkeyValue" class="action-hotkey-value">Not assigned</output>
+              <button id="openAssignHotkeyButton" type="button" class="secondary-button">
+                <span>Assign hotkey</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="openActionSettingsDoneButton" type="button" class="primary-button modal-action-button">
+            <span>Done</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div
       id="configModal"
       class="modal config-modal is-hidden"
       role="dialog"
@@ -372,6 +510,15 @@
         </p>
 
         <div class="modal-form config-modal-form">
+          <div class="action-setting-block">
+            <label class="config-label">Save App hotkey</label>
+            <div class="action-hotkey-row">
+              <output id="saveHotkeyValue" class="action-hotkey-value">Not assigned</output>
+              <button id="saveAssignHotkeyButton" type="button" class="secondary-button">
+                <span>Assign hotkey</span>
+              </button>
+            </div>
+          </div>
           <div class="config-field-row">
             <div class="config-field">
               <label class="config-label" for="spreadsheetIdInput">Google Sheet URL or ID</label>

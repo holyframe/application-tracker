@@ -1,7 +1,37 @@
 const saveButton = document.querySelector("#saveButton");
+const saveOptionsButton = document.querySelector("#saveOptionsButton");
 const openSplitWindowsButton = document.querySelector("#openSplitWindowsButton");
+const makeResumeOptionsButton = document.querySelector("#makeResumeOptionsButton");
 const jobrightOpenCountInput = document.querySelector("#jobrightOpenCountInput");
 const openJobrightJobsButton = document.querySelector("#openJobrightJobsButton");
+const openJobrightOptionsButton = document.querySelector("#openJobrightOptionsButton");
+const saveAssignHotkeyButton = document.querySelector("#saveAssignHotkeyButton");
+const saveHotkeyValue = document.querySelector("#saveHotkeyValue");
+const makeResumeCurrentSettingsButton = document.querySelector(
+  "#makeResumeCurrentSettingsButton"
+);
+const actionSettingsDialogs = {
+  makeResume: {
+    command: "make-resume",
+    trigger: makeResumeOptionsButton,
+    modal: document.querySelector("#makeResumeActionSettingsModal"),
+    backdrop: document.querySelector("#makeResumeActionSettingsModalBackdrop"),
+    closeButton: document.querySelector("#makeResumeActionSettingsModalCloseButton"),
+    doneButton: document.querySelector("#makeResumeActionSettingsDoneButton"),
+    assignButton: document.querySelector("#makeResumeAssignHotkeyButton"),
+    hotkeyValue: document.querySelector("#makeResumeHotkeyValue")
+  },
+  open: {
+    command: "open-jobright",
+    trigger: openJobrightOptionsButton,
+    modal: document.querySelector("#openActionSettingsModal"),
+    backdrop: document.querySelector("#openActionSettingsModalBackdrop"),
+    closeButton: document.querySelector("#openActionSettingsModalCloseButton"),
+    doneButton: document.querySelector("#openActionSettingsDoneButton"),
+    assignButton: document.querySelector("#openAssignHotkeyButton"),
+    hotkeyValue: document.querySelector("#openHotkeyValue")
+  }
+};
 const splitWindowsModal = document.querySelector("#splitWindowsModal");
 const splitWindowsModalBackdrop = document.querySelector("#splitWindowsModalBackdrop");
 const splitWindowsModalCloseButton = document.querySelector("#splitWindowsModalCloseButton");
@@ -2075,6 +2105,78 @@ function isPinnedTabSupportedUrl(url = "") {
   return isGoogleSheetsDocumentUrl(url) || isJobrightUrl(url);
 }
 
+async function refreshActionHotkeys() {
+  try {
+    const commands = await chrome.commands.getAll();
+    const shortcutsByCommand = new Map(
+      commands.map((command) => [command.name, command.shortcut || ""])
+    );
+
+    if (saveHotkeyValue) {
+      saveHotkeyValue.textContent =
+        shortcutsByCommand.get("save-app") || "Not assigned";
+    }
+
+    Object.values(actionSettingsDialogs).forEach((dialog) => {
+      if (!dialog.hotkeyValue) {
+        return;
+      }
+
+      dialog.hotkeyValue.textContent =
+        shortcutsByCommand.get(dialog.command) || "Not assigned";
+    });
+  } catch (error) {
+    console.error("Could not read action hotkeys:", error);
+    if (saveHotkeyValue) {
+      saveHotkeyValue.textContent = "Unavailable";
+    }
+    Object.values(actionSettingsDialogs).forEach((dialog) => {
+      if (dialog.hotkeyValue) {
+        dialog.hotkeyValue.textContent = "Unavailable";
+      }
+    });
+  }
+}
+
+function setActionSettingsModalOpen(action, isOpen, { returnFocus = true } = {}) {
+  const dialog = actionSettingsDialogs[action];
+  if (!dialog?.modal) {
+    return;
+  }
+
+  if (isOpen) {
+    Object.values(actionSettingsDialogs).forEach((entry) => {
+      if (!entry.modal || entry === dialog) {
+        return;
+      }
+      entry.modal.classList.add("is-hidden");
+      entry.modal.setAttribute("aria-hidden", "true");
+    });
+  }
+
+  const wasOpen = !dialog.modal.classList.contains("is-hidden");
+  dialog.modal.classList.toggle("is-hidden", !isOpen);
+  dialog.modal.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    refreshActionHotkeys();
+    dialog.closeButton?.focus();
+  } else if (wasOpen && returnFocus) {
+    dialog.trigger?.focus();
+  }
+}
+
+async function openChromeShortcutSettings() {
+  try {
+    await chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
+  } catch (error) {
+    console.error("Could not open Chrome shortcut settings:", error);
+    showStatus(
+      "error",
+      "Open chrome://extensions/shortcuts to assign the action hotkey."
+    );
+  }
+}
 function updateSaveButtonDisabledState() {
   if (!saveButton) {
     return;
@@ -2098,6 +2200,9 @@ function updateMakeResumeButtonDisabledState() {
     areActionButtonsDisabled || isMakeResumeOpening || !isCurrentTabGoogleSheet;
   openSplitWindowsButton.disabled = isDisabled;
   openSplitWindowsButton.setAttribute("aria-disabled", String(isDisabled));
+  if (makeResumeCurrentSettingsButton) {
+    makeResumeCurrentSettingsButton.disabled = isDisabled;
+  }
 
   openSplitWindowsButton.title = isCurrentTabGoogleSheet
     ? "Make a resume"
@@ -2108,9 +2213,6 @@ function updateJobrightOpenControlsDisabledState() {
   const isDisabled =
     areActionButtonsDisabled || isJobrightOpening || !isCurrentTabJobright;
 
-  if (jobrightOpenCountInput) {
-    jobrightOpenCountInput.disabled = isDisabled;
-  }
   if (!openJobrightJobsButton) {
     return;
   }
@@ -3705,6 +3807,7 @@ function setConfigModalOpen(isOpen, { returnFocus = true } = {}) {
 
   if (isOpen) {
     setAppDataTransferStatus("", "");
+    refreshActionHotkeys();
     spreadsheetIdInput?.focus();
     return;
   }
@@ -4487,6 +4590,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "HOTKEY_ACTION") {
+    if (message.action === "make-resume") {
+      openSplitWindowsModal();
+    } else if (message.action === "open-jobright") {
+      openJobrightJobs();
+    }
+    return;
+  }
   if (message.type === "HOTKEY_SAVE_STARTED") {
     const ownerTabId = Number.isInteger(message.ownerTabId)
       ? message.ownerTabId
@@ -5915,7 +6026,7 @@ async function openSplitWindowsModal() {
 function normalizeJobrightOpenCount() {
   const parsedCount = Number.parseInt(jobrightOpenCountInput?.value || "", 10);
   const count = Number.isFinite(parsedCount)
-    ? Math.min(25, Math.max(1, parsedCount))
+    ? Math.min(5, Math.max(1, parsedCount))
     : 1;
 
   if (jobrightOpenCountInput) {
@@ -7391,15 +7502,34 @@ async function closeSplitWindowsAndReturn() {
 saveButton?.addEventListener("click", saveCurrentTabUrl);
 openSplitWindowsButton?.addEventListener("click", openSplitWindowsModal);
 openJobrightJobsButton?.addEventListener("click", openJobrightJobs);
-jobrightOpenCountInput?.addEventListener("change", normalizeJobrightOpenCount);
-jobrightOpenCountInput?.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" || openJobrightJobsButton?.disabled) {
-    return;
-  }
 
-  event.preventDefault();
-  openJobrightJobsButton.click();
+Object.entries(actionSettingsDialogs).forEach(([action, dialog]) => {
+  dialog.trigger?.addEventListener("click", () =>
+    setActionSettingsModalOpen(action, true)
+  );
+  dialog.backdrop?.addEventListener("click", () =>
+    setActionSettingsModalOpen(action, false)
+  );
+  dialog.closeButton?.addEventListener("click", () =>
+    setActionSettingsModalOpen(action, false)
+  );
+  dialog.doneButton?.addEventListener("click", () =>
+    setActionSettingsModalOpen(action, false)
+  );
+  dialog.assignButton?.addEventListener("click", openChromeShortcutSettings);
 });
+
+saveOptionsButton?.addEventListener("click", () => setConfigModalOpen(true));
+saveAssignHotkeyButton?.addEventListener("click", openChromeShortcutSettings);
+
+makeResumeCurrentSettingsButton?.addEventListener("click", () => {
+  setActionSettingsModalOpen("makeResume", false, { returnFocus: false });
+  openSplitWindowsModal();
+});
+
+window.addEventListener("focus", refreshActionHotkeys);
+jobrightOpenCountInput?.addEventListener("change", normalizeJobrightOpenCount);
+
 splitWindowsModalBackdrop?.addEventListener(
   "click",
   handleSplitWindowsHeaderAction
@@ -7672,6 +7802,14 @@ document.addEventListener("keydown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") {
+    return;
+  }
+
+  const openActionSettingsEntry = Object.entries(actionSettingsDialogs).find(
+    ([, dialog]) => dialog.modal && !dialog.modal.classList.contains("is-hidden")
+  );
+  if (openActionSettingsEntry) {
+    setActionSettingsModalOpen(openActionSettingsEntry[0], false);
     return;
   }
 

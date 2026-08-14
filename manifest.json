@@ -44,6 +44,12 @@
         "default": "Ctrl+Q"
       },
       "description": "Save App to Google Sheet"
+    },
+    "make-resume": {
+      "description": "Open Make Resume"
+    },
+    "open-jobright": {
+      "description": "Open selected Jobright applications"
     }
   },
   "icons": {
