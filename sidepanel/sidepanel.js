@@ -68,9 +68,7 @@ const applicationSavePostProcessBar = document.querySelector(
 );
 const splitWindowsModalCancelButton = document.querySelector("#splitWindowsModalCancelButton");
 const splitWindowsModalOpenButton = document.querySelector("#splitWindowsModalOpenButton");
-const makeResumeRowLimitSelect = document.querySelector(
-  "#makeResumeRowLimitSelect"
-);
+const splitWindowUrlsInput = document.querySelector("#splitWindowUrlsInput");
 const splitWindowsModalTitle = document.querySelector("#splitWindowsModalTitle");
 const splitWindowsInputView = document.querySelector("#splitWindowsInputView");
 const splitWindowsPreviewView = document.querySelector("#splitWindowsPreviewView");
@@ -350,7 +348,7 @@ let isBuildResumeContextModalOpen = false;
 let logEntries = [];
 let deletedRowEntries = [];
 let headerStatusState = null;
-let makeResumeRowLimit = "5";
+let splitWindowsDraft = "";
 let buildResumeContextDraft = "";
 let openManagedModalId = "";
 let managedModalDrafts = {};
@@ -385,7 +383,7 @@ function createTabState() {
     isSplitWindowsDialogOpen: false,
     isBuildResumeContextModalOpen: false,
     isMakeResumeOpening: false,
-    makeResumeRowLimit: "5",
+    splitWindowsDraft: "",
     buildResumeContextDraft: "",
     openManagedModalId: "",
     managedModalDrafts: {},
@@ -586,9 +584,7 @@ function captureActiveTabState() {
   state.isSplitWindowsDialogOpen = isSplitWindowsDialogOpen;
   state.isBuildResumeContextModalOpen = isBuildResumeContextModalOpen;
   state.isMakeResumeOpening = isMakeResumeOpening;
-  state.makeResumeRowLimit = normalizeMakeResumeRowLimit(
-    makeResumeRowLimitSelect?.value ?? makeResumeRowLimit
-  );
+  state.splitWindowsDraft = splitWindowUrlsInput?.value ?? splitWindowsDraft;
   state.buildResumeContextDraft =
     buildResumeContextInput?.value ?? buildResumeContextDraft;
   state.openManagedModalId = readOpenManagedModalId();
@@ -621,7 +617,7 @@ function loadTabStateIntoRegisters(tabId) {
   isSplitWindowsDialogOpen = state.isSplitWindowsDialogOpen;
   isBuildResumeContextModalOpen = state.isBuildResumeContextModalOpen;
   isMakeResumeOpening = state.isMakeResumeOpening;
-  makeResumeRowLimit = normalizeMakeResumeRowLimit(state.makeResumeRowLimit);
+  splitWindowsDraft = state.splitWindowsDraft;
   buildResumeContextDraft = state.buildResumeContextDraft;
   openManagedModalId = state.openManagedModalId;
   managedModalDrafts = state.managedModalDrafts;
@@ -736,9 +732,7 @@ function renderActiveTabState() {
     setSplitWindowsPreview("");
     splitWindowsPreviewTabs?.classList.add("is-hidden");
   }
-  if (makeResumeRowLimitSelect) {
-    makeResumeRowLimitSelect.value = makeResumeRowLimit;
-  }
+  if (splitWindowUrlsInput) splitWindowUrlsInput.value = splitWindowsDraft;
   if (buildResumeContextInput) {
     buildResumeContextInput.value = buildResumeContextDraft;
   }
@@ -2294,9 +2288,6 @@ function setSaveButtonsDisabled(disabled) {
   updateSaveButtonDisabledState();
   updateMakeResumeButtonDisabledState();
   updateJobrightOpenControlsDisabledState();
-  if (makeResumeRowLimitSelect) {
-    makeResumeRowLimitSelect.disabled = Boolean(disabled);
-  }
   updateSaveWorkspaceActions();
   renderSavePostProcessControls();
   if (splitWindowsModalOpenButton) splitWindowsModalOpenButton.disabled = disabled;
@@ -6067,15 +6058,14 @@ function setSplitWindowsModalOpen(isOpen) {
   if (isOpen) {
     resetSplitWindowsSession();
     setSplitWindowsPreview("");
-    if (makeResumeRowLimitSelect) {
-      makeResumeRowLimitSelect.value = makeResumeRowLimit;
-      makeResumeRowLimitSelect.focus();
-    }
+    splitWindowUrlsInput?.focus();
     return;
   }
 
   setSplitWindowsPreview("");
   resetSplitWindowsSession();
+  splitWindowsDraft = "";
+  if (splitWindowUrlsInput) splitWindowUrlsInput.value = "";
   openSplitWindowsButton?.focus();
 }
 
@@ -6527,47 +6517,174 @@ async function openJobrightJobs() {
   }
 }
 
-function normalizeMakeResumeRowLimit(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "all") {
-    return "all";
+function normalizeSplitWindowUrl(value, label) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    throw new Error(`${label} URL is required.`);
   }
 
-  const parsed = Number.parseInt(normalized, 10);
-  return [5, 10, 20, 50].includes(parsed) ? String(parsed) : "5";
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw);
+  if (hasScheme && !/^https?:\/\//i.test(raw)) {
+    throw new Error(`${label} URL must use http:// or https://.`);
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch (_error) {
+    throw new Error(`${label} URL is not valid.`);
+  }
+
+  if (!parsed.hostname || !["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`${label} URL must be a valid web address.`);
+  }
+
+  return parsed.href;
 }
 
-async function requestMakeResumeRowsFromSheet({
-  runId,
-  ownerTabId,
-  sheetUrl,
-  limit
-}) {
-  const response = await chrome.runtime.sendMessage({
-    type: "READ_MAKE_RESUME_ROWS",
-    runId,
-    ownerTabId,
-    sheetUrl,
-    limit
-  });
+function unwrapMarkdownEmphasis(value) {
+  const raw = String(value || "").trim();
+  const wrappedMatch = raw.match(/^(\*\*|__)([\s\S]+)\1$/);
+  return wrappedMatch ? wrappedMatch[2].trim() : raw;
+}
 
-  if (!response?.ok) {
-    throw new Error(
-      response?.error || "Could not read eligible rows from the selected sheet."
+function parseSplitWindowUrlField(value, label) {
+  const raw = String(value || "").trim();
+  const markdownLinkMatch = raw.match(
+    /\]\(\s*(https?:\/\/[\s\S]+)\s*\)\s*$/i
+  );
+  const candidate = markdownLinkMatch
+    ? markdownLinkMatch[1].trim()
+    : unwrapMarkdownEmphasis(raw);
+
+  return normalizeSplitWindowUrl(candidate.replace(/\\_/g, "_"), label);
+}
+
+function isSavedApplicationSheetHeader(fields) {
+  if (!Array.isArray(fields) || fields.length < 6) return false;
+
+  const normalized = fields.map((field) =>
+    String(field || "").trim().toLowerCase()
+  );
+  return (
+    normalized[0] === "iso timestamp" &&
+    normalized[1] === "job-page title" &&
+    normalized[2] === "profile name" &&
+    normalized[3].includes("chatgpt") &&
+    normalized[4].includes("job url") &&
+    normalized[5].includes("resume")
+  );
+}
+
+function parseSplitWindowUrls(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    throw new Error("Drop or paste application details before continuing.");
+  }
+
+  const rows = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line && !line.startsWith("#") && !/^[-=_]{3,}$/.test(line)
     );
+
+  const pairs = rows
+    .map((row, index) => {
+      const entryNumber = index + 1;
+      const fields = row.split("\t").map((field) => field.trim());
+      if (isSavedApplicationSheetHeader(fields)) return null;
+
+      const isSavedSheetRow = fields.length === 6 || fields.length === 7;
+      if (!isSavedSheetRow && fields.length !== 4) {
+        throw new Error(
+          "Entry " +
+            entryNumber +
+            " must contain either the six or seven tab-separated Google Sheet columns (A-F or A-G), or the older four-field Profile, Chat, Job, Google Doc format."
+        );
+      }
+
+      const profileIndex = isSavedSheetRow ? 2 : 0;
+      const chatIndex = isSavedSheetRow ? 3 : 1;
+      const jobIndex = isSavedSheetRow ? 4 : 2;
+      const resumeIndex = isSavedSheetRow ? 5 : 3;
+      const jobTitle = isSavedSheetRow
+        ? unwrapMarkdownEmphasis(fields[1])
+        : "";
+      const profileName = unwrapMarkdownEmphasis(
+        fields[profileIndex].replace(/^[-+]\s+/, "")
+      );
+      if (!profileName) {
+        throw new Error(
+          "Entry " +
+            entryNumber +
+            "'s " +
+            (isSavedSheetRow ? "column C profile name" : "profile name") +
+            " is required."
+        );
+      }
+
+      const chatUrl = parseSplitWindowUrlField(
+        fields[chatIndex],
+        "Entry " +
+          entryNumber +
+          " " +
+          (isSavedSheetRow ? "column D Chat" : "Chat")
+      );
+      const jobUrl = parseSplitWindowUrlField(
+        fields[jobIndex],
+        "Entry " +
+          entryNumber +
+          " " +
+          (isSavedSheetRow ? "column E Job" : "Job")
+      );
+      const resumeUrl = parseSplitWindowUrlField(
+        fields[resumeIndex],
+        "Entry " +
+          entryNumber +
+          " " +
+          (isSavedSheetRow ? "column F Google Doc" : "Google Doc")
+      );
+
+      if (!isChatOrClaudeUrl(chatUrl)) {
+        throw new Error(
+          "Entry " +
+            entryNumber +
+            "'s " +
+            (isSavedSheetRow ? "column D" : "second field") +
+            " must be a ChatGPT or Claude URL."
+        );
+      }
+      if (isChatOrClaudeUrl(jobUrl) || isGoogleDocsUrl(jobUrl)) {
+        throw new Error(
+          "Entry " +
+            entryNumber +
+            "'s " +
+            (isSavedSheetRow ? "column E" : "third field") +
+            " must be the job page URL."
+        );
+      }
+      if (!isGoogleDocsUrl(resumeUrl)) {
+        throw new Error(
+          "Entry " +
+            entryNumber +
+            "'s " +
+            (isSavedSheetRow ? "column F" : "fourth field") +
+            " must be a Google Docs document URL."
+        );
+      }
+
+      return { profileName, jobTitle, chatUrl, jobUrl, resumeUrl };
+    })
+    .filter(Boolean);
+
+  if (!pairs.length) {
+    throw new Error("No application rows were found in the pasted text.");
   }
 
-  if (!Array.isArray(response.pairs) || response.pairs.length === 0) {
-    throw new Error("The selected sheet did not return any eligible rows.");
-  }
-
-  return {
-    pairs: response.pairs,
-    sheetName: String(response.sheetName || "").trim(),
-    eligibleCount: Number(response.eligibleCount) || response.pairs.length
-  };
+  return { pairs };
 }
-
 function isChatOrClaudeUrl(url = "") {
   try {
     const hostname = new URL(String(url || "")).hostname.toLowerCase();
@@ -6582,6 +6699,45 @@ function isChatOrClaudeUrl(url = "") {
   } catch (_error) {
     return false;
   }
+}
+
+function isGoogleDocsUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    return (
+      parsed.hostname === "docs.google.com" &&
+      /\/document\/(?:u\/\d+\/)?d\/[a-zA-Z0-9-_]+/.test(parsed.pathname)
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function getDroppedUrlText(dataTransfer) {
+  const uriList = String(dataTransfer?.getData("text/uri-list") || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .join("\n");
+
+  return uriList || String(dataTransfer?.getData("text/plain") || "").trim();
+}
+
+function appendDroppedUrls(dataTransfer) {
+  if (!splitWindowUrlsInput) {
+    return;
+  }
+
+  const droppedText = getDroppedUrlText(dataTransfer);
+  if (!droppedText) {
+    return;
+  }
+
+  const existingText = splitWindowUrlsInput.value.trim();
+  splitWindowUrlsInput.value = [existingText, droppedText]
+    .filter(Boolean)
+    .join("\n");
+  splitWindowUrlsInput.focus();
 }
 
 function getApplicationWorkspaceJobOrGptUrl(workspace) {
@@ -7282,8 +7438,13 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId) {
     const returnState = getTabState(returnTabId);
     if (returnState) {
       returnState.isSplitWindowsDialogOpen = false;
-      returnState.makeResumeRowLimit = makeResumeRowLimit;
+      returnState.splitWindowsDraft = "";
     }
+  }
+
+  splitWindowsDraft = "";
+  if (splitWindowUrlsInput) {
+    splitWindowUrlsInput.value = "";
   }
 
   const focusTabId = openedPairs.some((pair) => pair.tabId === activeTabId)
@@ -7298,13 +7459,23 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId) {
 }
 
 async function openSplitWindows() {
+
   if (splitWindowsModalOpenButton?.disabled) {
     return;
   }
 
-  makeResumeRowLimit = normalizeMakeResumeRowLimit(
-    makeResumeRowLimitSelect?.value
-  );
+  let batch;
+  try {
+    batch = parseSplitWindowUrls(splitWindowUrlsInput?.value);
+  } catch (error) {
+    const message =
+      error.message || "Add valid Profile, Chat, Job, and Google Doc entries.";
+    showStatus("error", message);
+    addLog("error", message);
+    splitWindowUrlsInput?.focus();
+    return;
+  }
+
   const { ownerTabId, runId } = beginRunForActiveTab();
   clearStatus();
   clearDeletedRowsForTab(ownerTabId);
@@ -7317,22 +7488,13 @@ async function openSplitWindows() {
   let returnTabId = null;
 
   try {
-    const sheet = await requireOpenGoogleSheet();
+    await requireOpenGoogleSheet();
     addLogForTab(
       ownerTabId,
       "info",
-      "Reading eligible rows from the currently selected sheet tab..."
-    );
-    const batch = await requestMakeResumeRowsFromSheet({
-      runId,
-      ownerTabId,
-      sheetUrl: sheet.url,
-      limit: makeResumeRowLimit
-    });
-    addLogForTab(
-      ownerTabId,
-      "info",
-      `Using profile "${batch.sheetName}". Opening ${batch.pairs.length} of ${batch.eligibleCount} eligible row${batch.eligibleCount === 1 ? "" : "s"}...`
+      `Google Sheet found. Opening ${batch.pairs.length} job/resume workspace${
+        batch.pairs.length === 1 ? "" : "s"
+      }...`
     );
 
     for (const [index, pair] of batch.pairs.entries()) {
@@ -7353,7 +7515,7 @@ async function openSplitWindows() {
       addLogForTab(
         ownerTabId,
         "info",
-        `Opening Sheet row ${pair.rowNumber || index + 2} (${index + 1} of ${batch.pairs.length}): ${pair.jobUrl}`
+        `Opening job ${index + 1} of ${batch.pairs.length}: ${pair.jobUrl}`
       );
       const response = await requestOpenUrlInNewTab(pair.jobUrl, runId, ownerTabId);
 
@@ -7367,7 +7529,6 @@ async function openSplitWindows() {
         jobUrl: pair.jobUrl,
         resumeUrl: pair.resumeUrl,
         jobTitle: pair.jobTitle,
-        rowNumber: pair.rowNumber,
         profileName,
         profileNotes,
         profileFound,
@@ -7540,12 +7701,6 @@ applicationCancelProcessButton?.addEventListener(
 );
 splitWindowsModalCancelButton?.addEventListener("click", () => setSplitWindowsModalOpen(false));
 splitWindowsModalOpenButton?.addEventListener("click", openSplitWindows);
-makeResumeRowLimitSelect?.addEventListener("change", () => {
-  makeResumeRowLimit = normalizeMakeResumeRowLimit(
-    makeResumeRowLimitSelect.value
-  );
-  schedulePersistTabSession();
-});
 splitWindowsPreviewBackButton?.addEventListener("click", closeSplitWindowsAndReturn);
 splitWindowsPreviewDownloadButton?.addEventListener("click", downloadSplitWindowResume);
 splitWindowsJobTabButton?.addEventListener("click", () =>
@@ -7656,6 +7811,32 @@ buildResumeContextInput?.addEventListener("keydown", (event) => {
     submitBuildResumeContext();
   }
 });
+splitWindowUrlsInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    openSplitWindows();
+  }
+});
+splitWindowUrlsInput?.addEventListener("dragenter", (event) => {
+  event.preventDefault();
+  splitWindowUrlsInput.classList.add("is-drag-over");
+});
+splitWindowUrlsInput?.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "copy";
+  }
+  splitWindowUrlsInput.classList.add("is-drag-over");
+});
+splitWindowUrlsInput?.addEventListener("dragleave", () => {
+  splitWindowUrlsInput.classList.remove("is-drag-over");
+});
+splitWindowUrlsInput?.addEventListener("drop", (event) => {
+  event.preventDefault();
+  splitWindowUrlsInput.classList.remove("is-drag-over");
+  appendDroppedUrls(event.dataTransfer);
+});
+
 addProfileButton?.addEventListener("click", openAddProfileModal);
 profileFormModalBackdrop?.addEventListener("click", () => setProfileFormModalOpen(false));
 profileFormModalCloseButton?.addEventListener("click", () => setProfileFormModalOpen(false));

@@ -116,22 +116,21 @@ columns C-F shift to D-G.
   **Apply with Autofill** or **APPLY NOW**, confirms the new application tab,
   keeps Jobright active, and selects **Already Applied** from that job's
   dislike menu.
-- **Make a resume** reads the spreadsheet and selected sheet tab from the
-  current Google Sheets URL. The selected sheet tab name becomes the profile.
-  It scans rows from top to bottom and selects rows where columns A through F
-  all have values while column G (**Apply Now**) is empty. Choose 5, 10, 20,
-  50, or All eligible rows.
-- For each selected row, Make Resume reverses the Save App layout: column D is
-  the ChatGPT/Claude URL, E is the job-page URL, and F is the Google Docs resume.
-  It opens every selected job URL in a new main tab and registers each tab in
-  the same full-page Application workspace used by Save App. The selected sheet
-  name labels the paired resume and retrieves that profile's locally saved note.
-- Pickup opens the row's ChatGPT or Claude URL in a new right-side Chrome
+- **Make a resume** accepts rows copied from the seven-column Google Sheet
+  layout written by Save App: timestamp, job title, profile, ChatGPT/Claude,
+  job page, Google Docs resume, and optional Apply Now (columns A-G). A row with
+  only populated columns A-F is also accepted when G is blank. The older
+  four-field Profile, Chat, Job, Google Doc format remains supported. URL fields
+  can be plain URLs or Markdown links such as `[**URL**](URL)`. It opens every
+  job URL in a new main tab and registers each tab in the same full-page
+  Application workspace used by Save App. The profile name labels the paired
+  Google Docs resume and retrieves that profile's locally saved note.
+- Pickup opens the imported ChatGPT or Claude URL in a new right-side Chrome
   window while leaving the job URL in the main tab. Exchange can still swap the
   stored main-tab job/chat URLs. The Notes icon displays the matched profile
   note in a modal. Switching among imported job tabs restores each tab's
   workspace. Make Resume is available only while the current tab is a Google
-  Sheets spreadsheet. Reading rows does not modify the sheet.
+  Sheets spreadsheet.
 - Profile notes are stored locally for reference and are not sent to ChatGPT or
   written to the Google Sheet.
 

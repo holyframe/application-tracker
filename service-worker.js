@@ -327,48 +327,6 @@ async function checkOpenGoogleSheet() {
   };
 }
 
-function parseSelectedGoogleSheetUrl(url) {
-  const rawUrl = String(url || "").trim();
-  if (!isGoogleSheetsDocumentUrl(rawUrl)) {
-    throw new Error("Current tab is not a Google Sheets spreadsheet.");
-  }
-
-  const parsed = new URL(rawUrl);
-  const spreadsheetId = parseSpreadsheetId(rawUrl);
-  if (!spreadsheetId) {
-    throw new Error("Could not identify the current spreadsheet.");
-  }
-
-  const hashParams = new URLSearchParams(parsed.hash.replace(/^#/, ""));
-  const rawSheetId =
-    parsed.searchParams.get("gid") ?? hashParams.get("gid");
-  let sheetId = null;
-  if (rawSheetId !== null && rawSheetId !== "") {
-    if (!/^\d+$/.test(rawSheetId)) {
-      throw new Error("The selected Google Sheet tab ID is not valid.");
-    }
-    sheetId = Number(rawSheetId);
-  }
-
-  return { spreadsheetId, sheetId };
-}
-
-function isChatOrClaudeUrl(url = "") {
-  try {
-    const hostname = new URL(String(url || "")).hostname.toLowerCase();
-    return (
-      hostname === "chatgpt.com" ||
-      hostname.endsWith(".chatgpt.com") ||
-      hostname === "chat.openai.com" ||
-      hostname.endsWith(".chat.openai.com") ||
-      hostname === "claude.ai" ||
-      hostname.endsWith(".claude.ai")
-    );
-  } catch (_error) {
-    return false;
-  }
-}
-
 function sanitizeDownloadFilename(name) {
   const cleaned = String(name || "")
     .replace(/\s*-\s*Google Docs\s*$/i, "")
@@ -2982,7 +2940,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     DELETE_APPLICATION_RECORD: deleteApplicationRecord,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
-    READ_MAKE_RESUME_ROWS: readMakeResumeRowsFromSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
     OPEN_URL_IN_RIGHT_WINDOW: openUrlInRightWindow,
     CLOSE_TABS_AND_RETURN: closeTabsAndReturn,
@@ -3023,11 +2980,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               resumeUrl: message.resumeUrl,
               chatGptUrl: message.chatGptUrl,
               trashResume: message.trashResume
-            })
-        : message.type === "READ_MAKE_RESUME_ROWS"
-          ? run(message.runId, {
-              sheetUrl: message.sheetUrl,
-              limit: message.limit
             })
         : message.type === "OPEN_URL_IN_NEW_TAB"
           ? run(message.runId, {
@@ -3674,145 +3626,6 @@ async function readSheetValues(token, runId, sheetConfig, options = {}) {
 
   const data = await response.json();
   return data.values ?? [];
-}
-
-function normalizeMakeResumeRowLimit(value) {
-  if (String(value || "").trim().toLowerCase() === "all") {
-    return "all";
-  }
-
-  const parsed = Number.parseInt(value, 10);
-  return [5, 10, 20, 50].includes(parsed) ? parsed : 5;
-}
-
-async function readMakeResumeRowsFromSheet(runId, options = {}) {
-  const { spreadsheetId, sheetId } = parseSelectedGoogleSheetUrl(
-    options.sheetUrl
-  );
-  const rowLimit = normalizeMakeResumeRowLimit(options.limit);
-
-  sendLog(runId, "info", "Requesting Google authorization for the current spreadsheet...");
-  const token = await getGoogleAccessToken();
-  sendLog(runId, "success", "Google authorization token received.");
-
-  const fields = encodeURIComponent(
-    "sheets(properties(sheetId,title,index))"
-  );
-  const metadataUrl =
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
-    `?fields=${fields}`;
-  const metadataResponse = await fetch(metadataUrl, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  });
-
-  if (!metadataResponse.ok) {
-    const errorText = await metadataResponse.text();
-    throw new Error(`Google Sheets API error: ${errorText}`);
-  }
-
-  const metadata = await metadataResponse.json();
-  const sheets = (Array.isArray(metadata.sheets) ? metadata.sheets : [])
-    .map((sheet) => sheet?.properties)
-    .filter(
-      (properties) =>
-        Number.isInteger(properties?.sheetId) &&
-        String(properties?.title || "").trim()
-    )
-    .sort(
-      (left, right) =>
-        (Number(left.index) || 0) - (Number(right.index) || 0)
-    );
-  const selectedSheet =
-    sheetId === null
-      ? sheets[0]
-      : sheets.find((sheet) => sheet.sheetId === sheetId);
-
-  if (!selectedSheet) {
-    throw new Error(
-      sheetId === null
-        ? "This spreadsheet does not contain a readable sheet tab."
-        : "Could not find the sheet tab selected in the current Google Sheets URL."
-    );
-  }
-
-  const profileName = String(selectedSheet.title).trim();
-  const values = await readSheetValues(token, runId, {
-    spreadsheetId,
-    sheetName: profileName
-  });
-
-  if (values.length === 0 || !hasApplicationSheetHeaders(values[0])) {
-    throw new Error(
-      `Sheet tab "${profileName}" does not use the seven-column Application Helper layout.`
-    );
-  }
-
-  const eligibleRows = [];
-  for (let index = 1; index < values.length; index += 1) {
-    const row = Array.isArray(values[index]) ? values[index] : [];
-    const hasAllStoredValues = Array.from({ length: 6 }, (_, cellIndex) =>
-      String(row[cellIndex] ?? "").trim()
-    ).every(Boolean);
-    const hasApplyNowValue = Boolean(String(row[6] ?? "").trim());
-
-    if (hasAllStoredValues && !hasApplyNowValue) {
-      eligibleRows.push({ row, rowNumber: index + 1 });
-    }
-  }
-
-  if (eligibleRows.length === 0) {
-    throw new Error(
-      `No eligible rows were found in "${profileName}". Columns A-F must have values and column G must be empty.`
-    );
-  }
-
-  const selectedRows =
-    rowLimit === "all" ? eligibleRows : eligibleRows.slice(0, rowLimit);
-  const pairs = selectedRows.map(({ row, rowNumber }) => {
-    const chatUrl = normalizeHttpUrl(row[3], `Row ${rowNumber} Chat`);
-    const jobUrl = normalizeHttpUrl(row[4], `Row ${rowNumber} Job`);
-    const resumeUrl = normalizeHttpUrl(
-      row[5],
-      `Row ${rowNumber} Google Doc`
-    );
-
-    if (!isChatOrClaudeUrl(chatUrl)) {
-      throw new Error(
-        `Row ${rowNumber} column D must be a ChatGPT or Claude URL.`
-      );
-    }
-    if (isChatOrClaudeUrl(jobUrl) || isGoogleDocsDocumentUrl(jobUrl)) {
-      throw new Error(`Row ${rowNumber} column E must be a job-page URL.`);
-    }
-    if (!isGoogleDocsDocumentUrl(resumeUrl)) {
-      throw new Error(
-        `Row ${rowNumber} column F must be a Google Docs document URL.`
-      );
-    }
-
-    return {
-      profileName,
-      jobTitle: String(row[1] || "").trim(),
-      chatUrl,
-      jobUrl,
-      resumeUrl,
-      rowNumber
-    };
-  });
-
-  sendLog(
-    runId,
-    "success",
-    `Found ${eligibleRows.length} eligible row(s) in "${profileName}"; selected ${pairs.length}.`
-  );
-  return {
-    spreadsheetId,
-    sheetName: profileName,
-    eligibleCount: eligibleRows.length,
-    pairs
-  };
 }
 
 async function batchDeleteSheetRows(token, spreadsheetId, sheetId, rowIndicesZeroBased, runId) {

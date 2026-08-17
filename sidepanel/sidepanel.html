@@ -1029,28 +1029,27 @@
 
         <div id="splitWindowsInputView" class="split-windows-input-view">
           <p class="modal-help">
-            Reads the currently selected tab in this Google Sheet. The sheet
-            tab name is used as the profile. Starting at the top, rows are
-            eligible when columns A through F have values and Apply Now in
-            column G is empty. Job URLs open in main tabs; each Application
-            workspace pairs the row's Chat URL and Google Docs resume.
+            Paste rows copied from the Google Sheet written by Save App. The
+            expected order is Timestamp, Job title, Profile, Chat, Job, Google
+            Doc, and optional Apply Now (columns A-G). The older four-field
+            Profile, Chat, Job, Google Doc format also works. URL fields may be
+            plain URLs or Markdown links. Job URLs open in the main tabs; Pickup
+            opens the paired Chat URL in a right-side window.
           </p>
 
           <div class="modal-form">
             <div class="config-field">
-              <label class="config-label" for="makeResumeRowLimitSelect">
-                Eligible rows to open
+              <label class="config-label" for="splitWindowUrlsInput">
+                Saved Google Sheet rows (A-G)
               </label>
-              <select id="makeResumeRowLimitSelect" class="config-input">
-                <option value="5" selected>5</option>
-                <option value="10">10</option>
-                <option value="20">20</option>
-                <option value="50">50</option>
-                <option value="all">All</option>
-              </select>
-              <p class="config-help">
-                All opens every eligible row with an empty G cell.
-              </p>
+              <textarea
+                id="splitWindowUrlsInput"
+                class="split-window-urls-input"
+                inputmode="text"
+                spellcheck="false"
+                rows="6"
+                placeholder="2026-08-17T12:00:00Z&#9;Software Engineer&#9;Eddie Ramos&#9;https://chatgpt.com/c/...&#9;https://example.com/job/...&#9;https://docs.google.com/document/d/.../edit&#9;"
+              ></textarea>
             </div>
           </div>
 
@@ -1068,7 +1067,7 @@
               type="button"
               class="primary-button modal-action-button"
             >
-              <span>Open rows</span>
+              <span>Open</span>
             </button>
           </div>
         </div>
