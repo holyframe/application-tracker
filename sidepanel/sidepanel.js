@@ -172,9 +172,6 @@ const saveWorkspaceBuildButton = document.querySelector(
 const saveWorkspaceDownloadButton = document.querySelector(
   "#saveWorkspaceDownloadButton"
 );
-const saveWorkspaceExchangeButton = document.querySelector(
-  "#saveWorkspaceExchangeButton"
-);
 const buildResumeContextModal = document.querySelector(
   "#buildResumeContextModal"
 );
@@ -5595,13 +5592,13 @@ async function pickupApplicationWorkspaceJobGptUrl() {
     applicationWorkspaceJobGptUrl?.textContent || ""
   ).trim();
   if (!jobOrGptUrl) {
-    showStatus("error", "No job or GPT URL is available to open.");
+    showStatus("error", "No GPT URL is available to open.");
     return;
   }
 
   if (hasActiveSaveWorkspaceForCurrentTab()) {
     const workspace = beginSaveWorkspaceAction(
-      "Pick up clicked. Opening or reopening the job or GPT URL in a right-side window..."
+      "Pick up clicked. Opening or reopening the GPT URL in a right-side window..."
     );
     if (!workspace) {
       return;
@@ -5622,12 +5619,12 @@ async function pickupApplicationWorkspaceJobGptUrl() {
       showStatusForTab(
         ownerTabId,
         "error",
-        error.message || "Could not open the job or GPT URL."
+        error.message || "Could not open the GPT URL."
       );
       addLogForTab(
         ownerTabId,
         "error",
-        error.message || "Could not open the job or GPT URL."
+        error.message || "Could not open the GPT URL."
       );
     } finally {
       finishSaveWorkspaceAction(workspace);
@@ -5645,7 +5642,7 @@ async function pickupApplicationWorkspaceJobGptUrl() {
     });
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Could not open the job or GPT URL.");
+    showStatus("error", error.message || "Could not open the GPT URL.");
   }
 }
 
@@ -5663,8 +5660,8 @@ async function closeApplicationWorkspaceJobGptPickupWindow() {
 
   await closePickedUpWindowForUrl(jobOrGptUrl, {
     ownerTabId,
-    successLog: "Closed the picked-up job or GPT window.",
-    emptyMessage: "No picked-up job or GPT window is open."
+    successLog: "Closed the picked-up GPT window.",
+    emptyMessage: "No picked-up GPT window is open."
   });
 }
 
@@ -6746,22 +6743,21 @@ function appendDroppedUrls(dataTransfer) {
   splitWindowUrlsInput.focus();
 }
 
-function getApplicationWorkspaceJobOrGptUrl(workspace) {
+function getApplicationWorkspaceGptUrl(workspace) {
   if (!workspace) {
     return "";
   }
 
   const storedChatUrl = String(workspace.storedExchangeUrl || "").trim();
-  const jobUrl = String(workspace.jobUrl || "").trim();
   const chatGptUrl = String(workspace.chatGptUrl || "").trim();
 
-  // After Exchange, the chat URL is parked while the job is in the main tab.
-  // Otherwise show the job URL (Exchange's next target). Fall back to chat.
-  return storedChatUrl || jobUrl || chatGptUrl;
+  // After Exchange, the GPT URL can be parked while another page is in the
+  // main tab. Never fall back to the job URL; it has its own panel.
+  return storedChatUrl || chatGptUrl;
 }
 
-async function resolveApplicationWorkspaceJobOrGptUrl(workspace) {
-  const fallbackUrl = getApplicationWorkspaceJobOrGptUrl(workspace);
+async function resolveApplicationWorkspaceGptUrl(workspace) {
+  const fallbackUrl = getApplicationWorkspaceGptUrl(workspace);
   if (!workspace || !Number.isInteger(workspace.chatGptTabId)) {
     return fallbackUrl;
   }
@@ -6771,7 +6767,6 @@ async function resolveApplicationWorkspaceJobOrGptUrl(workspace) {
     const mainUrlKey = getWorkspaceUrlComparisonKey(mainTab?.url);
     const seenUrls = new Set();
     const remainingUrl = [
-      workspace.jobUrl,
       workspace.storedExchangeUrl,
       workspace.chatGptUrl
     ]
@@ -6818,7 +6813,7 @@ async function updateApplicationWorkspaceJobGptUrl() {
   ) {
     applicationWorkspaceRecordJobLocation.classList.toggle(
       "is-hidden",
-      !recordJobUrl
+      !isApplicationWorkspace
     );
     applicationWorkspaceRecordJobUrl.textContent = recordJobUrl;
     if (recordJobUrl) {
@@ -6850,8 +6845,8 @@ async function updateApplicationWorkspaceJobGptUrl() {
   }
 
   const url = workspace
-    ? await resolveApplicationWorkspaceJobOrGptUrl(workspace)
-    : String(currentEmptyWorkspaceUrls.job || "").trim();
+    ? await resolveApplicationWorkspaceGptUrl(workspace)
+    : "";
   const actionsDisabled =
     Boolean(workspace?.isBusy) || areActionButtonsDisabled;
 
@@ -7291,9 +7286,6 @@ function updateSaveWorkspaceActions() {
   }
   if (saveWorkspaceDownloadButton) {
     saveWorkspaceDownloadButton.disabled = actionsDisabled;
-  }
-  if (saveWorkspaceExchangeButton) {
-    saveWorkspaceExchangeButton.disabled = actionsDisabled;
   }
   updateApplicationWorkspaceUrlControls();
   updateWorkspacePromptInfoButtons();
@@ -7814,10 +7806,6 @@ saveWorkspaceBuildButton?.addEventListener(
 saveWorkspaceDownloadButton?.addEventListener(
   "click",
   downloadSaveWorkspaceResume
-);
-saveWorkspaceExchangeButton?.addEventListener(
-  "click",
-  exchangeSaveWorkspaceUrls
 );
 buildResumeContextModalBackdrop?.addEventListener("click", () =>
   setBuildResumeContextModalOpen(false)

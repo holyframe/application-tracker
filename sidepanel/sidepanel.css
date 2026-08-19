@@ -2144,13 +2144,9 @@ textarea:focus {
 
 .split-windows-preview-view {
   display: grid;
-  grid-template-rows: auto auto auto minmax(240px, 1fr) auto auto;
+  grid-template-rows: auto auto auto auto minmax(240px, 1fr) auto auto;
   gap: 8px;
   min-height: 0;
-}
-
-.split-windows-preview-view.has-profile-note {
-  grid-template-rows: auto auto auto auto minmax(240px, 1fr) auto auto;
 }
 
 .split-windows-preview-tabs {
@@ -2229,14 +2225,14 @@ textarea:focus {
 }
 
 .split-windows-modal.is-workspace-page .application-workspace-job-gpt-location {
-  grid-row: 1;
+  grid-row: 2;
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .split-windows-modal.is-workspace-page
   .application-workspace-record-job-location:not(.is-hidden) {
   display: grid;
-  grid-row: 2;
+  grid-row: 1;
   grid-template-columns: auto minmax(0, 1fr);
 }
 
@@ -2342,6 +2338,31 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 3px;
+}
+
+.split-windows-modal.is-workspace-page .application-workspace-job-gpt-location {
+  gap: 3px;
+  padding: 2px 3px;
+  border-radius: 7px;
+}
+
+.split-windows-modal.is-workspace-page
+  .application-workspace-job-gpt-location
+  .workspace-url-icon-button {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+
+.split-windows-modal.is-workspace-page
+  .application-workspace-job-gpt-location
+  .workspace-url-icon-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.split-windows-modal.is-workspace-page .application-workspace-job-gpt-url {
+  line-height: 1.2;
 }
 
 .workspace-url-icon-button {
@@ -2513,7 +2534,7 @@ textarea:focus {
 
 .save-workspace-actions {
   display: grid;
-  grid-template-columns: repeat(3, max-content);
+  grid-template-columns: repeat(2, max-content);
   align-items: center;
   justify-content: center;
   gap: 30px;
