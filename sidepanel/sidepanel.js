@@ -8156,12 +8156,20 @@ Promise.all([loadJobDescriptionSelection(), restoreTabSession()])
   .then(() => initActiveTabTracking())
   .then(() => loadSavePostProcessState())
   .finally(() => {
-    refreshMakeResumeButtonAvailability();
-    if (
-      getCurrentSidePanelView() === "home" &&
-      !isSplitWindowsDialogOpen &&
-      !readOpenManagedModalId()
-    ) {
+    refreshMakeResumeButtonAvailability().then(() => {
+      if (
+        getCurrentSidePanelView() !== "home" ||
+        isSplitWindowsDialogOpen ||
+        readOpenManagedModalId()
+      ) {
+        return;
+      }
+
+      if (isCurrentTabGoogleSheet) {
+        setSplitWindowsModalOpen(true);
+        return;
+      }
+
       openEditJobDescriptionModal();
-    }
+    });
   });
