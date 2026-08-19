@@ -2223,7 +2223,8 @@ textarea:focus {
   display: none;
 }
 
-.application-workspace-job-gpt-location {
+.application-workspace-job-gpt-location,
+.application-workspace-record-job-location {
   display: none;
 }
 
@@ -2232,26 +2233,33 @@ textarea:focus {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
-.split-windows-modal.is-workspace-page .save-workspace-actions {
+.split-windows-modal.is-workspace-page
+  .application-workspace-record-job-location:not(.is-hidden) {
+  display: grid;
   grid-row: 2;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.split-windows-modal.is-workspace-page .save-workspace-actions {
+  grid-row: 3;
 }
 
 .split-windows-modal.is-workspace-page
-  .split-windows-preview-location:not(.application-workspace-job-gpt-location) {
-  grid-row: 3;
+  .split-windows-preview-location:not(.application-workspace-job-gpt-location):not(.application-workspace-record-job-location) {
+  grid-row: 4;
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .split-windows-modal.is-workspace-page .split-windows-preview-content {
-  grid-row: 4;
-}
-
-.split-windows-modal.is-workspace-page .split-windows-preview-help {
   grid-row: 5;
 }
 
-.split-windows-modal.is-workspace-page #splitWindowsBatchActions {
+.split-windows-modal.is-workspace-page .split-windows-preview-help {
   grid-row: 6;
+}
+
+.split-windows-modal.is-workspace-page #splitWindowsBatchActions {
+  grid-row: 7;
 }
 
 .split-windows-modal.is-workspace-page .split-windows-preview-location {
@@ -2264,7 +2272,10 @@ textarea:focus {
   box-shadow: 0 8px 20px rgba(7, 11, 45, 0.2);
 }
 
-.split-windows-modal.is-workspace-page .application-workspace-job-gpt-location.is-hidden {
+.split-windows-modal.is-workspace-page
+  .application-workspace-job-gpt-location.is-hidden,
+.split-windows-modal.is-workspace-page
+  .application-workspace-record-job-location.is-hidden {
   display: none;
 }
 
@@ -2274,6 +2285,20 @@ textarea:focus {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  padding: 0 6px;
+  color: #f4f5ff;
+  font-size: 11px;
+}
+
+.split-windows-modal.is-workspace-page .application-workspace-record-job-label {
+  padding-left: 6px;
+  color: rgba(228, 230, 255, 0.72);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.split-windows-modal.is-workspace-page .application-workspace-record-job-url {
+  min-width: 0;
   padding: 0 6px;
   color: #f4f5ff;
   font-size: 11px;

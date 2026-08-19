@@ -87,6 +87,12 @@ const applicationWorkspaceJobGptLocation = document.querySelector(
 const applicationWorkspaceJobGptUrl = document.querySelector(
   "#applicationWorkspaceJobGptUrl"
 );
+const applicationWorkspaceRecordJobLocation = document.querySelector(
+  "#applicationWorkspaceRecordJobLocation"
+);
+const applicationWorkspaceRecordJobUrl = document.querySelector(
+  "#applicationWorkspaceRecordJobUrl"
+);
 const applicationWorkspaceJobGptClosePickupButton = document.querySelector(
   "#applicationWorkspaceJobGptClosePickupButton"
 );
@@ -6800,6 +6806,27 @@ async function updateApplicationWorkspaceJobGptUrl() {
   const isApplicationWorkspace = !isSplitWindowsDialogOpen;
   const hasActiveWorkspace = hasActiveSaveWorkspaceForCurrentTab();
   const workspace = hasActiveWorkspace ? currentSaveWorkspace : null;
+  const recordJobUrl = isApplicationWorkspace
+    ? String(
+        workspace?.recordJobUrl || currentEmptyWorkspaceUrls.job || ""
+      ).trim()
+    : "";
+
+  if (
+    applicationWorkspaceRecordJobLocation &&
+    applicationWorkspaceRecordJobUrl
+  ) {
+    applicationWorkspaceRecordJobLocation.classList.toggle(
+      "is-hidden",
+      !recordJobUrl
+    );
+    applicationWorkspaceRecordJobUrl.textContent = recordJobUrl;
+    if (recordJobUrl) {
+      applicationWorkspaceRecordJobUrl.title = recordJobUrl;
+    } else {
+      applicationWorkspaceRecordJobUrl.removeAttribute("title");
+    }
+  }
 
   // Keep the same Application workspace chrome with or without an active process.
   if (!isApplicationWorkspace) {
