@@ -1082,13 +1082,72 @@
             class="split-windows-preview-location application-workspace-record-job-location is-hidden"
             aria-label="Application job URL"
           >
+            <div class="application-workspace-url-actions">
+              <button
+                id="applicationWorkspaceRecordJobClosePickupButton"
+                type="button"
+                class="workspace-url-icon-button is-hidden"
+                aria-label="Close picked-up Job URL window"
+                title="Close picked-up window"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+              <button
+                id="applicationWorkspaceRecordJobPickupButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Open Job URL in a right-side window"
+                title="Open Job URL in right-side window"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M12 4v16" />
+                  <path d="m15 10 3 3-3 3" />
+                  <path d="M14 13h4" />
+                </svg>
+              </button>
+              <button
+                id="applicationWorkspaceRecordJobCopyButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Copy Job URL to clipboard"
+                title="Copy URL"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
+                </svg>
+              </button>
+            </div>
             <strong class="application-workspace-record-job-label">Job URL</strong>
             <span
               id="applicationWorkspaceRecordJobUrl"
               class="application-workspace-record-job-url"
             ></span>
+            <div class="application-workspace-url-actions">
+              <button
+                id="applicationWorkspaceDeleteButton"
+                type="button"
+                class="workspace-url-icon-button"
+                aria-label="Delete application"
+                title="Delete application"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                  <path d="M6 7l1 14h10l1-14" />
+                  <path d="M9 7V4h6v3" />
+                </svg>
+              </button>
+            </div>
           </div>
-
           <div
             id="applicationWorkspaceJobGptLocation"
             class="split-windows-preview-location application-workspace-job-gpt-location is-hidden"
@@ -1139,87 +1198,6 @@
               id="applicationWorkspaceJobGptUrl"
               class="application-workspace-job-gpt-url"
             ></span>
-            <div class="application-workspace-url-actions">
-              <button
-                id="applicationWorkspaceJobGptClearButton"
-                type="button"
-                class="workspace-url-icon-button"
-                aria-label="Delete application"
-                title="Delete application"
-                disabled
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 7h16" />
-                  <path d="M10 11v6" />
-                  <path d="M14 11v6" />
-                  <path d="M6 7l1 14h10l1-14" />
-                  <path d="M9 7V4h6v3" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <div
-            id="saveWorkspaceActions"
-            class="save-workspace-actions is-hidden"
-          >
-            <div class="action-control-group workspace-action-control">
-              <button
-                id="saveWorkspaceBuildButton"
-                type="button"
-                class="primary-button action-icon-button"
-                aria-label="Build resume"
-                title="Build resume is temporarily unavailable."
-                disabled
-              >
-                <span class="button-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <path d="M14 2v6h6" />
-                    <path d="M12 18v-6" />
-                    <path d="m9 15 3-3 3 3" />
-                  </svg>
-                </span>
-              </button>
-            </div>
-
-            <div class="action-control-group workspace-action-control workspace-download-control">
-              <button
-                id="saveWorkspaceDownloadButton"
-                type="button"
-                class="download-resume-button action-icon-button"
-                aria-label="Download resume"
-                title="Download resume"
-                disabled
-              >
-                <span class="button-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 3v12" />
-                    <path d="m7 10 5 5 5-5" />
-                    <path d="M5 21h14" />
-                  </svg>
-                </span>
-              </button>
-              <button
-                id="saveWorkspaceDownloadOptionsButton"
-                type="button"
-                class="action-settings-button"
-                aria-label="Download resume settings"
-                title="Download resume settings"
-                aria-controls="downloadResumeActionSettingsModal"
-                aria-haspopup="dialog"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 7h9" />
-                  <circle cx="16" cy="7" r="2" />
-                  <path d="M18 7h2" />
-                  <path d="M4 17h2" />
-                  <circle cx="9" cy="17" r="2" />
-                  <path d="M11 17h9" />
-                </svg>
-              </button>
-            </div>
-
           </div>
 
           <div class="split-windows-preview-location">
@@ -1276,6 +1254,69 @@
               aria-label="Application workspace URL"
               placeholder="Enter a URL"
             />
+            <div
+              id="saveWorkspaceActions"
+              class="save-workspace-actions is-hidden"
+            >
+              <div class="action-control-group workspace-action-control">
+                <button
+                  id="saveWorkspaceBuildButton"
+                  type="button"
+                  class="primary-button action-icon-button"
+                  aria-label="Build resume"
+                  title="Build resume is temporarily unavailable."
+                  disabled
+                >
+                  <span class="button-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <path d="M14 2v6h6" />
+                      <path d="M12 18v-6" />
+                      <path d="m9 15 3-3 3 3" />
+                    </svg>
+                  </span>
+                </button>
+              </div>
+
+              <div class="action-control-group workspace-action-control workspace-download-control">
+                <button
+                  id="saveWorkspaceDownloadButton"
+                  type="button"
+                  class="download-resume-button action-icon-button"
+                  aria-label="Download resume"
+                  title="Download resume"
+                  disabled
+                >
+                  <span class="button-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M12 3v12" />
+                      <path d="m7 10 5 5 5-5" />
+                      <path d="M5 21h14" />
+                    </svg>
+                  </span>
+                </button>
+                <button
+                  id="saveWorkspaceDownloadOptionsButton"
+                  type="button"
+                  class="action-settings-button"
+                  aria-label="Download resume settings"
+                  title="Download resume settings"
+                  aria-controls="downloadResumeActionSettingsModal"
+                  aria-haspopup="dialog"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h9" />
+                    <circle cx="16" cy="7" r="2" />
+                    <path d="M18 7h2" />
+                    <path d="M4 17h2" />
+                    <circle cx="9" cy="17" r="2" />
+                    <path d="M11 17h9" />
+                  </svg>
+                </button>
+              </div>
+
+            </div>
+
             <div class="application-workspace-url-actions">
               <button
                 id="applicationWorkspaceRefreshButton"

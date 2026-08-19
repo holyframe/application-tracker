@@ -93,6 +93,15 @@ const applicationWorkspaceRecordJobLocation = document.querySelector(
 const applicationWorkspaceRecordJobUrl = document.querySelector(
   "#applicationWorkspaceRecordJobUrl"
 );
+const applicationWorkspaceRecordJobClosePickupButton = document.querySelector(
+  "#applicationWorkspaceRecordJobClosePickupButton"
+);
+const applicationWorkspaceRecordJobPickupButton = document.querySelector(
+  "#applicationWorkspaceRecordJobPickupButton"
+);
+const applicationWorkspaceRecordJobCopyButton = document.querySelector(
+  "#applicationWorkspaceRecordJobCopyButton"
+);
 const applicationWorkspaceJobGptClosePickupButton = document.querySelector(
   "#applicationWorkspaceJobGptClosePickupButton"
 );
@@ -102,8 +111,8 @@ const applicationWorkspaceJobGptPickupButton = document.querySelector(
 const applicationWorkspaceJobGptCopyButton = document.querySelector(
   "#applicationWorkspaceJobGptCopyButton"
 );
-const applicationWorkspaceJobGptClearButton = document.querySelector(
-  "#applicationWorkspaceJobGptClearButton"
+const applicationWorkspaceDeleteButton = document.querySelector(
+  "#applicationWorkspaceDeleteButton"
 );
 const deleteApplicationModal = document.querySelector("#deleteApplicationModal");
 const deleteApplicationModalBackdrop = document.querySelector(
@@ -5364,21 +5373,30 @@ function setPickupCloseButtonVisible(button, isVisible) {
 }
 
 async function updatePickupCloseButtons() {
-  const jobOrGptUrl = String(
+  const gptUrl = String(
     applicationWorkspaceJobGptUrl?.textContent || ""
   ).trim();
+  const jobUrl = String(
+    applicationWorkspaceRecordJobUrl?.textContent || ""
+  ).trim();
   const resumeUrl = getApplicationWorkspaceResumePickupUrl();
-  const showResumePickup = !isSplitWindowsDialogOpen;
+  const showWorkspacePickup = !isSplitWindowsDialogOpen;
 
-  const [jobPickupWindow, resumePickupWindow] = await Promise.all([
-    jobOrGptUrl ? findPickedUpWindowForUrl(jobOrGptUrl) : Promise.resolve(null),
-    showResumePickup && resumeUrl
-      ? findPickedUpWindowForUrl(resumeUrl)
-      : Promise.resolve(null)
-  ]);
+  const [gptPickupWindow, jobPickupWindow, resumePickupWindow] =
+    await Promise.all([
+      showWorkspacePickup && gptUrl
+        ? findPickedUpWindowForUrl(gptUrl)
+        : Promise.resolve(null),
+      showWorkspacePickup && jobUrl
+        ? findPickedUpWindowForUrl(jobUrl)
+        : Promise.resolve(null),
+      showWorkspacePickup && resumeUrl
+        ? findPickedUpWindowForUrl(resumeUrl)
+        : Promise.resolve(null)
+    ]);
 
   if (applicationWorkspaceJobGptClosePickupButton) {
-    const showClose = Boolean(jobPickupWindow);
+    const showClose = showWorkspacePickup && Boolean(gptPickupWindow);
     setPickupCloseButtonVisible(
       applicationWorkspaceJobGptClosePickupButton,
       showClose
@@ -5386,8 +5404,17 @@ async function updatePickupCloseButtons() {
     applicationWorkspaceJobGptClosePickupButton.disabled = !showClose;
   }
 
+  if (applicationWorkspaceRecordJobClosePickupButton) {
+    const showClose = showWorkspacePickup && Boolean(jobPickupWindow);
+    setPickupCloseButtonVisible(
+      applicationWorkspaceRecordJobClosePickupButton,
+      showClose
+    );
+    applicationWorkspaceRecordJobClosePickupButton.disabled = !showClose;
+  }
+
   if (applicationWorkspaceClosePickupButton) {
-    const showClose = showResumePickup && Boolean(resumePickupWindow);
+    const showClose = showWorkspacePickup && Boolean(resumePickupWindow);
     setPickupCloseButtonVisible(
       applicationWorkspaceClosePickupButton,
       showClose
@@ -5583,22 +5610,26 @@ async function closeApplicationWorkspaceResumePickupWindow() {
   });
 }
 
-async function pickupApplicationWorkspaceJobGptUrl() {
+async function pickupApplicationWorkspacePanelUrl(url, label) {
   if (areActionButtonsDisabled || isSplitWindowsDialogOpen) {
     return;
   }
 
-  const jobOrGptUrl = String(
-    applicationWorkspaceJobGptUrl?.textContent || ""
-  ).trim();
-  if (!jobOrGptUrl) {
-    showStatus("error", "No GPT URL is available to open.");
+  const targetUrl = String(url || "").trim();
+  if (!targetUrl) {
+    showStatus("error", `No ${label} URL is available to open.`);
     return;
   }
 
+  const openOptions = {
+    successLog: `Opened the ${label} URL in a right-side Chrome window.`,
+    reopenSuccessLog: `Reopened the existing ${label} window.`,
+    statusPrefix: "Picked up:"
+  };
+
   if (hasActiveSaveWorkspaceForCurrentTab()) {
     const workspace = beginSaveWorkspaceAction(
-      "Pick up clicked. Opening or reopening the GPT URL in a right-side window..."
+      `Pick up clicked. Opening or reopening the ${label} URL in a right-side window...`
     );
     if (!workspace) {
       return;
@@ -5606,26 +5637,15 @@ async function pickupApplicationWorkspaceJobGptUrl() {
 
     const ownerTabId = workspace.chatGptTabId;
     try {
-      await openWorkspaceUrlInRightWindow(jobOrGptUrl, {
-        ownerTabId,
-        successLog:
-          "Opened the job or ChatGPT URL in a right-side Chrome window.",
-        reopenSuccessLog:
-          "Reopened the existing job or ChatGPT window.",
-        statusPrefix: "Picked up:"
+      await openWorkspaceUrlInRightWindow(targetUrl, {
+        ...openOptions,
+        ownerTabId
       });
     } catch (error) {
       console.error(error);
-      showStatusForTab(
-        ownerTabId,
-        "error",
-        error.message || "Could not open the GPT URL."
-      );
-      addLogForTab(
-        ownerTabId,
-        "error",
-        error.message || "Could not open the GPT URL."
-      );
+      const message = error.message || `Could not open the ${label} URL.`;
+      showStatusForTab(ownerTabId, "error", message);
+      addLogForTab(ownerTabId, "error", message);
     } finally {
       finishSaveWorkspaceAction(workspace);
     }
@@ -5633,17 +5653,25 @@ async function pickupApplicationWorkspaceJobGptUrl() {
   }
 
   try {
-    await openWorkspaceUrlInRightWindow(jobOrGptUrl, {
-      successLog:
-        "Opened the job or ChatGPT URL in a right-side Chrome window.",
-      reopenSuccessLog:
-        "Reopened the existing job or ChatGPT window.",
-      statusPrefix: "Picked up:"
-    });
+    await openWorkspaceUrlInRightWindow(targetUrl, openOptions);
   } catch (error) {
     console.error(error);
-    showStatus("error", error.message || "Could not open the GPT URL.");
+    showStatus("error", error.message || `Could not open the ${label} URL.`);
   }
+}
+
+async function pickupApplicationWorkspaceJobGptUrl() {
+  await pickupApplicationWorkspacePanelUrl(
+    applicationWorkspaceJobGptUrl?.textContent,
+    "GPT"
+  );
+}
+
+async function pickupApplicationWorkspaceRecordJobUrl() {
+  await pickupApplicationWorkspacePanelUrl(
+    applicationWorkspaceRecordJobUrl?.textContent,
+    "Job"
+  );
 }
 
 async function closeApplicationWorkspaceJobGptPickupWindow() {
@@ -5651,27 +5679,46 @@ async function closeApplicationWorkspaceJobGptPickupWindow() {
     return;
   }
 
-  const jobOrGptUrl = String(
+  const gptUrl = String(
     applicationWorkspaceJobGptUrl?.textContent || ""
   ).trim();
   const ownerTabId = hasActiveSaveWorkspaceForCurrentTab()
     ? currentSaveWorkspace?.chatGptTabId
     : activeTabId;
 
-  await closePickedUpWindowForUrl(jobOrGptUrl, {
+  await closePickedUpWindowForUrl(gptUrl, {
     ownerTabId,
     successLog: "Closed the picked-up GPT window.",
     emptyMessage: "No picked-up GPT window is open."
   });
 }
 
-function clearApplicationWorkspaceJobGptUrl() {
+async function closeApplicationWorkspaceRecordJobPickupWindow() {
+  if (isSplitWindowsDialogOpen) {
+    return;
+  }
+
+  const jobUrl = String(
+    applicationWorkspaceRecordJobUrl?.textContent || ""
+  ).trim();
+  const ownerTabId = hasActiveSaveWorkspaceForCurrentTab()
+    ? currentSaveWorkspace?.chatGptTabId
+    : activeTabId;
+
+  await closePickedUpWindowForUrl(jobUrl, {
+    ownerTabId,
+    successLog: "Closed the picked-up Job URL window.",
+    emptyMessage: "No picked-up Job URL window is open."
+  });
+}
+
+function clearEmptyApplicationWorkspaceJobUrl() {
   if (areActionButtonsDisabled || isSplitWindowsDialogOpen) {
     return;
   }
 
   const displayedUrl = String(
-    applicationWorkspaceJobGptUrl?.textContent || ""
+    applicationWorkspaceRecordJobUrl?.textContent || ""
   ).trim();
   if (!displayedUrl) {
     return;
@@ -5728,7 +5775,7 @@ function setDeleteApplicationModalOpen(isOpen, { returnFocus = true } = {}) {
   }
 
   if (returnFocus) {
-    applicationWorkspaceJobGptClearButton?.focus();
+    applicationWorkspaceDeleteButton?.focus();
   }
 }
 
@@ -5738,7 +5785,7 @@ function requestDeleteApplicationWorkspace() {
   }
 
   if (!hasActiveSaveWorkspaceForCurrentTab()) {
-    clearApplicationWorkspaceJobGptUrl();
+    clearEmptyApplicationWorkspaceJobUrl();
     return;
   }
 
@@ -6838,8 +6885,18 @@ async function updateApplicationWorkspaceJobGptUrl() {
     if (applicationWorkspaceJobGptCopyButton) {
       applicationWorkspaceJobGptCopyButton.disabled = true;
     }
-    if (applicationWorkspaceJobGptClearButton) {
-      applicationWorkspaceJobGptClearButton.disabled = true;
+    setPickupCloseButtonVisible(
+      applicationWorkspaceRecordJobClosePickupButton,
+      false
+    );
+    if (applicationWorkspaceRecordJobPickupButton) {
+      applicationWorkspaceRecordJobPickupButton.disabled = true;
+    }
+    if (applicationWorkspaceRecordJobCopyButton) {
+      applicationWorkspaceRecordJobCopyButton.disabled = true;
+    }
+    if (applicationWorkspaceDeleteButton) {
+      applicationWorkspaceDeleteButton.disabled = true;
     }
     return;
   }
@@ -6849,6 +6906,25 @@ async function updateApplicationWorkspaceJobGptUrl() {
     : "";
   const actionsDisabled =
     Boolean(workspace?.isBusy) || areActionButtonsDisabled;
+  const mainTabId = Number.isInteger(workspace?.chatGptTabId)
+    ? workspace.chatGptTabId
+    : activeTabId;
+  let mainTabUrl = "";
+  if (Number.isInteger(mainTabId)) {
+    try {
+      const mainTab = await chrome.tabs.get(mainTabId);
+      mainTabUrl = String(mainTab?.url || "").trim();
+    } catch (_error) {
+      // Keep Pickup available when the main tab cannot be inspected.
+    }
+  }
+  const mainTabUrlKey = getWorkspaceUrlComparisonKey(mainTabUrl);
+  const isGptUrlInMainTab =
+    Boolean(mainTabUrlKey) &&
+    mainTabUrlKey === getWorkspaceUrlComparisonKey(url);
+  const isJobUrlInMainTab =
+    Boolean(mainTabUrlKey) &&
+    mainTabUrlKey === getWorkspaceUrlComparisonKey(recordJobUrl);
 
   applicationWorkspaceJobGptLocation.classList.remove("is-hidden");
   applicationWorkspaceJobGptUrl.textContent = url;
@@ -6858,19 +6934,58 @@ async function updateApplicationWorkspaceJobGptUrl() {
     applicationWorkspaceJobGptUrl.removeAttribute("title");
   }
   if (applicationWorkspaceJobGptPickupButton) {
-    applicationWorkspaceJobGptPickupButton.disabled = !url || actionsDisabled;
+    applicationWorkspaceJobGptPickupButton.disabled =
+      !url || actionsDisabled || isGptUrlInMainTab;
+    applicationWorkspaceJobGptPickupButton.title = isGptUrlInMainTab
+      ? "GPT URL is already open in the main tab"
+      : "Open GPT URL in right-side window";
   }
   if (applicationWorkspaceJobGptCopyButton) {
     applicationWorkspaceJobGptCopyButton.disabled = !url;
   }
-  if (applicationWorkspaceJobGptClearButton) {
-    applicationWorkspaceJobGptClearButton.disabled = !url || actionsDisabled;
+  if (applicationWorkspaceRecordJobPickupButton) {
+    applicationWorkspaceRecordJobPickupButton.disabled =
+      !recordJobUrl || actionsDisabled || isJobUrlInMainTab;
+    applicationWorkspaceRecordJobPickupButton.title = isJobUrlInMainTab
+      ? "Job URL is already open in the main tab"
+      : "Open Job URL in right-side window";
+  }
+  if (applicationWorkspaceRecordJobCopyButton) {
+    applicationWorkspaceRecordJobCopyButton.disabled = !recordJobUrl;
+  }
+  if (applicationWorkspaceDeleteButton) {
+    const canDeleteApplication = hasActiveWorkspace
+      ? Boolean(workspace?.isReady)
+      : Boolean(recordJobUrl);
+    applicationWorkspaceDeleteButton.disabled =
+      !canDeleteApplication || actionsDisabled;
   }
   await updatePickupCloseButtons();
 }
 
 async function copyApplicationWorkspaceJobGptUrl() {
   const url = String(applicationWorkspaceJobGptUrl?.textContent || "").trim();
+  if (!url) {
+    return;
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+    } else {
+      throw new Error("Clipboard access is unavailable.");
+    }
+    showStatus("success", url, "Copied:");
+  } catch (error) {
+    console.error(error);
+    showStatus("error", error.message || "Could not copy the URL.");
+  }
+}
+
+async function copyApplicationWorkspaceRecordJobUrl() {
+  const url = String(
+    applicationWorkspaceRecordJobUrl?.textContent || ""
+  ).trim();
   if (!url) {
     return;
   }
@@ -7772,7 +7887,19 @@ applicationWorkspaceJobGptCopyButton?.addEventListener(
   "click",
   copyApplicationWorkspaceJobGptUrl
 );
-applicationWorkspaceJobGptClearButton?.addEventListener(
+applicationWorkspaceRecordJobPickupButton?.addEventListener(
+  "click",
+  pickupApplicationWorkspaceRecordJobUrl
+);
+applicationWorkspaceRecordJobClosePickupButton?.addEventListener(
+  "click",
+  closeApplicationWorkspaceRecordJobPickupWindow
+);
+applicationWorkspaceRecordJobCopyButton?.addEventListener(
+  "click",
+  copyApplicationWorkspaceRecordJobUrl
+);
+applicationWorkspaceDeleteButton?.addEventListener(
   "click",
   requestDeleteApplicationWorkspace
 );
@@ -8087,9 +8214,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     refreshMakeResumeButtonAvailability();
   }
 
+  const applicationWorkspaceOwnerTabId = Number.isInteger(
+    currentSaveWorkspace?.chatGptTabId
+  )
+    ? currentSaveWorkspace.chatGptTabId
+    : activeTabId;
   if (
     (changeInfo.url || changeInfo.status === "complete") &&
-    currentSaveWorkspace?.chatGptTabId === tabId &&
+    applicationWorkspaceOwnerTabId === tabId &&
     !isSplitWindowsDialogOpen
   ) {
     updateApplicationWorkspaceJobGptUrl();
