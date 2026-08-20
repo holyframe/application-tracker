@@ -10,6 +10,7 @@ const saveWorkspaceDownloadOptionsButton = document.querySelector(
 );
 const saveAssignHotkeyButton = document.querySelector("#saveAssignHotkeyButton");
 const saveHotkeyValue = document.querySelector("#saveHotkeyValue");
+const aiProviderInput = document.querySelector("#aiProviderInput");
 const makeResumeCurrentSettingsButton = document.querySelector(
   "#makeResumeCurrentSettingsButton"
 );
@@ -326,6 +327,13 @@ const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
 const SAVE_PROCESS_BUSY_CODE = "SAVE_PROCESS_BUSY";
+const DEFAULT_AI_PROVIDER_ID = "chatgpt";
+const AI_PROVIDER_LABELS = Object.freeze({
+  chatgpt: "ChatGPT",
+  deepseek: "DeepSeek",
+  claude: "Claude",
+  grok: "Grok"
+});
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
 const DEFAULT_PROFILE_NAME = "Default";
@@ -2311,6 +2319,7 @@ function setSaveButtonsDisabled(disabled) {
     splitWindowsPreviewDownloadButton.disabled = disabled;
   }
   if (saveConfigButton) saveConfigButton.disabled = disabled;
+  if (aiProviderInput) aiProviderInput.disabled = disabled;
   if (exportAppDataIconButton) exportAppDataIconButton.disabled = disabled;
   if (applicationWorkspaceExportButton) {
     applicationWorkspaceExportButton.disabled = disabled;
@@ -3426,7 +3435,7 @@ function openEditPromptModal() {
 
 function openWorkspacePromptInfoModal() {
   if (!promptState.content?.trim()) {
-    showStatus("error", "No GPT prompt is selected yet. Add one in App settings.");
+    showStatus("error", "No AI prompt is selected yet. Add one in App settings.");
     return;
   }
   setPromptFormModalOpen(true, { mode: "fork" });
@@ -3440,7 +3449,7 @@ function renderPromptCard() {
   if (promptState.prompts.length === 0) {
     const empty = document.createElement("p");
     empty.className = "prompt-selection-list-empty prompt-selection-list-empty-action";
-    empty.textContent = "No GPT prompt yet.";
+    empty.textContent = "No AI prompt yet.";
     empty.addEventListener("click", openEditPromptModal);
     promptList.appendChild(empty);
     return;
@@ -3623,8 +3632,8 @@ async function submitPromptForm() {
     addLog(
       "success",
       isFork
-        ? "Updated GPT prompt saved and selected. Previous prompt kept in settings."
-        : "GPT prompt saved."
+        ? "Updated AI prompt saved and selected. Previous prompt kept in settings."
+        : "AI prompt saved."
     );
   } catch (error) {
     console.error(error);
@@ -3870,6 +3879,9 @@ async function loadSheetConfig() {
     if (sheetNameInput) {
       sheetNameInput.value = response.sheetName || "";
     }
+    if (aiProviderInput) {
+      aiProviderInput.value = normalizeAiProviderId(response.aiProviderId);
+    }
   } catch (error) {
     console.error(error);
     addLog("error", error.message || "Could not load configuration.");
@@ -3884,7 +3896,8 @@ async function saveSheetConfig() {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_SHEET_CONFIG",
       spreadsheetId: spreadsheetIdInput?.value.trim() || "",
-      sheetName: sheetNameInput?.value.trim() || ""
+      sheetName: sheetNameInput?.value.trim() || "",
+      aiProviderId: normalizeAiProviderId(aiProviderInput?.value)
     });
 
     if (!response?.ok) {
@@ -3898,7 +3911,13 @@ async function saveSheetConfig() {
       sheetNameInput.value = response.sheetName || "";
     }
 
-    addLog("success", `Saved. Sheet tab "${response.sheetName}".`);
+    if (aiProviderInput) {
+      aiProviderInput.value = normalizeAiProviderId(response.aiProviderId);
+    }
+    addLog(
+      "success",
+      `Saved. Sheet tab "${response.sheetName}". AI provider: ${getAiProviderLabel(response.aiProviderId)}.`
+    );
   } catch (error) {
     console.error(error);
     const message = error.message || "Could not save configuration.";
@@ -4469,7 +4488,7 @@ function validateSaveCurrentTabInputs() {
   const missing = [];
 
   if (!promptState.content?.trim()) {
-    missing.push("GPT prompt");
+    missing.push("AI prompt");
   }
 
   if (!jobDescriptionState.content?.trim()) {
@@ -4741,7 +4760,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       jobUrl: message.jobUrl,
       profileName: message.profileName,
       resumeUrl: message.resumeUrl,
-      chatGptTabId: message.chatGptTabId
+      chatGptTabId: message.chatGptTabId,
+      aiProviderId: message.aiProviderId,
+      aiProviderLabel: message.aiProviderLabel
     });
     adoptSavePostProcessForRunTab(message.runId, message.chatGptTabId);
     // Always adopt this profile tab in the panel. Waiting for tab events fails
@@ -4755,6 +4776,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
 
+  if (message.type === "SAVE_WORKSPACE_AI_URL_AVAILABLE") {
+    if (resolveRunTabIds(message).length === 0) {
+      return;
+    }
+
+    updateSaveWorkspaceAiUrl({
+      chatGptUrl: message.chatGptUrl,
+      chatGptTabId: message.chatGptTabId,
+      aiProviderId: message.aiProviderId,
+      aiProviderLabel: message.aiProviderLabel,
+      hasExactAiUrl: message.hasExactAiUrl
+    });
+    adoptSavePostProcessForRunTab(message.runId, message.chatGptTabId);
+    addLogForTab(
+      message.chatGptTabId,
+      "success",
+      `Permanent ${getAiProviderLabel(message.aiProviderId)} conversation URL is available for Pickup.`
+    );
+    return;
+  }
+
   if (message.type === "SAVE_WORKSPACE_READY") {
     if (resolveRunTabIds(message).length === 0) {
       return;
@@ -4762,7 +4804,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     markSaveWorkspaceReady({
       chatGptUrl: message.chatGptUrl,
-      chatGptTabId: message.chatGptTabId
+      chatGptTabId: message.chatGptTabId,
+      aiProviderId: message.aiProviderId,
+      aiProviderLabel: message.aiProviderLabel,
+      hasExactAiUrl: message.hasExactAiUrl
     });
     adoptSavePostProcessForRunTab(message.runId, message.chatGptTabId);
     activateSaveWorkspaceTab(message.chatGptTabId);
@@ -4969,10 +5014,16 @@ function openBuildResumeContextModal() {
 
 // Returns the workspace the action is bound to so async handlers keep reporting
 // to its tab even after the user switches away.
-function beginSaveWorkspaceAction(message) {
+function beginSaveWorkspaceAction(
+  message,
+  { allowBeforeReady = false } = {}
+) {
   const workspace = currentSaveWorkspace;
 
-  if (!workspace?.isReady || workspace.isBusy) {
+  if (
+    (!workspace?.isReady && !allowBeforeReady) ||
+    workspace?.isBusy
+  ) {
     return null;
   }
 
@@ -5163,7 +5214,7 @@ async function exchangeSaveWorkspaceUrls() {
       !isChatOrClaudeUrl(mainTabUrl)
     ) {
       throw new Error(
-        "The main tab is not a ChatGPT or Claude page, so there is no chat URL to store."
+        "The main tab is not a supported AI provider page, so there is no chat URL to store."
       );
     }
 
@@ -5610,8 +5661,15 @@ async function closeApplicationWorkspaceResumePickupWindow() {
   });
 }
 
-async function pickupApplicationWorkspacePanelUrl(url, label) {
-  if (areActionButtonsDisabled || isSplitWindowsDialogOpen) {
+async function pickupApplicationWorkspacePanelUrl(
+  url,
+  label,
+  { allowWhileSaveRunning = false } = {}
+) {
+  if (
+    (areActionButtonsDisabled && !allowWhileSaveRunning) ||
+    isSplitWindowsDialogOpen
+  ) {
     return;
   }
 
@@ -5629,7 +5687,10 @@ async function pickupApplicationWorkspacePanelUrl(url, label) {
 
   if (hasActiveSaveWorkspaceForCurrentTab()) {
     const workspace = beginSaveWorkspaceAction(
-      `Pick up clicked. Opening or reopening the ${label} URL in a right-side window...`
+      `Pick up clicked. Opening or reopening the ${label} URL in a right-side window...`,
+      {
+        allowBeforeReady: allowWhileSaveRunning
+      }
     );
     if (!workspace) {
       return;
@@ -5661,9 +5722,22 @@ async function pickupApplicationWorkspacePanelUrl(url, label) {
 }
 
 async function pickupApplicationWorkspaceJobGptUrl() {
+  const aiUrl = String(
+    applicationWorkspaceJobGptUrl?.textContent || ""
+  ).trim();
+  const aiProviderLabel =
+    String(currentSaveWorkspace?.aiProviderLabel || "").trim() ||
+    getAiProviderLabel(inferAiProviderIdFromUrl(aiUrl));
+  const exactAiUrlAvailable =
+    currentSaveWorkspace?.hasExactAiUrl === true ||
+    isAiConversationUrl(
+      aiUrl,
+      currentSaveWorkspace?.aiProviderId || inferAiProviderIdFromUrl(aiUrl)
+    );
   await pickupApplicationWorkspacePanelUrl(
-    applicationWorkspaceJobGptUrl?.textContent,
-    "GPT"
+    aiUrl,
+    aiProviderLabel,
+    { allowWhileSaveRunning: exactAiUrlAvailable }
   );
 }
 
@@ -5679,17 +5753,20 @@ async function closeApplicationWorkspaceJobGptPickupWindow() {
     return;
   }
 
-  const gptUrl = String(
+  const aiUrl = String(
     applicationWorkspaceJobGptUrl?.textContent || ""
   ).trim();
   const ownerTabId = hasActiveSaveWorkspaceForCurrentTab()
     ? currentSaveWorkspace?.chatGptTabId
     : activeTabId;
+  const aiProviderLabel =
+    String(currentSaveWorkspace?.aiProviderLabel || "").trim() ||
+    getAiProviderLabel(inferAiProviderIdFromUrl(aiUrl));
 
-  await closePickedUpWindowForUrl(gptUrl, {
+  await closePickedUpWindowForUrl(aiUrl, {
     ownerTabId,
-    successLog: "Closed the picked-up GPT window.",
-    emptyMessage: "No picked-up GPT window is open."
+    successLog: `Closed the picked-up ${aiProviderLabel} window.`,
+    emptyMessage: `No picked-up ${aiProviderLabel} window is open.`
   });
 }
 
@@ -6323,6 +6400,52 @@ async function waitForJobrightApplicationTab(
   return null;
 }
 
+async function filterJobrightApplicationTabUrl(
+  applicationTabId,
+  sourceTabId,
+  timeoutMs = 2000
+) {
+  const deadline = Date.now() + timeoutMs;
+  let applicationUrl = "";
+
+  while (Date.now() < deadline) {
+    const applicationTab = await chrome.tabs.get(applicationTabId);
+    const candidateUrl = String(
+      applicationTab.pendingUrl || applicationTab.url || ""
+    ).trim();
+
+    if (/^https?:\/\//i.test(candidateUrl)) {
+      applicationUrl = candidateUrl;
+      break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  if (!applicationUrl) {
+    return { url: "", filtered: false };
+  }
+
+  const response = await chrome.runtime.sendMessage({
+    type: "NORMALIZE_URL",
+    url: applicationUrl
+  });
+  if (!response?.ok) {
+    throw new Error(response?.error || "Could not filter the application URL.");
+  }
+
+  const filteredUrl = String(response.url || applicationUrl);
+  if (filteredUrl !== applicationUrl) {
+    await chrome.tabs.update(applicationTabId, { url: filteredUrl });
+    await chrome.tabs.update(sourceTabId, { active: true });
+  }
+
+  return {
+    url: filteredUrl,
+    filtered: filteredUrl !== applicationUrl
+  };
+}
+
 async function markJobrightApplicationAlreadyApplied(jobId) {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const normalizeText = (value) =>
@@ -6487,6 +6610,31 @@ async function openJobrightJobs() {
         continue;
       }
 
+      let applicationUrl =
+        applicationTab.pendingUrl || applicationTab.url || "";
+      try {
+        const filteredApplication = await filterJobrightApplicationTabUrl(
+          applicationTab.id,
+          tab.id
+        );
+        applicationUrl = filteredApplication.url || applicationUrl;
+        if (filteredApplication.filtered) {
+          addLogForTab(
+            tab.id,
+            "info",
+            `Removed tracking parameters from the application URL for ${jobId}.`
+          );
+        }
+      } catch (error) {
+        addLogForTab(
+          tab.id,
+          "info",
+          `Application tab opened, but its URL could not be filtered for ${jobId}: ${
+            error.message || "Unknown URL filtering error."
+          }`
+        );
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       let markedAlreadyApplied = false;
@@ -6516,7 +6664,7 @@ async function openJobrightJobs() {
       openedJobs.push({
         jobId,
         tabId: applicationTab.id,
-        url: applicationTab.pendingUrl || applicationTab.url || "",
+        url: applicationUrl,
         markedAlreadyApplied
       });
       addLogForTab(
@@ -6703,7 +6851,7 @@ function parseSplitWindowUrls(value) {
             entryNumber +
             "'s " +
             (isSavedSheetRow ? "column D" : "second field") +
-            " must be a ChatGPT or Claude URL."
+            " must be a ChatGPT, DeepSeek, Claude, or Grok URL."
         );
       }
       if (isChatOrClaudeUrl(jobUrl) || isGoogleDocsUrl(jobUrl)) {
@@ -6735,6 +6883,36 @@ function parseSplitWindowUrls(value) {
 
   return { pairs };
 }
+function normalizeAiProviderId(value) {
+  const providerId = String(value || "").trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(AI_PROVIDER_LABELS, providerId)
+    ? providerId
+    : DEFAULT_AI_PROVIDER_ID;
+}
+
+function getAiProviderLabel(value) {
+  return AI_PROVIDER_LABELS[normalizeAiProviderId(value)];
+}
+
+function inferAiProviderIdFromUrl(url = "") {
+  try {
+    const hostname = new URL(String(url || "").trim()).hostname.toLowerCase();
+    if (hostname === "chat.deepseek.com") {
+      return "deepseek";
+    }
+    if (hostname === "claude.ai" || hostname.endsWith(".claude.ai")) {
+      return "claude";
+    }
+    if (hostname === "grok.com" || hostname.endsWith(".grok.com")) {
+      return "grok";
+    }
+  } catch (_error) {
+    return DEFAULT_AI_PROVIDER_ID;
+  }
+
+  return DEFAULT_AI_PROVIDER_ID;
+}
+
 function isChatOrClaudeUrl(url = "") {
   try {
     const hostname = new URL(String(url || "")).hostname.toLowerCase();
@@ -6743,9 +6921,61 @@ function isChatOrClaudeUrl(url = "") {
       hostname.endsWith(".chatgpt.com") ||
       hostname === "chat.openai.com" ||
       hostname.endsWith(".chat.openai.com") ||
+      hostname === "chat.deepseek.com" ||
       hostname === "claude.ai" ||
-      hostname.endsWith(".claude.ai")
+      hostname.endsWith(".claude.ai") ||
+      hostname === "grok.com" ||
+      hostname.endsWith(".grok.com")
     );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function isChatGptConversationUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || "").trim());
+    const hostname = parsed.hostname.toLowerCase();
+    const isChatGptHost =
+      hostname === "chatgpt.com" ||
+      hostname.endsWith(".chatgpt.com") ||
+      hostname === "chat.openai.com" ||
+      hostname.endsWith(".chat.openai.com");
+    return (
+      isChatGptHost &&
+      /^\/c\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\/?$/i.test(
+        parsed.pathname
+      )
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function isAiConversationUrl(url = "", providerId = DEFAULT_AI_PROVIDER_ID) {
+  const normalizedProviderId = normalizeAiProviderId(providerId);
+  if (normalizedProviderId === "chatgpt") {
+    return isChatGptConversationUrl(url);
+  }
+
+  try {
+    const parsed = new URL(String(url || "").trim());
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname;
+
+    const matches = {
+      deepseek:
+        hostname === "chat.deepseek.com" &&
+        /^\/a\/chat\/s\/[a-z0-9_-]{8,}\/?$/i.test(pathname),
+      claude:
+        (hostname === "claude.ai" || hostname.endsWith(".claude.ai")) &&
+        /^\/chat\/[a-z0-9_-]{8,}\/?$/i.test(pathname),
+      grok:
+        (hostname === "grok.com" || hostname.endsWith(".grok.com")) &&
+        /^\/c\/[a-z0-9_-]{8,}\/?$/i.test(pathname)
+    };
+
+    return Boolean(matches[normalizedProviderId]);
   } catch (_error) {
     return false;
   }
@@ -6933,15 +7163,37 @@ async function updateApplicationWorkspaceJobGptUrl() {
   } else {
     applicationWorkspaceJobGptUrl.removeAttribute("title");
   }
+  const aiProviderLabel =
+    String(workspace?.aiProviderLabel || "").trim() ||
+    getAiProviderLabel(inferAiProviderIdFromUrl(url));
   if (applicationWorkspaceJobGptPickupButton) {
+    const exactAiUrlAvailable =
+      workspace?.hasExactAiUrl === true ||
+      isAiConversationUrl(
+        url,
+        workspace?.aiProviderId || inferAiProviderIdFromUrl(url)
+      );
     applicationWorkspaceJobGptPickupButton.disabled =
-      !url || actionsDisabled || isGptUrlInMainTab;
-    applicationWorkspaceJobGptPickupButton.title = isGptUrlInMainTab
-      ? "GPT URL is already open in the main tab"
-      : "Open GPT URL in right-side window";
+      !url ||
+      Boolean(workspace?.isBusy) ||
+      (!exactAiUrlAvailable &&
+        (areActionButtonsDisabled || isGptUrlInMainTab));
+    applicationWorkspaceJobGptPickupButton.title = exactAiUrlAvailable
+      ? `Open exact ${aiProviderLabel} conversation URL in right-side window`
+      : isGptUrlInMainTab
+        ? `${aiProviderLabel} URL is already open in the main tab`
+        : `Open ${aiProviderLabel} URL in right-side window`;
+    applicationWorkspaceJobGptPickupButton.setAttribute(
+      "aria-label",
+      `Open ${aiProviderLabel} URL in a right-side window`
+    );
   }
   if (applicationWorkspaceJobGptCopyButton) {
     applicationWorkspaceJobGptCopyButton.disabled = !url;
+    applicationWorkspaceJobGptCopyButton.setAttribute(
+      "aria-label",
+      `Copy ${aiProviderLabel} URL to clipboard`
+    );
   }
   if (applicationWorkspaceRecordJobPickupButton) {
     applicationWorkspaceRecordJobPickupButton.disabled =
@@ -7246,7 +7498,7 @@ function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
         ? "Conversation preview unavailable"
         : "",
       unavailableHelp: isConversationPreview
-        ? "ChatGPT and Claude conversations cannot be displayed inside the extension. Use Exchange to open this conversation in the main tab."
+        ? "AI conversations cannot be displayed inside the extension. Use Exchange to open this conversation in the main tab."
         : "",
       helpText: isResume
         ? "The profile resume is embedded in the side panel."
@@ -7417,6 +7669,9 @@ function showSaveWorkspacePreview({
   resumeUrl = "",
   profileNotes = "",
   profileFound = true,
+  aiProviderId = "",
+  aiProviderLabel = "",
+  hasExactAiUrl = false,
   chatGptTabId = null,
   chatGptUrl = "",
   isReady = false,
@@ -7429,6 +7684,15 @@ function showSaveWorkspacePreview({
   const normalizedSessionType =
     sessionType === "make-resume" ? "make-resume" : "save-workspace";
   const normalizedChatGptUrl = String(chatGptUrl || "").trim();
+  const normalizedAiProviderId = normalizeAiProviderId(
+    aiProviderId || inferAiProviderIdFromUrl(normalizedChatGptUrl)
+  );
+  const normalizedAiProviderLabel =
+    String(aiProviderLabel || "").trim() ||
+    getAiProviderLabel(normalizedAiProviderId);
+  const exactAiUrlAvailable =
+    Boolean(hasExactAiUrl) ||
+    isAiConversationUrl(normalizedChatGptUrl, normalizedAiProviderId);
   const workspace = {
     runId,
     sessionType: normalizedSessionType,
@@ -7440,6 +7704,9 @@ function showSaveWorkspacePreview({
     resumeUrl: String(resumeUrl).trim(),
     profileNotes: String(profileNotes || "").trim(),
     profileFound: profileFound !== false,
+    aiProviderId: normalizedAiProviderId,
+    aiProviderLabel: normalizedAiProviderLabel,
+    hasExactAiUrl: exactAiUrlAvailable,
     chatGptTabId,
     chatGptUrl: normalizedChatGptUrl,
     storedExchangeUrl:
@@ -7482,9 +7749,12 @@ function showSaveWorkspacePreview({
   renderSaveWorkspaceSidePanelView();
 }
 
-function markSaveWorkspaceReady({
+function updateSaveWorkspaceAiUrl({
   chatGptUrl = "",
-  chatGptTabId = null
+  chatGptTabId = null,
+  aiProviderId = "",
+  aiProviderLabel = "",
+  hasExactAiUrl = false
 } = {}) {
   const workspace = saveWorkspacesByTabId.get(chatGptTabId);
   if (!workspace || workspace.sessionType !== "save-workspace") {
@@ -7492,6 +7762,40 @@ function markSaveWorkspaceReady({
   }
 
   workspace.chatGptUrl = String(chatGptUrl || "").trim();
+  workspace.aiProviderId = normalizeAiProviderId(
+    aiProviderId || workspace.aiProviderId
+  );
+  workspace.aiProviderLabel =
+    String(aiProviderLabel || "").trim() ||
+    getAiProviderLabel(workspace.aiProviderId);
+  workspace.hasExactAiUrl = Boolean(hasExactAiUrl);
+  if (currentSaveWorkspace === workspace) {
+    updateSaveWorkspaceActions();
+  }
+  schedulePersistTabSession();
+  return true;
+}
+
+function markSaveWorkspaceReady({
+  chatGptUrl = "",
+  chatGptTabId = null,
+  aiProviderId = "",
+  aiProviderLabel = "",
+  hasExactAiUrl = false
+} = {}) {
+  const workspace = saveWorkspacesByTabId.get(chatGptTabId);
+  if (!workspace || workspace.sessionType !== "save-workspace") {
+    return false;
+  }
+
+  workspace.chatGptUrl = String(chatGptUrl || "").trim();
+  workspace.aiProviderId = normalizeAiProviderId(
+    aiProviderId || workspace.aiProviderId
+  );
+  workspace.aiProviderLabel =
+    String(aiProviderLabel || "").trim() ||
+    getAiProviderLabel(workspace.aiProviderId);
+  workspace.hasExactAiUrl = Boolean(hasExactAiUrl);
   workspace.isReady = true;
   // activateSaveWorkspaceTab() bails out on several paths, so the ready state
   // has to reach the buttons here rather than relying on it.

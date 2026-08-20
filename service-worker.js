@@ -4,7 +4,33 @@
 const DEFAULT_SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
 const DEFAULT_SHEET_NAME = "Sheet1";
 const DEFAULT_RESUME_TEMPLATE_ID = "1oF1GQJ6bTEli1548HVyI91O803oQaeP8ec8Y81bj5zM";
-const CHATGPT_URL = "https://chatgpt.com";
+const DEFAULT_AI_PROVIDER_ID = "chatgpt";
+const AI_PROVIDERS = Object.freeze({
+  chatgpt: {
+    id: "chatgpt",
+    label: "ChatGPT",
+    homeUrl: "https://chatgpt.com",
+    contentScript: "content/chatgpt.js"
+  },
+  deepseek: {
+    id: "deepseek",
+    label: "DeepSeek",
+    homeUrl: "https://chat.deepseek.com",
+    contentScript: "content/ai-provider.js"
+  },
+  claude: {
+    id: "claude",
+    label: "Claude",
+    homeUrl: "https://claude.ai/new",
+    contentScript: "content/ai-provider.js"
+  },
+  grok: {
+    id: "grok",
+    label: "Grok",
+    homeUrl: "https://grok.com",
+    contentScript: "content/ai-provider.js"
+  }
+});
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
 const PROMPT_RESUME_SELECTION_STORAGE_KEY = "promptResumeSelection";
 const LEGACY_PROMPT_RESUME_SELECTION_STORAGE_KEY = "resumeSelection";
@@ -86,7 +112,7 @@ const APPLICATION_SHEET_HEADERS = Object.freeze([
   "ISO timestamp",
   "Job-page title",
   "Profile name",
-  "ChatGPT conversation URL",
+  "AI conversation URL",
   "Normalized job URL",
   "Copied resume Google Doc URL",
   "Apply Now"
@@ -1035,6 +1061,7 @@ async function getSheetConfig() {
     config.spreadsheetId || DEFAULT_SPREADSHEET_ID
   );
   const sheetName = String(config.sheetName || DEFAULT_SHEET_NAME).trim();
+  const aiProviderId = normalizeAiProviderId(config.aiProviderId);
 
   if (!spreadsheetId) {
     throw new Error("Google Sheet ID is not configured.");
@@ -1044,7 +1071,7 @@ async function getSheetConfig() {
     throw new Error("Sheet tab name is not configured.");
   }
 
-  return { spreadsheetId, sheetName };
+  return { spreadsheetId, sheetName, aiProviderId };
 }
 
 const APP_DATA_BACKUP_KIND = "application-helper-backup";
@@ -1061,7 +1088,8 @@ async function readSheetConfigForBackup() {
         parseSpreadsheetId(config.spreadsheetId || DEFAULT_SPREADSHEET_ID) ||
         DEFAULT_SPREADSHEET_ID,
       sheetName:
-        String(config.sheetName || DEFAULT_SHEET_NAME).trim() || DEFAULT_SHEET_NAME
+        String(config.sheetName || DEFAULT_SHEET_NAME).trim() || DEFAULT_SHEET_NAME,
+      aiProviderId: normalizeAiProviderId(config.aiProviderId)
     };
   }
 }
@@ -1183,6 +1211,9 @@ async function importAppData(payload, { includePromptResumes = true } = {}) {
     storagePayload[SHEET_CONFIG_STORAGE_KEY] = {
       spreadsheetId,
       sheetName,
+      aiProviderId: normalizeAiProviderId(
+        payload.sheetConfig.aiProviderId || existing.aiProviderId
+      ),
       resumeTemplateId: existing.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID
     };
   }
@@ -1239,9 +1270,14 @@ async function importAppData(payload, { includePromptResumes = true } = {}) {
   };
 }
 
-async function saveSheetConfig(spreadsheetIdInput, sheetNameInput) {
+async function saveSheetConfig(
+  spreadsheetIdInput,
+  sheetNameInput,
+  aiProviderInput
+) {
   const spreadsheetId = parseSpreadsheetId(spreadsheetIdInput);
   const sheetName = String(sheetNameInput ?? "").trim();
+  const aiProviderId = normalizeAiProviderId(aiProviderInput);
 
   if (!spreadsheetId) {
     throw new Error("Enter a valid Google Sheet URL or spreadsheet ID.");
@@ -1261,11 +1297,12 @@ async function saveSheetConfig(spreadsheetIdInput, sheetNameInput) {
     [SHEET_CONFIG_STORAGE_KEY]: {
       spreadsheetId,
       sheetName,
+      aiProviderId,
       resumeTemplateId: existing.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID
     }
   });
 
-  return { spreadsheetId, sheetName };
+  return { spreadsheetId, sheetName, aiProviderId };
 }
 
 async function saveSelectedProfileResumeTemplate(resumeTemplateInput) {
@@ -1334,7 +1371,7 @@ function normalizeUrlForStorage(url) {
   }
 }
 
-const CHATGPT_NEW_TAB_SETTLE_MS = { min: 3000, max: 5000 };
+const AI_CHAT_NEW_TAB_SETTLE_MS = { min: 3000, max: 5000 };
 
 function randomDelayMs(minMs, maxMs) {
   return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
@@ -1412,7 +1449,12 @@ function sleep(ms, signal) {
   });
 }
 
-function waitForTabComplete(tabId, timeoutMs = 30000, signal) {
+function waitForTabComplete(
+  tabId,
+  timeoutMs = 30000,
+  signal,
+  tabLabel = "AI provider"
+) {
   throwIfSaveProcessCancelled(signal);
 
   return new Promise((resolve, reject) => {
@@ -1451,7 +1493,7 @@ function waitForTabComplete(tabId, timeoutMs = 30000, signal) {
         }
 
         if (Date.now() - startedAt > timeoutMs) {
-          finish(reject, new Error("ChatGPT tab took too long to load."));
+          finish(reject, new Error(`${tabLabel} tab took too long to load.`));
           return;
         }
 
@@ -1474,19 +1516,20 @@ function isReceivingEndMissingError(error) {
   );
 }
 
-async function ensureChatGptContentScript(tabId, runId) {
+async function ensureAiProviderContentScript(tabId, runId, aiProviderInput) {
+  const aiProvider = getAiProviderConfig(aiProviderInput);
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ["content/chatgpt.js"]
+      files: [aiProvider.contentScript]
     });
-    sendLog(runId, "info", "Injected ChatGPT content script.");
+    sendLog(runId, "info", `Injected ${aiProvider.label} content script.`);
     return true;
   } catch (error) {
     sendLog(
       runId,
       "error",
-      `Could not inject ChatGPT content script: ${error.message || error}`
+      `Could not inject ${aiProvider.label} content script: ${error.message || error}`
     );
     return false;
   }
@@ -1495,8 +1538,9 @@ async function ensureChatGptContentScript(tabId, runId) {
 async function sendFillAndSendToTab(tabId, text, runId, options = {}) {
   const maxAttempts = Math.max(1, Number(options.maxAttempts) || 24);
   const { signal } = options;
+  const aiProvider = getAiProviderConfig(options.aiProviderId);
   throwIfSaveProcessCancelled(signal);
-  let lastError = new Error("Could not reach ChatGPT page.");
+  let lastError = new Error(`Could not reach the ${aiProvider.label} page.`);
   let didInject = false;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -1514,7 +1558,9 @@ async function sendFillAndSendToTab(tabId, text, runId, options = {}) {
         return response;
       }
 
-      lastError = new Error(response?.error || "Could not fill ChatGPT prompt.");
+      lastError = new Error(
+        response?.error || `Could not fill the ${aiProvider.label} prompt.`
+      );
     } catch (error) {
       lastError = error;
 
@@ -1523,10 +1569,10 @@ async function sendFillAndSendToTab(tabId, text, runId, options = {}) {
         sendLog(
           runId,
           "info",
-          "ChatGPT page not connected. Injecting content script..."
+          `${aiProvider.label} page not connected. Injecting content script...`
         );
         await waitForSaveProcessOperation(
-          () => ensureChatGptContentScript(tabId, runId),
+          () => ensureAiProviderContentScript(tabId, runId, aiProvider.id),
           signal
         );
         continue;
@@ -1537,7 +1583,7 @@ async function sendFillAndSendToTab(tabId, text, runId, options = {}) {
       sendLog(
         runId,
         "info",
-        `Waiting for ChatGPT page (${attempt}/${maxAttempts})...`
+        `Waiting for ${aiProvider.label} page (${attempt}/${maxAttempts})...`
       );
       await sleep(500, signal);
     }
@@ -1680,6 +1726,60 @@ async function configureSidePanelBehavior() {
   await syncSidePanelForAllTabs();
 }
 
+function normalizeAiProviderId(value) {
+  const providerId = String(value || "").trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(AI_PROVIDERS, providerId)
+    ? providerId
+    : DEFAULT_AI_PROVIDER_ID;
+}
+
+function getAiProviderConfig(value) {
+  return AI_PROVIDERS[normalizeAiProviderId(value)];
+}
+
+function isAiConversationUrl(url = "", providerId = DEFAULT_AI_PROVIDER_ID) {
+  try {
+    const provider = getAiProviderConfig(providerId);
+    const parsed = new URL(String(url || "").trim());
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname;
+
+    if (provider.id === "chatgpt") {
+      const isChatGptHost =
+        hostname === "chatgpt.com" ||
+        hostname.endsWith(".chatgpt.com") ||
+        hostname === "chat.openai.com" ||
+        hostname.endsWith(".chat.openai.com");
+      return (
+        isChatGptHost &&
+        /^\/c\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\/?$/i.test(pathname)
+      );
+    }
+
+    if (provider.id === "deepseek") {
+      return (
+        hostname === "chat.deepseek.com" &&
+        /^\/a\/chat\/s\/[a-z0-9_-]{8,}\/?$/i.test(pathname)
+      );
+    }
+
+    if (provider.id === "claude") {
+      return (
+        (hostname === "claude.ai" || hostname.endsWith(".claude.ai")) &&
+        /^\/chat\/[a-z0-9_-]{8,}\/?$/i.test(pathname)
+      );
+    }
+
+    return (
+      provider.id === "grok" &&
+      (hostname === "grok.com" || hostname.endsWith(".grok.com")) &&
+      /^\/c\/[a-z0-9_-]{8,}\/?$/i.test(pathname)
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
 function isChatGptConversationUrl(url = "") {
   try {
     const parsed = new URL(url);
@@ -1700,17 +1800,18 @@ function formatSaveValidationError(missing) {
 }
 
 async function validateApplicationInputsForSave() {
-  const [promptState, jobDescriptionState, profileState] = await Promise.all([
+  const [promptState, jobDescriptionState, profileState, sheetConfig] = await Promise.all([
     getPromptSelectionState(),
     getJobDescriptionSelectionState(),
-    getProfileSelectionState()
+    getProfileSelectionState(),
+    getSheetConfig()
   ]);
 
   const missing = [];
   const selectedProfiles = getSelectedProfilesFromState(profileState);
 
   if (!promptState.content?.trim()) {
-    missing.push("GPT prompt");
+    missing.push("AI prompt");
   }
 
   if (!jobDescriptionState.content?.trim()) {
@@ -1746,7 +1847,8 @@ async function validateApplicationInputsForSave() {
       profileState,
       selectedProfiles,
       promptContent: promptState.content.trim(),
-      jobDescriptionContent: jobDescriptionState.content.trim()
+      jobDescriptionContent: jobDescriptionState.content.trim(),
+      aiProviderId: sheetConfig.aiProviderId
     };
   }
 
@@ -1795,43 +1897,52 @@ async function buildChatGptMessageFromStorage(profile = null, snapshot = null) {
   return parts.join("\n\n");
 }
 
-async function openNewChatGptTab(runId, { active = true, signal } = {}) {
-  sendLog(runId, "info", "Opening ChatGPT in a new tab...");
+async function openNewAiChatTab(runId, {
+  active = true,
+  signal,
+  aiProviderId = DEFAULT_AI_PROVIDER_ID
+} = {}) {
+  const aiProvider = getAiProviderConfig(aiProviderId);
+  sendLog(runId, "info", `Opening ${aiProvider.label} in a new tab...`);
   const tab = await waitForSaveProcessOperation(
-    () => chrome.tabs.create({ url: CHATGPT_URL, active }),
+    () => chrome.tabs.create({ url: aiProvider.homeUrl, active }),
     signal
   );
-  await waitForTabComplete(tab.id, 30000, signal);
+  await waitForTabComplete(tab.id, 30000, signal, aiProvider.label);
 
   return {
-    url: CHATGPT_URL,
-    tabId: typeof tab.id === "number" ? tab.id : null
+    url: aiProvider.homeUrl,
+    tabId: typeof tab.id === "number" ? tab.id : null,
+    aiProviderId: aiProvider.id
   };
 }
 
-async function openChatGptInExistingTab(tabId, runId, options = {}) {
+async function openAiChatInExistingTab(tabId, runId, options = {}) {
   if (typeof tabId !== "number") {
     throw new Error("Current job tab does not have a valid tab ID.");
   }
 
-  sendLog(runId, "info", "Opening ChatGPT in the current job tab...");
+  const aiProvider = getAiProviderConfig(options.aiProviderId);
+  sendLog(runId, "info", `Opening ${aiProvider.label} in the current job tab...`);
   await waitForSaveProcessOperation(
     () => chrome.tabs.update(tabId, {
-      url: CHATGPT_URL,
+      url: aiProvider.homeUrl,
       active: true
     }),
     options.signal
   );
-  await waitForTabComplete(tabId, 30000, options.signal);
+  await waitForTabComplete(tabId, 30000, options.signal, aiProvider.label);
 
   return {
-    url: CHATGPT_URL,
-    tabId
+    url: aiProvider.homeUrl,
+    tabId,
+    aiProviderId: aiProvider.id
   };
 }
 
-async function resolveChatGptUrlAfterSend(tabId, runId, options = {}) {
+async function resolveAiConversationUrlAfterSend(tabId, runId, options = {}) {
   const { signal } = options;
+  const aiProvider = getAiProviderConfig(options.aiProviderId);
   const startedAt = Date.now();
   const timeoutMs = 60000;
 
@@ -1843,7 +1954,7 @@ async function resolveChatGptUrlAfterSend(tabId, runId, options = {}) {
     );
     const url = tab.url || "";
 
-    if (isChatGptConversationUrl(url)) {
+    if (isAiConversationUrl(url, aiProvider.id)) {
       const parsed = new URL(url);
       return `${parsed.origin}${parsed.pathname.replace(/\/$/, "")}`;
     }
@@ -1854,33 +1965,40 @@ async function resolveChatGptUrlAfterSend(tabId, runId, options = {}) {
   sendLog(
     runId,
     "error",
-    "Permanent ChatGPT conversation URL was not available after 60 seconds."
+    `Permanent ${aiProvider.label} conversation URL was not available after 60 seconds.`
   );
   throw new Error(
-    "Could not get the permanent ChatGPT conversation URL. The temporary URL was not saved."
+    `Could not get the permanent ${aiProvider.label} conversation URL. ` +
+      "The temporary URL was not saved."
   );
 }
 
-async function sendToChatGptAndGetUrl(text, runId, options = {}) {
+async function sendToAiAndGetUrl(text, runId, options = {}) {
   const promptText = String(text ?? "").trim();
+  const aiProvider = getAiProviderConfig(options.aiProviderId);
   if (!promptText) {
-    throw new Error("Nothing to send to ChatGPT.");
+    throw new Error(`Nothing to send to ${aiProvider.label}.`);
   }
 
   const targetTab =
     typeof options.tabId === "number"
-      ? await openChatGptInExistingTab(options.tabId, runId, {
-          signal: options.signal
+      ? await openAiChatInExistingTab(options.tabId, runId, {
+          signal: options.signal,
+          aiProviderId: aiProvider.id
         })
-      : await openNewChatGptTab(runId, { active: true, signal: options.signal });
+      : await openNewAiChatTab(runId, {
+          active: true,
+          signal: options.signal,
+          aiProviderId: aiProvider.id
+        });
   const { tabId } = targetTab;
   if (typeof tabId !== "number") {
-    throw new Error("Could not open ChatGPT.");
+    throw new Error(`Could not open ${aiProvider.label}.`);
   }
 
   const settleMs = randomDelayMs(
-    CHATGPT_NEW_TAB_SETTLE_MS.min,
-    CHATGPT_NEW_TAB_SETTLE_MS.max
+    AI_CHAT_NEW_TAB_SETTLE_MS.min,
+    AI_CHAT_NEW_TAB_SETTLE_MS.max
   );
 
   sendLog(
@@ -1890,17 +2008,27 @@ async function sendToChatGptAndGetUrl(text, runId, options = {}) {
   );
   await sleep(settleMs, options.signal);
 
-  sendLog(runId, "info", "Sending prompt to ChatGPT...");
-  await sendFillAndSendToTab(tabId, promptText, runId, { signal: options.signal });
-
-  const chatGptUrl = await resolveChatGptUrlAfterSend(tabId, runId, {
-    signal: options.signal
+  sendLog(runId, "info", `Sending prompt to ${aiProvider.label}...`);
+  await sendFillAndSendToTab(tabId, promptText, runId, {
+    signal: options.signal,
+    aiProviderId: aiProvider.id
   });
-  sendLog(runId, "success", `Prompt sent to ChatGPT: ${chatGptUrl}`);
+
+  const aiConversationUrl = await resolveAiConversationUrlAfterSend(
+    tabId,
+    runId,
+    { signal: options.signal, aiProviderId: aiProvider.id }
+  );
+  sendLog(
+    runId,
+    "success",
+    `Prompt sent to ${aiProvider.label}: ${aiConversationUrl}`
+  );
 
   return {
-    url: chatGptUrl,
-    tabId
+    url: aiConversationUrl,
+    tabId,
+    aiProviderId: aiProvider.id
   };
 }
 
@@ -2433,6 +2561,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     [SHEET_CONFIG_STORAGE_KEY]: {
       spreadsheetId: config.spreadsheetId || DEFAULT_SPREADSHEET_ID,
       sheetName: config.sheetName || DEFAULT_SHEET_NAME,
+      aiProviderId: normalizeAiProviderId(config.aiProviderId),
       resumeTemplateId:
         config.resumeTemplateId || DEFAULT_RESUME_TEMPLATE_ID
     }
@@ -2730,6 +2859,13 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "NORMALIZE_URL") {
+    sendResponse({
+      ok: true,
+      url: normalizeUrlForStorage(message.url)
+    });
+    return;
+  }
   if (message.type === "GET_SHEET_CONFIG") {
     getSheetConfig()
       .then((config) => sendResponse({ ok: true, ...config }))
@@ -2743,7 +2879,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "SAVE_SHEET_CONFIG") {
-    saveSheetConfig(message.spreadsheetId, message.sheetName)
+    saveSheetConfig(
+      message.spreadsheetId,
+      message.sheetName,
+      message.aiProviderId
+    )
       .then((config) => sendResponse({ ok: true, ...config }))
       .catch((error) => {
         sendResponse({
@@ -3073,7 +3213,7 @@ async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId, opt
       signal
     );
     if (typeof duplicateTab.id !== "number") {
-      throw new Error("Could not create a ChatGPT target tab for every profile.");
+      throw new Error("Could not create an AI target tab for every profile.");
     }
     targetTabIds.push(duplicateTab.id);
   }
@@ -3126,6 +3266,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
   });
 
   const selectedProfiles = validation.selectedProfiles;
+  const aiProvider = getAiProviderConfig(validation.aiProviderId);
   const inputSnapshot = {
     promptContent: validation.promptContent,
     jobDescriptionContent: validation.jobDescriptionContent
@@ -3144,7 +3285,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
   try {
     sendLog(runId, "info", "Checking current active tab...");
 
-    // Snapshot before any profile tab is navigated to ChatGPT — the live tab
+    // Snapshot before any profile tab is navigated to the selected AI provider — the live tab
     // URL changes mid-batch and must not rewrite later workspaces' job pages.
     const jobUrl = tab.url;
     const jobTitle = tab.title || "Job page";
@@ -3215,13 +3356,17 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
       );
       sendLog(runId, "success", `Resume copy created: ${resumeUrl}`);
 
-      sendLog(runId, "info", `Preparing ChatGPT prompt for "${profileName}"...`);
-      const chatGptMessage = await buildChatGptMessageFromStorage(
+      sendLog(
+        runId,
+        "info",
+        `Preparing ${aiProvider.label} prompt for "${profileName}"...`
+      );
+      const aiMessage = await buildChatGptMessageFromStorage(
         profile,
         inputSnapshot
       );
       throwIfSaveProcessCancelled(signal);
-      let chatGptUrl = CHATGPT_URL;
+      let chatGptUrl = aiProvider.homeUrl;
       let chatGptTabId = null;
       const targetTabId = targetTabIds[index];
 
@@ -3235,30 +3380,49 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
         jobUrl,
         profileName,
         resumeUrl,
-        chatGptTabId: targetTabId
+        chatGptTabId: targetTabId,
+        aiProviderId: aiProvider.id,
+        aiProviderLabel: aiProvider.label
       });
 
-      if (chatGptMessage) {
-        const chatGptResult = await sendToChatGptAndGetUrl(
-          chatGptMessage,
-          runId,
-          { tabId: targetTabId, signal }
-        );
-        chatGptUrl = chatGptResult.url;
-        chatGptTabId = chatGptResult.tabId;
+      if (aiMessage) {
+        const aiResult = await sendToAiAndGetUrl(aiMessage, runId, {
+          tabId: targetTabId,
+          signal,
+          aiProviderId: aiProvider.id
+        });
+        chatGptUrl = aiResult.url;
+        chatGptTabId = aiResult.tabId;
       } else {
         sendLog(
           runId,
           "info",
-          `No ChatGPT message content was available for "${profileName}".`
+          `No AI message content was available for "${profileName}".`
         );
-        const chatGptResult = await openChatGptInExistingTab(
-          targetTabId,
+        const aiResult = await openAiChatInExistingTab(targetTabId, runId, {
+          signal,
+          aiProviderId: aiProvider.id
+        });
+        chatGptUrl = aiResult.url;
+        chatGptTabId = aiResult.tabId;
+      }
+
+      const hasExactAiUrl = isAiConversationUrl(
+        chatGptUrl,
+        aiProvider.id
+      );
+      if (hasExactAiUrl) {
+        await notifyExtensionPages({
+          type: "SAVE_WORKSPACE_AI_URL_AVAILABLE",
           runId,
-          { signal }
-        );
-        chatGptUrl = chatGptResult.url;
-        chatGptTabId = chatGptResult.tabId;
+          ownerTabId,
+          profileName,
+          chatGptUrl,
+          chatGptTabId,
+          aiProviderId: aiProvider.id,
+          aiProviderLabel: aiProvider.label,
+          hasExactAiUrl
+        });
       }
 
       const row = buildApplicationSheetRow({
@@ -3292,7 +3456,10 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
         ownerTabId,
         profileName,
         chatGptUrl,
-        chatGptTabId
+        chatGptTabId,
+        aiProviderId: aiProvider.id,
+        aiProviderLabel: aiProvider.label,
+        hasExactAiUrl
       });
 
       results.push({
@@ -3300,7 +3467,10 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
         profileName,
         resumeUrl,
         chatGptUrl,
-        chatGptTabId
+        chatGptTabId,
+        aiProviderId: aiProvider.id,
+        aiProviderLabel: aiProvider.label,
+        hasExactAiUrl
       });
       sendLog(
         runId,
@@ -3336,7 +3506,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
     sendLog(
       runId,
       "success",
-      `Finished. Opened ${selectedProfiles.length} ChatGPT ${
+      `Finished. Opened ${selectedProfiles.length} ${aiProvider.label} ${
         selectedProfiles.length === 1 ? "tab" : "tabs"
       } for the selected profiles; no tab group was created.`
     );
@@ -3346,6 +3516,8 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
       chatGptUrl: finalResult.chatGptUrl,
       chatGptTabId: finalResult.chatGptTabId,
       jobTitle,
+      aiProviderId: aiProvider.id,
+      aiProviderLabel: aiProvider.label,
       jobUrl,
       profileName: finalResult.profileName,
       resumeUrl: finalResult.resumeUrl,
