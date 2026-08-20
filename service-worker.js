@@ -16,7 +16,11 @@ const AI_PROVIDERS = Object.freeze({
     id: "deepseek",
     label: "DeepSeek",
     homeUrl: "https://chat.deepseek.com",
-    contentScript: "content/ai-provider.js"
+    contentScript: "content/ai-provider.js",
+    waitForFullPageLoad: false,
+    promptSettleDelayMs: { min: 0, max: 0 },
+    requiredMode: "Expert",
+    maxConnectionAttempts: 60
   },
   claude: {
     id: "claude",
@@ -1535,6 +1539,75 @@ async function ensureAiProviderContentScript(tabId, runId, aiProviderInput) {
   }
 }
 
+async function waitForAiProviderConnection(tabId, runId, options = {}) {
+  const maxAttempts = Math.max(1, Number(options.maxAttempts) || 24);
+  const { signal } = options;
+  const aiProvider = getAiProviderConfig(options.aiProviderId);
+  let lastError = new Error(`Could not reach the ${aiProvider.label} page.`);
+  let didInject = false;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    throwIfSaveProcessCancelled(signal);
+    try {
+      const response = await waitForSaveProcessOperation(
+        () => chrome.tabs.sendMessage(tabId, { type: "PING_AI_PROVIDER" }),
+        signal
+      );
+      if (response?.ok) {
+        return;
+      }
+      lastError = new Error(
+        response?.error || `${aiProvider.label} page is not ready.`
+      );
+    } catch (error) {
+      lastError = error;
+      if (!didInject && isReceivingEndMissingError(error)) {
+        didInject = true;
+        sendLog(
+          runId,
+          "info",
+          `${aiProvider.label} page not connected. Injecting content script...`
+        );
+        await waitForSaveProcessOperation(
+          () => ensureAiProviderContentScript(tabId, runId, aiProvider.id),
+          signal
+        );
+        continue;
+      }
+    }
+
+    if (attempt < maxAttempts) {
+      await sleep(500, signal);
+    }
+  }
+
+  throw lastError;
+}
+
+async function ensureRequiredModeInTab(tabId, runId, options = {}) {
+  const { signal } = options;
+  const aiProvider = getAiProviderConfig(options.aiProviderId);
+  throwIfSaveProcessCancelled(signal);
+  const response = await waitForSaveProcessOperation(
+    () =>
+      chrome.tabs.sendMessage(tabId, {
+        type: "ENSURE_REQUIRED_MODE"
+      }),
+    signal
+  );
+  if (!response?.ok) {
+    throw new Error(
+      response?.error ||
+        `Could not select ${aiProvider.requiredMode} mode in ${aiProvider.label}.`
+    );
+  }
+  sendLog(
+    runId,
+    "info",
+    `${aiProvider.label} ${aiProvider.requiredMode} mode is ready.`
+  );
+}
+
 async function sendFillAndSendToTab(tabId, text, runId, options = {}) {
   const maxAttempts = Math.max(1, Number(options.maxAttempts) || 24);
   const { signal } = options;
@@ -1908,7 +1981,9 @@ async function openNewAiChatTab(runId, {
     () => chrome.tabs.create({ url: aiProvider.homeUrl, active }),
     signal
   );
-  await waitForTabComplete(tab.id, 30000, signal, aiProvider.label);
+  if (aiProvider.waitForFullPageLoad !== false) {
+    await waitForTabComplete(tab.id, 30000, signal, aiProvider.label);
+  }
 
   return {
     url: aiProvider.homeUrl,
@@ -1931,7 +2006,9 @@ async function openAiChatInExistingTab(tabId, runId, options = {}) {
     }),
     options.signal
   );
-  await waitForTabComplete(tabId, 30000, options.signal, aiProvider.label);
+  if (aiProvider.waitForFullPageLoad !== false) {
+    await waitForTabComplete(tabId, 30000, options.signal, aiProvider.label);
+  }
 
   return {
     url: aiProvider.homeUrl,
@@ -1996,22 +2073,49 @@ async function sendToAiAndGetUrl(text, runId, options = {}) {
     throw new Error(`Could not open ${aiProvider.label}.`);
   }
 
-  const settleMs = randomDelayMs(
-    AI_CHAT_NEW_TAB_SETTLE_MS.min,
-    AI_CHAT_NEW_TAB_SETTLE_MS.max
-  );
+  const settleRange =
+    aiProvider.promptSettleDelayMs || AI_CHAT_NEW_TAB_SETTLE_MS;
+  const settleMs = randomDelayMs(settleRange.min, settleRange.max);
 
-  sendLog(
-    runId,
-    "info",
-    `Waiting ${(settleMs / 1000).toFixed(1)}s before filling prompt...`
-  );
-  await sleep(settleMs, options.signal);
+  if (settleMs > 0) {
+    sendLog(
+      runId,
+      "info",
+      `Waiting ${(settleMs / 1000).toFixed(1)}s before filling prompt...`
+    );
+    await sleep(settleMs, options.signal);
+  } else {
+    sendLog(
+      runId,
+      "info",
+      aiProvider.requiredMode
+        ? `Connecting to ${aiProvider.label}...`
+        : `Waiting for ${aiProvider.label} composer and send button...`
+    );
+  }
+
+  if (aiProvider.requiredMode) {
+    await waitForAiProviderConnection(tabId, runId, {
+      signal: options.signal,
+      aiProviderId: aiProvider.id,
+      maxAttempts: aiProvider.maxConnectionAttempts
+    });
+    sendLog(
+      runId,
+      "info",
+      `Checking ${aiProvider.label} ${aiProvider.requiredMode} mode...`
+    );
+    await ensureRequiredModeInTab(tabId, runId, {
+      signal: options.signal,
+      aiProviderId: aiProvider.id
+    });
+  }
 
   sendLog(runId, "info", `Sending prompt to ${aiProvider.label}...`);
   await sendFillAndSendToTab(tabId, promptText, runId, {
     signal: options.signal,
-    aiProviderId: aiProvider.id
+    aiProviderId: aiProvider.id,
+    maxAttempts: aiProvider.requiredMode ? 1 : aiProvider.maxFillAttempts
   });
 
   const aiConversationUrl = await resolveAiConversationUrlAfterSend(

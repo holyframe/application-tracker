@@ -24,7 +24,12 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://chat.deepseek.com/*", "https://claude.ai/*", "https://grok.com/*"],
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": ["content/ai-provider.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://claude.ai/*", "https://grok.com/*"],
       "js": ["content/ai-provider.js"],
       "run_at": "document_idle"
     }
