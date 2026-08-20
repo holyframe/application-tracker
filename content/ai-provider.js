@@ -45,45 +45,6 @@ const PROVIDERS = Object.freeze({
       '[role="button"][title*="send" i]',
       'button[type="submit"]'
     ]
-  },
-  "claude.ai": {
-    label: "Claude",
-    inputSelectors: [
-      'div.ProseMirror[contenteditable="true"]',
-      '[contenteditable="true"][role="textbox"]',
-      '[data-testid*="chat-input"] [contenteditable="true"]',
-      'textarea[placeholder*="message" i]',
-      'textarea'
-    ],
-    sendSelectors: [
-      'button[data-testid="send-button"]',
-      'button[aria-label*="send" i]',
-      'button[type="submit"]'
-    ]
-  },
-  "grok.com": {
-    label: "Grok",
-    useBrowserEditingCommand: true,
-    inputSelectors: [
-      '[data-testid="chat-input"] .ProseMirror[contenteditable="true"]',
-      '[data-testid="chat-input"] [contenteditable="true"][role="textbox"]',
-      '[data-testid="chat-input"] [contenteditable="true"]',
-      '[data-testid="chat-input"] textarea',
-      'div.ProseMirror[contenteditable="true"]',
-      'textarea[placeholder*="ask" i]',
-      'textarea[placeholder*="message" i]',
-      '[contenteditable="true"][role="textbox"]',
-      'div[contenteditable="true"]',
-      'textarea'
-    ],
-    sendSelectors: [
-      'button[data-testid="chat-submit"]',
-      '[data-testid="chat-submit"]',
-      'button[aria-label*="submit" i]',
-      'button[aria-label*="send" i]',
-      'button[data-testid*="send" i]',
-      'button[type="submit"]'
-    ]
   }
 });
 

@@ -21,18 +21,6 @@ const AI_PROVIDERS = Object.freeze({
     promptSettleDelayMs: { min: 0, max: 0 },
     requiredMode: "Expert",
     maxConnectionAttempts: 60
-  },
-  claude: {
-    id: "claude",
-    label: "Claude",
-    homeUrl: "https://claude.ai/new",
-    contentScript: "content/ai-provider.js"
-  },
-  grok: {
-    id: "grok",
-    label: "Grok",
-    homeUrl: "https://grok.com",
-    contentScript: "content/ai-provider.js"
   }
 });
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
@@ -1836,18 +1824,7 @@ function isAiConversationUrl(url = "", providerId = DEFAULT_AI_PROVIDER_ID) {
       );
     }
 
-    if (provider.id === "claude") {
-      return (
-        (hostname === "claude.ai" || hostname.endsWith(".claude.ai")) &&
-        /^\/chat\/[a-z0-9_-]{8,}\/?$/i.test(pathname)
-      );
-    }
-
-    return (
-      provider.id === "grok" &&
-      (hostname === "grok.com" || hostname.endsWith(".grok.com")) &&
-      /^\/c\/[a-z0-9_-]{8,}\/?$/i.test(pathname)
-    );
+    return false;
   } catch (_error) {
     return false;
   }

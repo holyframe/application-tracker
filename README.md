@@ -8,7 +8,7 @@ It combines:
 - Applicant profiles, profile notes, resume templates, and reusable resume text
 - Job-description and reusable AI prompt storage
 - Google Docs template copying and resume generation
-- Prompt submission to ChatGPT, DeepSeek, Claude, or Grok
+- Prompt submission to ChatGPT or DeepSeek
 - Google Sheets application tracking
 - Chrome keyboard shortcuts, in-panel save progress, and Google Docs PDF downloads
 
@@ -30,8 +30,7 @@ job-description snapshot captured when the run starts. Only one Save App run can
 be active at a time.
 
 `Save App` creates one selected-provider workflow per checked profile. ChatGPT
-is the default; DeepSeek, Claude, and Grok are selectable in Save App
-settings. It reuses the
+is the default; DeepSeek is also selectable in Save App settings. It reuses the
 original job tab for the first profile and creates one additional target tab
 for every remaining profile. Before navigating each target to the selected
 provider, the extension opens a full-page Application workspace in the side panel. Its
@@ -129,7 +128,7 @@ columns C-F shift to D-G.
   job URL in a new main tab and registers each tab in the same full-page
   Application workspace used by Save App. The profile name labels the paired
   Google Docs resume and retrieves that profile's locally saved note.
-- Pickup opens an imported ChatGPT, DeepSeek, Claude, or Grok URL in a new
+- Pickup opens an imported ChatGPT or DeepSeek URL in a new
   right-side Chrome window while leaving the job URL in the main tab. Exchange can still swap the
   stored main-tab job/chat URLs. The Notes icon displays the matched profile
   note in a modal. Switching among imported job tabs restores each tab's
@@ -160,7 +159,7 @@ kept until those tabs close.
 ## Configuration and storage
 
 The header Settings modal accepts a Google Spreadsheet URL or ID and an AI
-provider. ChatGPT is the default; DeepSeek, Claude, and Grok are also available.
+provider. ChatGPT is the default; DeepSeek is also available.
 Application records are routed to the tab matching each selected profile name, and missing
 profile tabs are created automatically. The configured default tab name is
 retained for backward compatibility.

@@ -330,9 +330,7 @@ const SAVE_PROCESS_BUSY_CODE = "SAVE_PROCESS_BUSY";
 const DEFAULT_AI_PROVIDER_ID = "chatgpt";
 const AI_PROVIDER_LABELS = Object.freeze({
   chatgpt: "ChatGPT",
-  deepseek: "DeepSeek",
-  claude: "Claude",
-  grok: "Grok"
+  deepseek: "DeepSeek"
 });
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
@@ -5211,7 +5209,7 @@ async function exchangeSaveWorkspaceUrls() {
     if (
       !isImportedWorkspace &&
       !isRestoringChat &&
-      !isChatOrClaudeUrl(mainTabUrl)
+      !isSupportedAiUrl(mainTabUrl)
     ) {
       throw new Error(
         "The main tab is not a supported AI provider page, so there is no chat URL to store."
@@ -5225,9 +5223,9 @@ async function exchangeSaveWorkspaceUrls() {
 
     if (isImportedWorkspace) {
       workspace.jobUrl = mainTabUrl;
-      if (isChatOrClaudeUrl(mainTabUrl)) {
+      if (isSupportedAiUrl(mainTabUrl)) {
         workspace.chatGptUrl = mainTabUrl;
-      } else if (isChatOrClaudeUrl(nextMainTabUrl)) {
+      } else if (isSupportedAiUrl(nextMainTabUrl)) {
         workspace.chatGptUrl = nextMainTabUrl;
       }
       if (currentSaveWorkspace === workspace) {
@@ -6845,16 +6843,16 @@ function parseSplitWindowUrls(value) {
           (isSavedSheetRow ? "column F Google Doc" : "Google Doc")
       );
 
-      if (!isChatOrClaudeUrl(chatUrl)) {
+      if (!isSupportedAiUrl(chatUrl)) {
         throw new Error(
           "Entry " +
             entryNumber +
             "'s " +
             (isSavedSheetRow ? "column D" : "second field") +
-            " must be a ChatGPT, DeepSeek, Claude, or Grok URL."
+            " must be a ChatGPT or DeepSeek URL."
         );
       }
-      if (isChatOrClaudeUrl(jobUrl) || isGoogleDocsUrl(jobUrl)) {
+      if (isSupportedAiUrl(jobUrl) || isGoogleDocsUrl(jobUrl)) {
         throw new Error(
           "Entry " +
             entryNumber +
@@ -6900,12 +6898,6 @@ function inferAiProviderIdFromUrl(url = "") {
     if (hostname === "chat.deepseek.com") {
       return "deepseek";
     }
-    if (hostname === "claude.ai" || hostname.endsWith(".claude.ai")) {
-      return "claude";
-    }
-    if (hostname === "grok.com" || hostname.endsWith(".grok.com")) {
-      return "grok";
-    }
   } catch (_error) {
     return DEFAULT_AI_PROVIDER_ID;
   }
@@ -6913,7 +6905,7 @@ function inferAiProviderIdFromUrl(url = "") {
   return DEFAULT_AI_PROVIDER_ID;
 }
 
-function isChatOrClaudeUrl(url = "") {
+function isSupportedAiUrl(url = "") {
   try {
     const hostname = new URL(String(url || "")).hostname.toLowerCase();
     return (
@@ -6921,11 +6913,7 @@ function isChatOrClaudeUrl(url = "") {
       hostname.endsWith(".chatgpt.com") ||
       hostname === "chat.openai.com" ||
       hostname.endsWith(".chat.openai.com") ||
-      hostname === "chat.deepseek.com" ||
-      hostname === "claude.ai" ||
-      hostname.endsWith(".claude.ai") ||
-      hostname === "grok.com" ||
-      hostname.endsWith(".grok.com")
+      hostname === "chat.deepseek.com"
     );
   } catch (_error) {
     return false;
@@ -6960,22 +6948,11 @@ function isAiConversationUrl(url = "", providerId = DEFAULT_AI_PROVIDER_ID) {
 
   try {
     const parsed = new URL(String(url || "").trim());
-    const hostname = parsed.hostname.toLowerCase();
-    const pathname = parsed.pathname;
-
-    const matches = {
-      deepseek:
-        hostname === "chat.deepseek.com" &&
-        /^\/a\/chat\/s\/[a-z0-9_-]{8,}\/?$/i.test(pathname),
-      claude:
-        (hostname === "claude.ai" || hostname.endsWith(".claude.ai")) &&
-        /^\/chat\/[a-z0-9_-]{8,}\/?$/i.test(pathname),
-      grok:
-        (hostname === "grok.com" || hostname.endsWith(".grok.com")) &&
-        /^\/c\/[a-z0-9_-]{8,}\/?$/i.test(pathname)
-    };
-
-    return Boolean(matches[normalizedProviderId]);
+    return (
+      normalizedProviderId === "deepseek" &&
+      parsed.hostname.toLowerCase() === "chat.deepseek.com" &&
+      /^\/a\/chat\/s\/[a-z0-9_-]{8,}\/?$/i.test(parsed.pathname)
+    );
   } catch (_error) {
     return false;
   }
@@ -7485,7 +7462,7 @@ function setSaveWorkspaceTab(activeTab, { forceReload = false } = {}) {
     const previewUrl = isResume
       ? currentSaveWorkspace.resumeUrl
       : currentSaveWorkspace.jobUrl;
-    const isConversationPreview = !isResume && isChatOrClaudeUrl(previewUrl);
+    const isConversationPreview = !isResume && isSupportedAiUrl(previewUrl);
 
     setSplitWindowsPreview(previewUrl, {
       title: getApplicationWorkspaceTitle(currentSaveWorkspace),
@@ -7537,7 +7514,7 @@ function showBlockedInformationPagePreview() {
   }
 
   const previewUrl = String(currentSaveWorkspace.jobUrl || "").trim();
-  if (!previewUrl || isChatOrClaudeUrl(previewUrl)) {
+  if (!previewUrl || isSupportedAiUrl(previewUrl)) {
     return;
   }
 
