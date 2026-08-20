@@ -6843,15 +6843,6 @@ function parseSplitWindowUrls(value) {
           (isSavedSheetRow ? "column F Google Doc" : "Google Doc")
       );
 
-      if (!isSupportedAiUrl(chatUrl)) {
-        throw new Error(
-          "Entry " +
-            entryNumber +
-            "'s " +
-            (isSavedSheetRow ? "column D" : "second field") +
-            " must be a ChatGPT or DeepSeek URL."
-        );
-      }
       if (isSupportedAiUrl(jobUrl) || isGoogleDocsUrl(jobUrl)) {
         throw new Error(
           "Entry " +
