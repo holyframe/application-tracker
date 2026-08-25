@@ -21,6 +21,14 @@ const AI_PROVIDERS = Object.freeze({
     promptSettleDelayMs: { min: 0, max: 0 },
     requiredMode: "Expert",
     maxConnectionAttempts: 60
+  },
+  // Sends nothing to a chat site. The assembled context becomes a Google Doc and
+  // that doc URL takes the place of the conversation URL everywhere downstream.
+  none: {
+    id: "none",
+    label: "No Model",
+    urlLabel: "Context Doc",
+    contextDocOnly: true
   }
 });
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
@@ -1798,9 +1806,18 @@ function getAiProviderConfig(value) {
   return AI_PROVIDERS[normalizeAiProviderId(value)];
 }
 
+function getAiProviderUrlLabel(value) {
+  const provider = getAiProviderConfig(value);
+  return provider.urlLabel || provider.label;
+}
+
 function isAiConversationUrl(url = "", providerId = DEFAULT_AI_PROVIDER_ID) {
   try {
     const provider = getAiProviderConfig(providerId);
+    if (provider.contextDocOnly) {
+      return isGoogleDocsDocumentUrl(url);
+    }
+
     const parsed = new URL(String(url || "").trim());
     const hostname = parsed.hostname.toLowerCase();
     const pathname = parsed.pathname;
@@ -2110,6 +2127,140 @@ async function sendToAiAndGetUrl(text, runId, options = {}) {
     url: aiConversationUrl,
     tabId,
     aiProviderId: aiProvider.id
+  };
+}
+
+async function createEmptyGoogleDoc(token, title, options = {}) {
+  return fetch("https://docs.googleapis.com/v1/documents", {
+    method: "POST",
+    signal: options.signal,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ title })
+  });
+}
+
+async function saveContextToGoogleDoc(text, runId, options = {}) {
+  const contextText = String(text ?? "").trim();
+  if (!contextText) {
+    throw new Error("Nothing to save to Google Docs.");
+  }
+
+  const title = String(options.title || "").trim() || "Application context";
+  let token =
+    options.token ||
+    (await waitForSaveProcessOperation(
+      () => getGoogleAccessToken(),
+      options.signal
+    ));
+
+  sendLog(runId, "info", `Creating context Google Doc "${title}"...`);
+  let response = await waitForSaveProcessOperation(
+    () => createEmptyGoogleDoc(token, title, { signal: options.signal }),
+    options.signal
+  );
+
+  if (response.status === 401 || response.status === 403) {
+    sendLog(
+      runId,
+      "info",
+      "Context doc auth error. Refreshing token and retrying..."
+    );
+    await clearCachedGoogleAccessToken(token);
+    token = await waitForSaveProcessOperation(
+      () => getGoogleAccessToken({ interactive: true }),
+      options.signal
+    );
+    response = await waitForSaveProcessOperation(
+      () => createEmptyGoogleDoc(token, title, { signal: options.signal }),
+      options.signal
+    );
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      formatGoogleApiError(
+        errorText,
+        "Could not create the context Google Doc. Make sure your Google account granted Google Docs access."
+      )
+    );
+  }
+
+  const file = await response.json();
+  const documentId = file.documentId;
+  if (!documentId) {
+    throw new Error(
+      "Google Docs API did not return a document ID for the context doc."
+    );
+  }
+
+  throwIfSaveProcessCancelled(options.signal);
+  await batchUpdateGoogleDocWithAuthRetry(
+    token,
+    documentId,
+    [
+      {
+        insertText: {
+          location: { index: 1 },
+          text: contextText
+        }
+      }
+    ],
+    runId,
+    "Could not write the context into the new Google Doc."
+  );
+
+  const url = `https://docs.google.com/document/d/${documentId}/edit`;
+  sendLog(runId, "success", `Context saved to Google Docs: ${url}`);
+
+  return { url, documentId };
+}
+
+async function saveContextToGoogleDocAndOpen(text, runId, options = {}) {
+  const { url } = await saveContextToGoogleDoc(text, runId, options);
+  let tabId = Number.isInteger(options.tabId) ? options.tabId : null;
+
+  if (tabId === null) {
+    sendLog(runId, "info", "Opening the context Google Doc in a new tab...");
+    const tab = await waitForSaveProcessOperation(
+      () => chrome.tabs.create({ url, active: true }),
+      options.signal
+    );
+    tabId = typeof tab.id === "number" ? tab.id : null;
+  } else {
+    sendLog(
+      runId,
+      "info",
+      "Opening the context Google Doc in the current job tab..."
+    );
+    await waitForSaveProcessOperation(
+      () => chrome.tabs.update(tabId, { url, active: true }),
+      options.signal
+    );
+  }
+
+  if (Number.isInteger(tabId)) {
+    try {
+      await waitForTabComplete(tabId, 30000, options.signal, "Google Docs");
+    } catch (error) {
+      if (isSaveProcessCancelledError(error)) {
+        throw error;
+      }
+      sendLog(
+        runId,
+        "info",
+        `Context Google Doc tab is still loading: ${error.message || error}`
+      );
+    }
+  }
+
+  return {
+    url,
+    tabId,
+    aiProviderId: "none"
   };
 }
 
@@ -3348,6 +3499,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
 
   const selectedProfiles = validation.selectedProfiles;
   const aiProvider = getAiProviderConfig(validation.aiProviderId);
+  const aiProviderUrlLabel = getAiProviderUrlLabel(aiProvider.id);
   const inputSnapshot = {
     promptContent: validation.promptContent,
     jobDescriptionContent: validation.jobDescriptionContent
@@ -3440,14 +3592,16 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
       sendLog(
         runId,
         "info",
-        `Preparing ${aiProvider.label} prompt for "${profileName}"...`
+        aiProvider.contextDocOnly
+          ? `Preparing context for "${profileName}"...`
+          : `Preparing ${aiProvider.label} prompt for "${profileName}"...`
       );
       const aiMessage = await buildChatGptMessageFromStorage(
         profile,
         inputSnapshot
       );
       throwIfSaveProcessCancelled(signal);
-      let chatGptUrl = aiProvider.homeUrl;
+      let chatGptUrl = aiProvider.homeUrl || "";
       let chatGptTabId = null;
       const targetTabId = targetTabIds[index];
 
@@ -3463,10 +3617,23 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
         resumeUrl,
         chatGptTabId: targetTabId,
         aiProviderId: aiProvider.id,
-        aiProviderLabel: aiProvider.label
+        aiProviderLabel: aiProviderUrlLabel
       });
 
-      if (aiMessage) {
+      if (aiProvider.contextDocOnly) {
+        const contextResult = await saveContextToGoogleDocAndOpen(
+          aiMessage,
+          runId,
+          {
+            tabId: targetTabId,
+            title: `${docTitle} - Context`,
+            token,
+            signal
+          }
+        );
+        chatGptUrl = contextResult.url;
+        chatGptTabId = contextResult.tabId;
+      } else if (aiMessage) {
         const aiResult = await sendToAiAndGetUrl(aiMessage, runId, {
           tabId: targetTabId,
           signal,
@@ -3501,7 +3668,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
           chatGptUrl,
           chatGptTabId,
           aiProviderId: aiProvider.id,
-          aiProviderLabel: aiProvider.label,
+          aiProviderLabel: aiProviderUrlLabel,
           hasExactAiUrl
         });
       }
@@ -3539,7 +3706,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
         chatGptUrl,
         chatGptTabId,
         aiProviderId: aiProvider.id,
-        aiProviderLabel: aiProvider.label,
+        aiProviderLabel: aiProviderUrlLabel,
         hasExactAiUrl
       });
 
@@ -3587,9 +3754,13 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
     sendLog(
       runId,
       "success",
-      `Finished. Opened ${selectedProfiles.length} ${aiProvider.label} ${
-        selectedProfiles.length === 1 ? "tab" : "tabs"
-      } for the selected profiles; no tab group was created.`
+      aiProvider.contextDocOnly
+        ? `Finished. Saved ${selectedProfiles.length} context Google ${
+            selectedProfiles.length === 1 ? "Doc" : "Docs"
+          } for the selected profiles; no tab group was created.`
+        : `Finished. Opened ${selectedProfiles.length} ${aiProvider.label} ${
+            selectedProfiles.length === 1 ? "tab" : "tabs"
+          } for the selected profiles; no tab group was created.`
     );
 
     return {

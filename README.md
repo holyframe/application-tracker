@@ -8,7 +8,7 @@ It combines:
 - Applicant profiles, profile notes, resume templates, and reusable resume text
 - Job-description and reusable AI prompt storage
 - Google Docs template copying and resume generation
-- Prompt submission to ChatGPT or DeepSeek
+- Prompt submission to ChatGPT or DeepSeek, or context capture into a Google Doc
 - Google Sheets application tracking
 - Chrome keyboard shortcuts, in-panel save progress, and Google Docs PDF downloads
 
@@ -30,12 +30,18 @@ job-description snapshot captured when the run starts. Only one Save App run can
 be active at a time.
 
 `Save App` creates one selected-provider workflow per checked profile. ChatGPT
-is the default; DeepSeek is also selectable in Save App settings. It reuses the
-original job tab for the first profile and creates one additional target tab
-for every remaining profile. Before navigating each target to the selected
-provider, the extension opens a full-page Application workspace in the side panel. Its
+is the default; DeepSeek and No Model are also selectable in Save App settings.
+It reuses the original job tab for the first profile and creates one additional
+target tab for every remaining profile. Before navigating each target to the
+selected provider, the extension opens a full-page Application workspace in the side panel. Its
 header is labeled `Application workspace {profile name}`, and the copied
 profile resume is embedded without a separate tab panel.
+
+With `No Model`, nothing is sent to a chat site. The prepared message is written
+into a new Google Doc titled `{job title} - Context` (or
+`{job title} - {profile name} - Context` for multi-profile runs), that doc opens
+in the profile's target tab, and its URL is saved in place of the conversation
+URL.
 
 Build resume, Download resume, and Exchange appear above the URL panel. Build
 resume opens a Resume Context dialog and maps the submitted text onto the
@@ -100,7 +106,7 @@ automatically. The extension appends seven columns:
 | A | ISO timestamp |
 | B | Job-page title |
 | C | Profile name, exactly as stored in the app |
-| D | Selected AI provider conversation URL |
+| D | Selected AI provider conversation URL, or the context Google Doc URL with No Model |
 | E | Normalized job URL |
 | F | Copied resume-document URL |
 | G | Reserved (left blank by Save App) |
@@ -159,7 +165,7 @@ kept until those tabs close.
 ## Configuration and storage
 
 The header Settings modal accepts a Google Spreadsheet URL or ID and an AI
-provider. ChatGPT is the default; DeepSeek is also available.
+provider. ChatGPT is the default; DeepSeek and No Model are also available.
 Application records are routed to the tab matching each selected profile name, and missing
 profile tabs are created automatically. The configured default tab name is
 retained for backward compatibility.

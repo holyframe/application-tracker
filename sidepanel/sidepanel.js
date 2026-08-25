@@ -328,9 +328,18 @@ const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
 const SAVE_PROCESS_BUSY_CODE = "SAVE_PROCESS_BUSY";
 const DEFAULT_AI_PROVIDER_ID = "chatgpt";
+const CONTEXT_DOC_AI_PROVIDER_ID = "none";
 const AI_PROVIDER_LABELS = Object.freeze({
   chatgpt: "ChatGPT",
-  deepseek: "DeepSeek"
+  deepseek: "DeepSeek",
+  none: "No Model"
+});
+// "No Model" keeps the assembled context in a Google Doc instead of a chat
+// conversation, so workspace controls name that URL differently.
+const AI_PROVIDER_URL_LABELS = Object.freeze({
+  chatgpt: "ChatGPT",
+  deepseek: "DeepSeek",
+  none: "Context Doc"
 });
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
@@ -4790,7 +4799,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     addLogForTab(
       message.chatGptTabId,
       "success",
-      `Permanent ${getAiProviderLabel(message.aiProviderId)} conversation URL is available for Pickup.`
+      isContextDocAiProviderId(message.aiProviderId)
+        ? "Context Google Doc URL is available for Pickup."
+        : `Permanent ${getAiProviderLabel(message.aiProviderId)} conversation URL is available for Pickup.`
     );
     return;
   }
@@ -5206,13 +5217,17 @@ async function exchangeSaveWorkspaceUrls() {
     if (!mainTabUrl || !nextMainTabUrl) {
       throw new Error("Could not identify the URL needed for Exchange.");
     }
-    if (
-      !isImportedWorkspace &&
-      !isRestoringChat &&
-      !isSupportedAiUrl(mainTabUrl)
-    ) {
+    const isContextDocWorkspace = isContextDocAiProviderId(
+      workspace.aiProviderId
+    );
+    const canStoreMainTabUrl = isContextDocWorkspace
+      ? isGoogleDocsUrl(mainTabUrl)
+      : isSupportedAiUrl(mainTabUrl);
+    if (!isImportedWorkspace && !isRestoringChat && !canStoreMainTabUrl) {
       throw new Error(
-        "The main tab is not a supported AI provider page, so there is no chat URL to store."
+        isContextDocWorkspace
+          ? "The main tab is not the context Google Doc, so there is no URL to store."
+          : "The main tab is not a supported AI provider page, so there is no chat URL to store."
       );
     }
 
@@ -5725,7 +5740,7 @@ async function pickupApplicationWorkspaceJobGptUrl() {
   ).trim();
   const aiProviderLabel =
     String(currentSaveWorkspace?.aiProviderLabel || "").trim() ||
-    getAiProviderLabel(inferAiProviderIdFromUrl(aiUrl));
+    getAiProviderUrlLabel(inferAiProviderIdFromUrl(aiUrl));
   const exactAiUrlAvailable =
     currentSaveWorkspace?.hasExactAiUrl === true ||
     isAiConversationUrl(
@@ -5759,7 +5774,7 @@ async function closeApplicationWorkspaceJobGptPickupWindow() {
     : activeTabId;
   const aiProviderLabel =
     String(currentSaveWorkspace?.aiProviderLabel || "").trim() ||
-    getAiProviderLabel(inferAiProviderIdFromUrl(aiUrl));
+    getAiProviderUrlLabel(inferAiProviderIdFromUrl(aiUrl));
 
   await closePickedUpWindowForUrl(aiUrl, {
     ownerTabId,
@@ -6883,11 +6898,22 @@ function getAiProviderLabel(value) {
   return AI_PROVIDER_LABELS[normalizeAiProviderId(value)];
 }
 
+function getAiProviderUrlLabel(value) {
+  return AI_PROVIDER_URL_LABELS[normalizeAiProviderId(value)];
+}
+
+function isContextDocAiProviderId(value) {
+  return normalizeAiProviderId(value) === CONTEXT_DOC_AI_PROVIDER_ID;
+}
+
 function inferAiProviderIdFromUrl(url = "") {
   try {
     const hostname = new URL(String(url || "").trim()).hostname.toLowerCase();
     if (hostname === "chat.deepseek.com") {
       return "deepseek";
+    }
+    if (isGoogleDocsUrl(url)) {
+      return CONTEXT_DOC_AI_PROVIDER_ID;
     }
   } catch (_error) {
     return DEFAULT_AI_PROVIDER_ID;
@@ -6935,6 +6961,10 @@ function isAiConversationUrl(url = "", providerId = DEFAULT_AI_PROVIDER_ID) {
   const normalizedProviderId = normalizeAiProviderId(providerId);
   if (normalizedProviderId === "chatgpt") {
     return isChatGptConversationUrl(url);
+  }
+
+  if (normalizedProviderId === CONTEXT_DOC_AI_PROVIDER_ID) {
+    return isGoogleDocsUrl(url);
   }
 
   try {
@@ -7131,23 +7161,23 @@ async function updateApplicationWorkspaceJobGptUrl() {
   } else {
     applicationWorkspaceJobGptUrl.removeAttribute("title");
   }
+  const aiProviderId = workspace?.aiProviderId || inferAiProviderIdFromUrl(url);
   const aiProviderLabel =
     String(workspace?.aiProviderLabel || "").trim() ||
-    getAiProviderLabel(inferAiProviderIdFromUrl(url));
+    getAiProviderUrlLabel(aiProviderId);
   if (applicationWorkspaceJobGptPickupButton) {
     const exactAiUrlAvailable =
       workspace?.hasExactAiUrl === true ||
-      isAiConversationUrl(
-        url,
-        workspace?.aiProviderId || inferAiProviderIdFromUrl(url)
-      );
+      isAiConversationUrl(url, aiProviderId);
     applicationWorkspaceJobGptPickupButton.disabled =
       !url ||
       Boolean(workspace?.isBusy) ||
       (!exactAiUrlAvailable &&
         (areActionButtonsDisabled || isGptUrlInMainTab));
     applicationWorkspaceJobGptPickupButton.title = exactAiUrlAvailable
-      ? `Open exact ${aiProviderLabel} conversation URL in right-side window`
+      ? isContextDocAiProviderId(aiProviderId)
+        ? `Open the saved ${aiProviderLabel} in right-side window`
+        : `Open exact ${aiProviderLabel} conversation URL in right-side window`
       : isGptUrlInMainTab
         ? `${aiProviderLabel} URL is already open in the main tab`
         : `Open ${aiProviderLabel} URL in right-side window`;
@@ -7657,7 +7687,7 @@ function showSaveWorkspacePreview({
   );
   const normalizedAiProviderLabel =
     String(aiProviderLabel || "").trim() ||
-    getAiProviderLabel(normalizedAiProviderId);
+    getAiProviderUrlLabel(normalizedAiProviderId);
   const exactAiUrlAvailable =
     Boolean(hasExactAiUrl) ||
     isAiConversationUrl(normalizedChatGptUrl, normalizedAiProviderId);
@@ -7735,7 +7765,7 @@ function updateSaveWorkspaceAiUrl({
   );
   workspace.aiProviderLabel =
     String(aiProviderLabel || "").trim() ||
-    getAiProviderLabel(workspace.aiProviderId);
+    getAiProviderUrlLabel(workspace.aiProviderId);
   workspace.hasExactAiUrl = Boolean(hasExactAiUrl);
   if (currentSaveWorkspace === workspace) {
     updateSaveWorkspaceActions();
@@ -7762,7 +7792,7 @@ function markSaveWorkspaceReady({
   );
   workspace.aiProviderLabel =
     String(aiProviderLabel || "").trim() ||
-    getAiProviderLabel(workspace.aiProviderId);
+    getAiProviderUrlLabel(workspace.aiProviderId);
   workspace.hasExactAiUrl = Boolean(hasExactAiUrl);
   workspace.isReady = true;
   // activateSaveWorkspaceTab() bails out on several paths, so the ready state
