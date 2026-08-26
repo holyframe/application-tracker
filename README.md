@@ -120,7 +120,7 @@ columns C-F shift to D-G.
 
 ## Other actions
 
-- **Open** in the Home workspace accepts a count from 1 to 25 on Jobright's
+- **Open** in the Home workspace accepts a count from 1 to 5 on Jobright's
   `/jobs/recommend` page. For each eligible recommendation, it Ctrl-clicks
   **Apply with Autofill** or **APPLY NOW**, confirms the new application tab,
   removes the app's standard tracking parameters from its URL, keeps Jobright

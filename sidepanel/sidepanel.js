@@ -6255,7 +6255,7 @@ function normalizeJobrightOpenCount() {
   const parsedCount = Number.parseInt(jobrightOpenCountInput?.value || "", 10);
   const count = Number.isFinite(parsedCount)
     ? Math.min(5, Math.max(1, parsedCount))
-    : 1;
+    : 3;
 
   if (jobrightOpenCountInput) {
     jobrightOpenCountInput.value = String(count);
@@ -6487,9 +6487,12 @@ async function markJobrightApplicationAlreadyApplied(jobId) {
     };
   }
 
-  const dislikeButton = card
-    .querySelector('img[alt="not-interest-job"]')
-    ?.closest("button");
+  const dislikeButton =
+    card.querySelector('use[href$="#dislike"]')?.closest("button") ||
+    card
+      .querySelector('img[alt="not-interest-job"]')
+      ?.closest("button") ||
+    card.querySelector('button[id^="index_not-interest-button__"]');
   if (!dislikeButton) {
     return {
       ok: false,
@@ -6500,38 +6503,76 @@ async function markJobrightApplicationAlreadyApplied(jobId) {
   dislikeButton.scrollIntoView({ block: "center", inline: "nearest" });
   await sleep(100);
 
-  let alreadyAppliedItem = null;
-  for (let menuAttempt = 0; menuAttempt < 2 && !alreadyAppliedItem; menuAttempt += 1) {
+  const findAlreadyAppliedAction = () => {
+    const labels = Array.from(document.querySelectorAll("span")).filter(
+      (label) =>
+        isVisible(label) && normalizeText(label.textContent) === "Already Applied"
+    );
+
+    for (const label of labels) {
+      const menuAction = label.closest(
+        '[role="menuitem"], .ant-dropdown-menu-item, .ant-menu-item, button, a'
+      );
+      if (menuAction && isVisible(menuAction)) {
+        return menuAction;
+      }
+    }
+
+    const overlayLabel = labels.find((label) =>
+      Boolean(
+        label.closest(
+          '.ant-dropdown, .ant-dropdown-menu, .ant-popover, [role="menu"]'
+        )
+      )
+    );
+    return overlayLabel?.parentElement || null;
+  };
+
+  let alreadyAppliedAction = null;
+  for (
+    let menuAttempt = 0;
+    menuAttempt < 2 && !alreadyAppliedAction;
+    menuAttempt += 1
+  ) {
     dislikeButton.click();
 
     const menuDeadline = Date.now() + 1800;
-    while (!alreadyAppliedItem && Date.now() < menuDeadline) {
-      alreadyAppliedItem = Array.from(
-        document.querySelectorAll('li[role="menuitem"]')
-      ).find(
-        (item) =>
-          isVisible(item) &&
-          normalizeText(item.textContent) === "Already Applied"
-      );
-      if (!alreadyAppliedItem) {
+    while (!alreadyAppliedAction && Date.now() < menuDeadline) {
+      alreadyAppliedAction = findAlreadyAppliedAction();
+      if (!alreadyAppliedAction) {
         await sleep(100);
       }
     }
   }
 
-  if (!alreadyAppliedItem) {
+  if (!alreadyAppliedAction) {
     return {
       ok: false,
-      error: "The Already Applied menu item did not appear."
+      error: "The Already Applied component did not appear."
     };
   }
 
-  alreadyAppliedItem.click();
-  await sleep(800);
+  alreadyAppliedAction.click();
+
+  const confirmationDeadline = Date.now() + 2500;
+  while (Date.now() < confirmationDeadline) {
+    const removed = !document.contains(card);
+    const menuClosed =
+      !document.contains(alreadyAppliedAction) ||
+      !isVisible(alreadyAppliedAction);
+    if (removed || menuClosed) {
+      return {
+        ok: true,
+        removed
+      };
+    }
+
+    await sleep(100);
+  }
 
   return {
-    ok: true,
-    removed: !document.contains(card)
+    ok: false,
+    error: "Already Applied was clicked, but Jobright did not confirm the action."
   };
 }
 
