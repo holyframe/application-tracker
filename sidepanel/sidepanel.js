@@ -112,6 +112,9 @@ const applicationWorkspaceJobGptPickupButton = document.querySelector(
 const applicationWorkspaceJobGptCopyButton = document.querySelector(
   "#applicationWorkspaceJobGptCopyButton"
 );
+const applicationWorkspaceJobGptCopyContentButton = document.querySelector(
+  "#applicationWorkspaceJobGptCopyContentButton"
+);
 const applicationWorkspaceDeleteButton = document.querySelector(
   "#applicationWorkspaceDeleteButton"
 );
@@ -334,12 +337,12 @@ const AI_PROVIDER_LABELS = Object.freeze({
   deepseek: "DeepSeek",
   none: "No Model"
 });
-// "No Model" keeps the assembled context in a Google Doc instead of a chat
+// "No Model" keeps the job description in a Google Doc instead of a chat
 // conversation, so workspace controls name that URL differently.
 const AI_PROVIDER_URL_LABELS = Object.freeze({
   chatgpt: "ChatGPT",
   deepseek: "DeepSeek",
-  none: "Context Doc"
+  none: "Job Description Doc"
 });
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
@@ -4800,7 +4803,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       message.chatGptTabId,
       "success",
       isContextDocAiProviderId(message.aiProviderId)
-        ? "Context Google Doc URL is available for Pickup."
+        ? "Job-description Google Doc URL is available for Pickup."
         : `Permanent ${getAiProviderLabel(message.aiProviderId)} conversation URL is available for Pickup.`
     );
     return;
@@ -5226,7 +5229,7 @@ async function exchangeSaveWorkspaceUrls() {
     if (!isImportedWorkspace && !isRestoringChat && !canStoreMainTabUrl) {
       throw new Error(
         isContextDocWorkspace
-          ? "The main tab is not the context Google Doc, so there is no URL to store."
+          ? "The main tab is not the job-description Google Doc, so there is no URL to store."
           : "The main tab is not a supported AI provider page, so there is no chat URL to store."
       );
     }
@@ -7154,6 +7157,10 @@ async function updateApplicationWorkspaceJobGptUrl() {
     if (applicationWorkspaceJobGptCopyButton) {
       applicationWorkspaceJobGptCopyButton.disabled = true;
     }
+    if (applicationWorkspaceJobGptCopyContentButton) {
+      applicationWorkspaceJobGptCopyContentButton.classList.add("is-hidden");
+      applicationWorkspaceJobGptCopyContentButton.disabled = true;
+    }
     setPickupCloseButtonVisible(
       applicationWorkspaceRecordJobClosePickupButton,
       false
@@ -7234,6 +7241,15 @@ async function updateApplicationWorkspaceJobGptUrl() {
       `Copy ${aiProviderLabel} URL to clipboard`
     );
   }
+  if (applicationWorkspaceJobGptCopyContentButton) {
+    const canCopyGoogleDocContent = isGoogleDocsUrl(url);
+    applicationWorkspaceJobGptCopyContentButton.classList.toggle(
+      "is-hidden",
+      !canCopyGoogleDocContent
+    );
+    applicationWorkspaceJobGptCopyContentButton.disabled =
+      !canCopyGoogleDocContent || actionsDisabled;
+  }
   if (applicationWorkspaceRecordJobPickupButton) {
     applicationWorkspaceRecordJobPickupButton.disabled =
       !recordJobUrl || actionsDisabled || isJobUrlInMainTab;
@@ -7270,6 +7286,67 @@ async function copyApplicationWorkspaceJobGptUrl() {
   } catch (error) {
     console.error(error);
     showStatus("error", error.message || "Could not copy the URL.");
+  }
+}
+
+async function copyApplicationWorkspaceGoogleDocContent() {
+  const documentUrl = String(
+    applicationWorkspaceJobGptUrl?.textContent || ""
+  ).trim();
+  if (!isGoogleDocsUrl(documentUrl)) {
+    return;
+  }
+
+  const ownerTabId = activeTabId;
+  const runId = activeRunId || createRunId();
+  if (applicationWorkspaceJobGptCopyContentButton) {
+    applicationWorkspaceJobGptCopyContentButton.disabled = true;
+  }
+
+  try {
+    showStatus("info", documentUrl, "Reading document:");
+    const response = await chrome.runtime.sendMessage({
+      type: "READ_GOOGLE_DOC_TEXT",
+      runId,
+      ownerTabId,
+      documentUrl
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not read the Google Doc.");
+    }
+
+    const text = String(response.text || "");
+    if (!text.trim()) {
+      throw new Error("The Google Doc does not contain copyable text.");
+    }
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard access is unavailable.");
+    }
+
+    await navigator.clipboard.writeText(text);
+    const title = String(response.title || "Google Doc").trim() || "Google Doc";
+    showStatus("success", title, "Copied document text:");
+    addLogForTab(ownerTabId, "success", "Copied text from " + title + ".");
+  } catch (error) {
+    console.error(error);
+    const message = error.message || "Could not copy the Google Doc text.";
+    showStatusForTab(ownerTabId, "error", message);
+    addLogForTab(ownerTabId, "error", message);
+  } finally {
+    const currentUrl = String(
+      applicationWorkspaceJobGptUrl?.textContent || ""
+    ).trim();
+    if (applicationWorkspaceJobGptCopyContentButton) {
+      const canCopyCurrentGoogleDocContent = isGoogleDocsUrl(currentUrl);
+      applicationWorkspaceJobGptCopyContentButton.classList.toggle(
+        "is-hidden",
+        !canCopyCurrentGoogleDocContent
+      );
+      applicationWorkspaceJobGptCopyContentButton.disabled =
+        !canCopyCurrentGoogleDocContent ||
+        Boolean(currentSaveWorkspace?.isBusy) ||
+        areActionButtonsDisabled;
+    }
   }
 }
 
@@ -8229,6 +8306,10 @@ applicationWorkspaceJobGptClosePickupButton?.addEventListener(
 applicationWorkspaceJobGptCopyButton?.addEventListener(
   "click",
   copyApplicationWorkspaceJobGptUrl
+);
+applicationWorkspaceJobGptCopyContentButton?.addEventListener(
+  "click",
+  copyApplicationWorkspaceGoogleDocContent
 );
 applicationWorkspaceRecordJobPickupButton?.addEventListener(
   "click",

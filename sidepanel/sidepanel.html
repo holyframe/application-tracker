@@ -547,10 +547,10 @@
             <select id="aiProviderInput" class="config-input">
               <option value="chatgpt" selected>ChatGPT (default)</option>
               <option value="deepseek">DeepSeek</option>
-              <option value="none">No Model (save context to Google Docs)</option>
+              <option value="none">No Model (save job description to Google Docs)</option>
             </select>
             <p class="config-help">
-              With No Model, Save App writes the assembled context into a new
+              With No Model, Save App writes only the job description into a new
               Google Doc and stores that doc URL instead of a chat URL.
             </p>
           </div>
@@ -1204,6 +1204,22 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <rect x="9" y="9" width="11" height="11" rx="2" />
                   <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
+                </svg>
+              </button>
+              <button
+                id="applicationWorkspaceJobGptCopyContentButton"
+                type="button"
+                class="workspace-url-icon-button is-hidden"
+                aria-label="Copy Google Docs content to clipboard"
+                title="Copy document text"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="5" y="4" width="14" height="17" rx="2" />
+                  <path d="M9 4V2h6v2" />
+                  <path d="M8 9h8" />
+                  <path d="M8 13h8" />
+                  <path d="M8 17h5" />
                 </svg>
               </button>
             </div>

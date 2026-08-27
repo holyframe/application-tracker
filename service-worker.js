@@ -22,12 +22,12 @@ const AI_PROVIDERS = Object.freeze({
     requiredMode: "Expert",
     maxConnectionAttempts: 60
   },
-  // Sends nothing to a chat site. The assembled context becomes a Google Doc and
+  // Sends nothing to a chat site. The job description becomes a Google Doc and
   // that doc URL takes the place of the conversation URL everywhere downstream.
   none: {
     id: "none",
     label: "No Model",
-    urlLabel: "Context Doc",
+    urlLabel: "Job Description Doc",
     contextDocOnly: true
   }
 });
@@ -3311,6 +3311,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
     DELETE_APPLICATION_RECORD: deleteApplicationRecord,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
+    READ_GOOGLE_DOC_TEXT: readGoogleDocText,
     CHECK_GOOGLE_SHEET_OPEN: checkOpenGoogleSheet,
     OPEN_URL_IN_NEW_TAB: openUrlInNewTab,
     OPEN_URL_IN_RIGHT_WINDOW: openUrlInRightWindow,
@@ -3344,6 +3345,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             documentUrl: message.documentUrl,
             documentTitle: message.documentTitle,
             profileName: message.profileName
+          })
+      : message.type === "READ_GOOGLE_DOC_TEXT"
+        ? run(message.runId, {
+            documentUrl: message.documentUrl
           })
         : message.type === "DELETE_APPLICATION_RECORD"
           ? run(message.runId, {
@@ -3593,13 +3598,12 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
         runId,
         "info",
         aiProvider.contextDocOnly
-          ? `Preparing context for "${profileName}"...`
+          ? `Preparing job description for "${profileName}"...`
           : `Preparing ${aiProvider.label} prompt for "${profileName}"...`
       );
-      const aiMessage = await buildChatGptMessageFromStorage(
-        profile,
-        inputSnapshot
-      );
+      const aiMessage = aiProvider.contextDocOnly
+        ? inputSnapshot.jobDescriptionContent
+        : await buildChatGptMessageFromStorage(profile, inputSnapshot);
       throwIfSaveProcessCancelled(signal);
       let chatGptUrl = aiProvider.homeUrl || "";
       let chatGptTabId = null;
@@ -3626,7 +3630,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
           runId,
           {
             tabId: targetTabId,
-            title: `${docTitle} - Context`,
+            title: `${docTitle} - Job Description`,
             token,
             signal
           }
@@ -3755,7 +3759,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
       runId,
       "success",
       aiProvider.contextDocOnly
-        ? `Finished. Saved ${selectedProfiles.length} context Google ${
+        ? `Finished. Saved ${selectedProfiles.length} job-description Google ${
             selectedProfiles.length === 1 ? "Doc" : "Docs"
           } for the selected profiles; no tab group was created.`
         : `Finished. Opened ${selectedProfiles.length} ${aiProvider.label} ${
@@ -4530,16 +4534,22 @@ async function batchUpdateGoogleDocWithAuthRetry(token, documentId, requests, ru
   };
 }
 
-async function getGoogleDocWithAuthRetry(token, documentId, runId) {
+async function getGoogleDocWithAuthRetry(
+  token,
+  documentId,
+  runId,
+  { includeTabsContent = false } = {}
+) {
   let activeToken = token;
-  let response = await fetch(
-    `https://docs.googleapis.com/v1/documents/${documentId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${activeToken}`
-      }
+  const documentUrl =
+    "https://docs.googleapis.com/v1/documents/" +
+    documentId +
+    (includeTabsContent ? "?includeTabsContent=true" : "");
+  let response = await fetch(documentUrl, {
+    headers: {
+      Authorization: "Bearer " + activeToken
     }
-  );
+  });
 
   if (response.status === 401 || response.status === 403) {
     sendLog(
@@ -4549,14 +4559,11 @@ async function getGoogleDocWithAuthRetry(token, documentId, runId) {
     );
     await clearCachedGoogleAccessToken(activeToken);
     activeToken = await getGoogleAccessToken({ interactive: true });
-    response = await fetch(
-      `https://docs.googleapis.com/v1/documents/${documentId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${activeToken}`
-        }
+    response = await fetch(documentUrl, {
+      headers: {
+        Authorization: "Bearer " + activeToken
       }
-    );
+    });
   }
 
   if (!response.ok) {
@@ -4569,6 +4576,102 @@ async function getGoogleDocWithAuthRetry(token, documentId, runId) {
   return {
     activeToken,
     document: await response.json()
+  };
+}
+
+function extractGoogleDocStructuralText(structuralElements) {
+  const chunks = [];
+
+  for (const structuralElement of structuralElements || []) {
+    if (structuralElement?.paragraph) {
+      chunks.push(
+        (structuralElement.paragraph.elements || [])
+          .map((element) =>
+            String(
+              element?.textRun?.content ||
+                element?.autoText?.content ||
+                element?.person?.personProperties?.name ||
+                element?.richLink?.richLinkProperties?.title ||
+                ""
+            )
+          )
+          .join("")
+      );
+    }
+
+    if (structuralElement?.table) {
+      for (const tableRow of structuralElement.table.tableRows || []) {
+        const cellTexts = (tableRow.tableCells || []).map((tableCell) =>
+          extractGoogleDocStructuralText(tableCell.content).replace(/\n+$/g, "")
+        );
+        chunks.push(cellTexts.join("\t") + "\n");
+      }
+    }
+
+    if (structuralElement?.tableOfContents) {
+      chunks.push(
+        extractGoogleDocStructuralText(
+          structuralElement.tableOfContents.content
+        )
+      );
+    }
+  }
+
+  return chunks.join("");
+}
+
+function collectGoogleDocTabText(tabs, tabTexts = []) {
+  for (const tab of tabs || []) {
+    const tabText = extractGoogleDocStructuralText(
+      tab?.documentTab?.body?.content
+    ).trim();
+    if (tabText) {
+      tabTexts.push(tabText);
+    }
+    collectGoogleDocTabText(tab?.childTabs, tabTexts);
+  }
+
+  return tabTexts;
+}
+
+function extractGoogleDocPlainText(googleDocument) {
+  const tabTexts = collectGoogleDocTabText(googleDocument?.tabs);
+  const text = tabTexts.length
+    ? tabTexts.join("\n\n")
+    : extractGoogleDocStructuralText(googleDocument?.body?.content);
+
+  return text.replace(/\r\n?/g, "\n").trim();
+}
+
+async function readGoogleDocText(runId, options = {}) {
+  const documentUrl = String(options.documentUrl || "").trim();
+  if (!isGoogleDocsDocumentUrl(documentUrl)) {
+    throw new Error("The selected URL is not a Google Docs document.");
+  }
+
+  const documentId = parseGoogleDocId(documentUrl);
+  if (!documentId) {
+    throw new Error("Could not find a Google Docs document ID.");
+  }
+
+  sendLog(runId, "info", "Reading Google Docs content for the clipboard...");
+  const token = await getGoogleAccessToken();
+  const { document } = await getGoogleDocWithAuthRetry(
+    token,
+    documentId,
+    runId,
+    { includeTabsContent: true }
+  );
+  const text = extractGoogleDocPlainText(document);
+  if (!text) {
+    throw new Error("The Google Doc does not contain copyable text.");
+  }
+
+  sendLog(runId, "success", "Google Docs text is ready to copy.");
+  return {
+    documentId,
+    title: String(document?.title || "Google Doc").trim() || "Google Doc",
+    text
   };
 }
 
