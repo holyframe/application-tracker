@@ -288,13 +288,6 @@
           </button>
         </div>
 
-        <p class="profile-selection-help">
-          A profile is checked only after you choose a resume. Mark Auto on a
-          resume to reselect it after each save unless you pick another resume
-          manually. Unchecking a profile clears its resume choice for this
-          application.
-        </p>
-
         <ul id="profileList" class="profile-list" aria-label="Profiles"></ul>
 
         <div
@@ -442,6 +435,9 @@
               <option value="3" selected>3</option>
               <option value="4">4</option>
               <option value="5">5</option>
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
             </select>
           </div>
           <div class="action-setting-block">
@@ -547,10 +543,10 @@
             <select id="aiProviderInput" class="config-input">
               <option value="chatgpt" selected>ChatGPT (default)</option>
               <option value="deepseek">DeepSeek</option>
-              <option value="none">No Model (save job description to Google Docs)</option>
+              <option value="none">No Model (save context to Google Docs)</option>
             </select>
             <p class="config-help">
-              With No Model, Save App writes only the job description into a new
+              With No Model, Save App writes the full prepared GPT context into a new
               Google Doc and stores that doc URL instead of a chat URL.
             </p>
           </div>

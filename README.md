@@ -37,9 +37,9 @@ selected provider, the extension opens a full-page Application workspace in the 
 header is labeled `Application workspace {profile name}`, and the copied
 profile resume is embedded without a separate tab panel.
 
-With `No Model`, nothing is sent to a chat site. Only the job description is written
-into a new Google Doc titled `{job title} - Job Description` (or
-`{job title} - {profile name} - Job Description` for multi-profile runs), that doc opens
+With `No Model`, nothing is sent to a chat site. The full prepared GPT message is written
+into a new Google Doc titled `{job title} - Context` (or
+`{job title} - {profile name} - Context` for multi-profile runs), that doc opens
 in the profile's target tab, and its URL is saved in place of the conversation
 URL.
 
@@ -106,7 +106,7 @@ automatically. The extension appends seven columns:
 | A | ISO timestamp |
 | B | Job-page title |
 | C | Profile name, exactly as stored in the app |
-| D | Selected AI provider conversation URL, or the job-description Google Doc URL with No Model |
+| D | Selected AI provider conversation URL, or the context Google Doc URL with No Model |
 | E | Normalized job URL |
 | F | Copied resume-document URL |
 | G | Reserved (left blank by Save App) |
@@ -120,11 +120,13 @@ columns C-F shift to D-G.
 
 ## Other actions
 
-- **Open** in the Home workspace accepts a count from 1 to 5 on Jobright's
+- **Open** in the Home workspace offers counts 1–5, 10, 25, and 50 on Jobright's
   `/jobs/recommend` page. For each eligible recommendation, it Ctrl-clicks
   **Apply with Autofill** or **APPLY NOW**, confirms the new application tab,
   removes the app's standard tracking parameters from its URL, keeps Jobright
-  active, and selects **Already Applied** from that job's dislike menu.
+  active, and selects **Already Applied** from that job's dislike menu. Larger
+  selections run in immediate batches of three and stop after three consecutive
+  application-tab failures.
 - **Make a resume** accepts rows copied from the seven-column Google Sheet
   layout written by Save App: timestamp, job title, profile, AI conversation,
   job page, Google Docs resume, and optional Apply Now (columns A-G). A row with

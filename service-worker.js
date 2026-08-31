@@ -22,12 +22,12 @@ const AI_PROVIDERS = Object.freeze({
     requiredMode: "Expert",
     maxConnectionAttempts: 60
   },
-  // Sends nothing to a chat site. The job description becomes a Google Doc and
+  // Sends nothing to a chat site. The assembled context becomes a Google Doc and
   // that doc URL takes the place of the conversation URL everywhere downstream.
   none: {
     id: "none",
     label: "No Model",
-    urlLabel: "Job Description Doc",
+    urlLabel: "Context Doc",
     contextDocOnly: true
   }
 });
@@ -1688,42 +1688,12 @@ function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
 }
 
 function shouldEnableSidePanelForTab(tab) {
-  if (!tab?.pinned) {
-    return true;
-  }
-
-  return isPinnedTabSupportedUrl(tab.url || "");
+  // The extension UI remains available while the user moves between any tabs.
+  // Individual actions still validate whether the active page can support them.
+  return Number.isInteger(tab?.id);
 }
 
-async function closeSidePanelForWindow(tab) {
-  if (!tab || !Number.isInteger(tab.windowId)) {
-    return;
-  }
-
-  if (typeof chrome.sidePanel.close === "function") {
-    try {
-      await chrome.sidePanel.close({ windowId: tab.windowId });
-      return;
-    } catch (_windowCloseError) {
-      if (Number.isInteger(tab.id)) {
-        try {
-          await chrome.sidePanel.close({ tabId: tab.id });
-          return;
-        } catch (_tabCloseError) {
-          // Fall through to asking the open panel to close itself.
-        }
-      }
-    }
-  }
-
-  try {
-    await chrome.runtime.sendMessage({ type: "CLOSE_SIDE_PANEL" });
-  } catch (_error) {
-    // The side panel may already be closed.
-  }
-}
-
-async function syncSidePanelForTab(tab, { closeIfDisabled = false } = {}) {
+async function syncSidePanelForTab(tab) {
   if (!Number.isInteger(tab?.id)) {
     return;
   }
@@ -1757,11 +1727,6 @@ async function syncSidePanelForTab(tab, { closeIfDisabled = false } = {}) {
     }
   }
 
-  // Always close when landing on an unsupported pinned tab, even if setOptions was
-  // skipped because that tab was already disabled.
-  if (!enabled && closeIfDisabled) {
-    await closeSidePanelForWindow(tab);
-  }
 }
 
 async function syncSidePanelForAllTabs() {
@@ -2814,7 +2779,7 @@ chrome.tabs.onCreated.addListener((tab) => {
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   try {
     const tab = await chrome.tabs.get(activeInfo.tabId);
-    await syncSidePanelForTab(tab, { closeIfDisabled: true });
+    await syncSidePanelForTab(tab);
   } catch (error) {
     console.error("Could not sync side panel after tab activation:", error);
   }
@@ -2826,7 +2791,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     changeInfo.url ||
     changeInfo.status === "complete"
   ) {
-    syncSidePanelForTab(tab, { closeIfDisabled: Boolean(tab.active) });
+    syncSidePanelForTab(tab);
   }
 });
 
@@ -3598,12 +3563,13 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
         runId,
         "info",
         aiProvider.contextDocOnly
-          ? `Preparing job description for "${profileName}"...`
+          ? `Preparing context for "${profileName}"...`
           : `Preparing ${aiProvider.label} prompt for "${profileName}"...`
       );
-      const aiMessage = aiProvider.contextDocOnly
-        ? inputSnapshot.jobDescriptionContent
-        : await buildChatGptMessageFromStorage(profile, inputSnapshot);
+      const aiMessage = await buildChatGptMessageFromStorage(
+        profile,
+        inputSnapshot
+      );
       throwIfSaveProcessCancelled(signal);
       let chatGptUrl = aiProvider.homeUrl || "";
       let chatGptTabId = null;
@@ -3630,7 +3596,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
           runId,
           {
             tabId: targetTabId,
-            title: `${docTitle} - Job Description`,
+            title: `${docTitle} - Context`,
             token,
             signal
           }
@@ -3759,7 +3725,7 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
       runId,
       "success",
       aiProvider.contextDocOnly
-        ? `Finished. Saved ${selectedProfiles.length} job-description Google ${
+        ? `Finished. Saved ${selectedProfiles.length} context Google ${
             selectedProfiles.length === 1 ? "Doc" : "Docs"
           } for the selected profiles; no tab group was created.`
         : `Finished. Opened ${selectedProfiles.length} ${aiProvider.label} ${

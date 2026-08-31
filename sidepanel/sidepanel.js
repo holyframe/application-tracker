@@ -337,12 +337,12 @@ const AI_PROVIDER_LABELS = Object.freeze({
   deepseek: "DeepSeek",
   none: "No Model"
 });
-// "No Model" keeps the job description in a Google Doc instead of a chat
+// "No Model" keeps the assembled context in a Google Doc instead of a chat
 // conversation, so workspace controls name that URL differently.
 const AI_PROVIDER_URL_LABELS = Object.freeze({
   chatgpt: "ChatGPT",
   deepseek: "DeepSeek",
-  none: "Job Description Doc"
+  none: "Context Doc"
 });
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
 const PROFILE_SELECTION_VERSION = 3;
@@ -4803,7 +4803,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       message.chatGptTabId,
       "success",
       isContextDocAiProviderId(message.aiProviderId)
-        ? "Job-description Google Doc URL is available for Pickup."
+        ? "Context Google Doc URL is available for Pickup."
         : `Permanent ${getAiProviderLabel(message.aiProviderId)} conversation URL is available for Pickup.`
     );
     return;
@@ -5229,7 +5229,7 @@ async function exchangeSaveWorkspaceUrls() {
     if (!isImportedWorkspace && !isRestoringChat && !canStoreMainTabUrl) {
       throw new Error(
         isContextDocWorkspace
-          ? "The main tab is not the job-description Google Doc, so there is no URL to store."
+          ? "The main tab is not the context Google Doc, so there is no URL to store."
           : "The main tab is not a supported AI provider page, so there is no chat URL to store."
       );
     }
@@ -6257,7 +6257,7 @@ async function openSplitWindowsModal() {
 function normalizeJobrightOpenCount() {
   const parsedCount = Number.parseInt(jobrightOpenCountInput?.value || "", 10);
   const count = Number.isFinite(parsedCount)
-    ? Math.min(5, Math.max(1, parsedCount))
+    ? Math.min(50, Math.max(1, parsedCount))
     : 3;
 
   if (jobrightOpenCountInput) {
@@ -6615,6 +6615,24 @@ async function openJobrightJobs() {
       throw new Error("Open is available only on Jobright Recommendations.");
     }
 
+    const batchSize = 3;
+    const maximumConsecutiveOpenFailures = 3;
+    let openedInBatch = 0;
+    let consecutiveOpenFailures = 0;
+    const canContinueAfterOpenFailure = () => {
+      consecutiveOpenFailures += 1;
+      if (consecutiveOpenFailures >= maximumConsecutiveOpenFailures) {
+        addLogForTab(
+          tab.id,
+          "error",
+          "Stopped after 3 consecutive application tabs failed to open."
+        );
+        return false;
+      }
+
+      return true;
+    };
+
     const maximumCandidates = count + 25;
     while (
       openedJobs.length < count &&
@@ -6651,6 +6669,9 @@ async function openJobrightJobs() {
           clicked.error || `Could not activate the application button for ${jobId}.`;
         failures.push(message);
         addLogForTab(tab.id, "error", message);
+        if (!canContinueAfterOpenFailure()) {
+          break;
+        }
         continue;
       }
 
@@ -6664,9 +6685,13 @@ async function openJobrightJobs() {
           `The application button did not open a new tab for ${jobId} within 8 seconds.`;
         failures.push(message);
         addLogForTab(tab.id, "error", message);
+        if (!canContinueAfterOpenFailure()) {
+          break;
+        }
         continue;
       }
 
+      consecutiveOpenFailures = 0;
       let applicationUrl =
         applicationTab.pendingUrl || applicationTab.url || "";
       try {
@@ -6724,6 +6749,7 @@ async function openJobrightJobs() {
         url: applicationUrl,
         markedAlreadyApplied
       });
+      openedInBatch += 1;
       addLogForTab(
         tab.id,
         "success",
@@ -6731,6 +6757,17 @@ async function openJobrightJobs() {
           markedAlreadyApplied ? " and marked it Already Applied" : ""
         }.`
       );
+
+      if (openedInBatch >= batchSize && openedJobs.length < count) {
+        const completedBatch = Math.floor(openedJobs.length / batchSize);
+        addLogForTab(
+          tab.id,
+          "info",
+          `Batch ${completedBatch} complete (${openedJobs.length} of ${count}). Starting the next batch.`
+        );
+        await chrome.tabs.update(tab.id, { active: true });
+        openedInBatch = 0;
+      }
     }
 
     if (openedJobs.length === 0) {
