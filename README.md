@@ -121,12 +121,34 @@ columns C-F shift to D-G.
 ## Other actions
 
 - **Open** in the Home workspace offers counts 1–5, 10, 25, and 50 on Jobright's
-  `/jobs/recommend` page. For each eligible recommendation, it Ctrl-clicks
-  **Apply with Autofill** or **APPLY NOW**, confirms the new application tab,
-  removes the app's standard tracking parameters from its URL, keeps Jobright
-  active, and selects **Already Applied** from that job's dislike menu. Larger
-  selections run in immediate batches of three and stop after three consecutive
-  application-tab failures.
+  `/jobs/recommend` page. For each eligible recommendation it opens the
+  employer's application page in a background tab, removes the app's standard
+  tracking parameters from its URL, keeps Jobright active, and selects
+  **Already Applied** from that job's dislike menu.
+
+  The apply button is a plain `<button>` with no link, and a click the extension
+  dispatches carries no user activation, so Chrome's popup blocker discards the
+  `window.open` Jobright's handler performs and no tab appears. Clicking is
+  therefore not the primary path. `content/jobright.js` runs in the page's own
+  realm at `document_start` and reads the job records Jobright loads for itself
+  by hooking `fetch` and `XMLHttpRequest` (plus any JSON embedded in the
+  document), keeping each job's application URL keyed by job id. The side panel
+  looks that URL up by the card's id and hands it to `chrome.tabs.create`, so no
+  page interaction is needed to open an application. When a job has no harvested
+  URL the run falls back to clicking the button with `window.open` intercepted,
+  and then to watching every window for a tab the page managed to open on its
+  own; a popup window is folded back into the Jobright window. The interception
+  is armed only while a run is in progress, expires on its own after 20 seconds,
+  and is disarmed when the run ends so manual apply clicks keep working.
+
+  Marking a job **Already Applied** removes its card, which pulls the next job
+  into the virtualized list, so the run simply takes the topmost unprocessed
+  card and only scrolls to move past jobs it had to skip. Larger selections run
+  in batches of three with a short pause between applications, retry a scan that
+  finds nothing up to four times, and stop after six consecutive failures.
+  Because the helper script installs at page load, a Jobright tab that was
+  already open when the extension was updated has to be reloaded once; the run
+  logs how many loaded jobs carry an application URL so this is visible.
 - **Make a resume** accepts rows copied from the seven-column Google Sheet
   layout written by Save App: timestamp, job title, profile, AI conversation,
   job page, Google Docs resume, and optional Apply Now (columns A-G). A row with
