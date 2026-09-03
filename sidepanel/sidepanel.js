@@ -6257,7 +6257,7 @@ async function openSplitWindowsModal() {
 function normalizeJobrightOpenCount() {
   const parsedCount = Number.parseInt(jobrightOpenCountInput?.value || "", 10);
   const count = Number.isFinite(parsedCount)
-    ? Math.min(50, Math.max(1, parsedCount))
+    ? Math.min(150, Math.max(1, parsedCount))
     : 3;
 
   if (jobrightOpenCountInput) {

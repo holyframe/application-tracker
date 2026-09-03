@@ -120,8 +120,8 @@ columns C-F shift to D-G.
 
 ## Other actions
 
-- **Open** in the Home workspace offers counts 1–5, 10, 25, and 50 on Jobright's
-  `/jobs/recommend` page. For each eligible recommendation it opens the
+- **Open** in the Home workspace offers counts 1–5, 10, 25, 50, 100, and 150 on
+  Jobright's `/jobs/recommend` page. For each eligible recommendation it opens the
   employer's application page in a background tab, removes the app's standard
   tracking parameters from its URL, keeps Jobright active, and selects
   **Already Applied** from that job's dislike menu.
