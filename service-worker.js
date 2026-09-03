@@ -94,7 +94,7 @@ function findSavePostProcessEntry(states, runId, ownerTabId) {
 }
 const SAVE_PROCESS_CANCELLED_CODE = "SAVE_PROCESS_CANCELLED";
 const SAVE_PROCESS_BUSY_CODE = "SAVE_PROCESS_BUSY";
-const PROFILE_SELECTION_VERSION = 3;
+const PROFILE_SELECTION_VERSION = 4;
 const GOOGLE_DOC_WRITABLE_TEXT_STYLE_FIELDS = Object.freeze([
   "backgroundColor",
   "baselineOffset",
@@ -499,7 +499,7 @@ function getAutoSelectedPromptResumeId(promptResumes) {
   );
 }
 
-function normalizePromptResumeSelection(selection, { applyAutoSelect = false } = {}) {
+function normalizePromptResumeSelection(selection) {
   let promptResumes = (
     Array.isArray(selection?.promptResumes) ? selection.promptResumes : []
   )
@@ -508,15 +508,19 @@ function normalizePromptResumeSelection(selection, { applyAutoSelect = false } =
 
   promptResumes = enforceSingleAutoSelectPromptResume(promptResumes);
 
-  let selectedPromptResumeId =
+  const selectedPromptResumeId =
     promptResumes.some(
       (entry) => entry.id === selection?.selectedPromptResumeId
     )
       ? selection.selectedPromptResumeId
-      : "";
+      : promptResumes[0]?.id || "";
 
-  if (applyAutoSelect && !selectedPromptResumeId) {
-    selectedPromptResumeId = getAutoSelectedPromptResumeId(promptResumes);
+  // Auto belongs to the profile and follows its assigned resume.
+  if (promptResumes.some((entry) => entry.autoSelect)) {
+    promptResumes = promptResumes.map((entry) => ({
+      ...entry,
+      autoSelect: entry.id === selectedPromptResumeId
+    }));
   }
 
   return { promptResumes, selectedPromptResumeId };
@@ -557,16 +561,10 @@ function normalizeProfile(entry) {
 }
 
 function normalizeProfileSelectionState(selection) {
-  const hasCurrentSelectionVersion =
-    selection?.selectionVersion === PROFILE_SELECTION_VERSION;
-  const profiles = (Array.isArray(selection?.profiles) ? selection.profiles : [])
+  const sourceProfiles = Array.isArray(selection?.profiles) ? selection.profiles : [];
+  const profiles = sourceProfiles
     .map(normalizeProfile)
-    .filter(Boolean)
-    .map((profile) =>
-      hasCurrentSelectionVersion
-        ? profile
-        : { ...profile, selectedPromptResumeId: "" }
-    );
+    .filter(Boolean);
 
   if (profiles.length === 0) {
     const defaultProfile = createDefaultProfile();
@@ -583,8 +581,20 @@ function normalizeProfileSelectionState(selection) {
       ? selection.selectedProfileId
       : profiles[0].id;
 
+  // V3 coupled application inclusion to the resume selection. Preserve those
+  // checked profiles before defaulting previously unassigned resumes.
+  const selectedIds = new Set(
+    selection?.selectionVersion === PROFILE_SELECTION_VERSION
+      ? (Array.isArray(selection.selectedProfileIds) ? selection.selectedProfileIds : [])
+      : selection?.selectionVersion === 3
+        ? sourceProfiles.filter((source) => source?.selectedPromptResumeId &&
+            profiles.some((profile) => profile.id === String(source.id) &&
+              profile.selectedPromptResumeId === source.selectedPromptResumeId)
+          ).map((profile) => String(profile.id))
+        : []
+  );
   const selectedProfileIds = profiles
-    .filter((profile) => Boolean(profile.selectedPromptResumeId))
+    .filter((profile) => selectedIds.has(profile.id) && profile.selectedPromptResumeId)
     .map((profile) => profile.id);
 
   return {
@@ -634,13 +644,8 @@ async function getProfileSelectionState() {
   let state = normalizeProfileSelectionState(
     stored[PROFILE_SELECTION_STORAGE_KEY]
   );
-  let didChange =
-    !stored[PROFILE_SELECTION_STORAGE_KEY] ||
-    stored[PROFILE_SELECTION_STORAGE_KEY]?.selectionVersion !==
-      PROFILE_SELECTION_VERSION ||
-    !Array.isArray(
-      stored[PROFILE_SELECTION_STORAGE_KEY]?.selectedProfileIds
-    );
+  let didChange = JSON.stringify(stored[PROFILE_SELECTION_STORAGE_KEY]) !==
+    JSON.stringify(state);
 
   const legacyResumes = await loadLegacyPromptResumeSelectionRecord();
   const normalizedLegacy = legacyResumes
@@ -660,7 +665,7 @@ async function getProfileSelectionState() {
       nextDefault = {
         ...nextDefault,
         promptResumes: normalizedLegacy.promptResumes,
-        selectedPromptResumeId: ""
+        selectedPromptResumeId: normalizedLegacy.selectedPromptResumeId
       };
       didChange = true;
     }
@@ -722,11 +727,14 @@ function getSelectedProfilesFromState(state) {
   return state.profiles.filter((entry) => selectedIds.has(entry.id));
 }
 
-async function getPromptResumeSelectionState() {
+async function getPromptResumeSelectionState(profileId = "") {
   const profileState = await getProfileSelectionState();
-  const selectedProfile = getSelectedProfileFromState(profileState);
+  const selectedProfile = profileId
+    ? profileState.profiles.find((profile) => profile.id === profileId)
+    : getSelectedProfileFromState(profileState);
 
   if (!selectedProfile) {
+    if (profileId) throw new Error("The requested profile could not be found.");
     return { promptResumes: [], selectedPromptResumeId: "" };
   }
 
@@ -738,22 +746,26 @@ async function getPromptResumeSelectionState() {
 
 async function savePromptResumeSelectionState(
   promptResumesInput,
-  selectedPromptResumeIdInput
+  selectedPromptResumeIdInput,
+  profileId = ""
 ) {
   const { promptResumes, selectedPromptResumeId } =
-    normalizePromptResumeSelection(
-      {
-        promptResumes: promptResumesInput,
-        selectedPromptResumeId: selectedPromptResumeIdInput
-      },
-      { applyAutoSelect: true }
-    );
+    normalizePromptResumeSelection({
+      promptResumes: promptResumesInput,
+      selectedPromptResumeId: selectedPromptResumeIdInput
+    });
 
   const profileState = await getProfileSelectionState();
-  const selectedProfile = getSelectedProfileFromState(profileState);
+  const selectedProfile = profileId
+    ? profileState.profiles.find((profile) => profile.id === profileId)
+    : getSelectedProfileFromState(profileState);
 
   if (!selectedProfile) {
     throw new Error("No profile is selected.");
+  }
+
+  if (selectedProfile.promptResumes.length > 0 && promptResumes.length === 0) {
+    throw new Error("Each profile must keep at least one prompt resume.");
   }
 
   const state = await saveProfileSelectionState({
@@ -769,7 +781,9 @@ async function savePromptResumeSelectionState(
     )
   });
 
-  const updatedProfile = getSelectedProfileFromState(state);
+  const updatedProfile = state.profiles.find(
+    (profile) => profile.id === selectedProfile.id
+  );
 
   return {
     promptResumes: updatedProfile?.promptResumes || [],
@@ -781,26 +795,14 @@ async function resetApplicationInputsAfterSave(runId = "") {
   const profileState = await getProfileSelectionState();
   await saveProfileSelectionState({
     ...profileState,
-    profiles: profileState.profiles.map((profile) => {
-      const resumes = normalizePromptResumeSelection(
-        {
-          promptResumes: profile.promptResumes,
-          selectedPromptResumeId: ""
-        },
-        { applyAutoSelect: true }
-      );
-
-      return {
-        ...profile,
-        promptResumes: resumes.promptResumes,
-        selectedPromptResumeId: resumes.selectedPromptResumeId
-      };
-    })
+    selectedProfileIds: profileState.profiles
+      .filter((profile) => getAutoSelectedPromptResumeId(profile.promptResumes))
+      .map((profile) => profile.id)
   });
   await saveJobDescriptionSelectionState("");
 
   const message =
-    "Cleared job description and restored auto-selected prompt resumes for the next application.";
+    "Cleared job description and restored Auto profiles for the next application. Assigned prompt resumes were kept.";
 
   if (runId) {
     sendLog(runId, "info", message);
@@ -3133,7 +3135,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "GET_PROMPT_RESUME_SELECTION") {
-    getPromptResumeSelectionState()
+    getPromptResumeSelectionState(message.profileId)
       .then((state) => sendResponse({ ok: true, ...state }))
       .catch((error) => {
         sendResponse({
@@ -3147,7 +3149,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SAVE_PROMPT_RESUME_SELECTION") {
     savePromptResumeSelectionState(
       message.promptResumes ?? message.templates,
-      message.selectedPromptResumeId ?? message.selectedId
+      message.selectedPromptResumeId ?? message.selectedId,
+      message.profileId
     )
       .then((state) => sendResponse({ ok: true, ...state }))
       .catch((error) => {

@@ -290,13 +290,6 @@
 
         <ul id="profileList" class="profile-list" aria-label="Profiles"></ul>
 
-        <div
-          id="profilePromptResumeSection"
-          class="profile-prompt-resume-section is-hidden"
-          hidden
-        >
-          <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
-        </div>
       </section>
 
       <section id="deletedRowsCard" class="card deleted-rows-card is-hidden">
@@ -717,6 +710,36 @@
           <button id="profileNotesModalSubmitButton" type="button" class="primary-button modal-action-button">
             <span>Save notes</span>
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="profileResumeSettingsModal"
+      class="modal profile-resume-settings-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profileResumeSettingsModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="profileResumeSettingsModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close profile resume settings"
+      ></button>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="profileResumeSettingsModalTitle">Prompt resume settings</h2>
+          <button id="profileResumeSettingsModalCloseButton" type="button" class="modal-close-button" aria-label="Close">×</button>
+        </div>
+        <p class="modal-help">Each profile keeps one prompt resume selected. The first resume is used by default. Changes are saved immediately. Manage Auto from the profile row.</p>
+        <div id="profilePromptResumeSection" class="profile-prompt-resume-section">
+          <ul id="promptResumeList" class="prompt-resume-list" aria-label="Prompt resumes"></ul>
+        </div>
+        <div class="modal-actions">
+          <button id="profileResumeSettingsAddButton" type="button" class="secondary-button modal-action-button">Add prompt resume</button>
+          <button id="profileResumeSettingsDoneButton" type="button" class="primary-button modal-action-button">Done</button>
         </div>
       </div>
     </div>

@@ -713,6 +713,8 @@ h1 {
 }
 
 .profile-item {
+  container-name: profile-card;
+  container-type: inline-size;
   display: grid;
   gap: 0;
   min-width: 0;
@@ -926,6 +928,7 @@ h1 {
 }
 
 .profile-edit,
+.profile-resume-settings,
 .profile-notes,
 .profile-remove {
   display: grid;
@@ -941,6 +944,7 @@ h1 {
 }
 
 .profile-edit svg,
+.profile-resume-settings svg,
 .profile-notes svg {
   width: 14px;
   height: 14px;
@@ -948,6 +952,7 @@ h1 {
 }
 
 .profile-edit:hover,
+.profile-resume-settings:hover,
 .profile-notes:hover {
   color: var(--primary-dark);
   background: rgba(84, 87, 255, 0.2);
@@ -970,6 +975,62 @@ h1 {
 
 .profile-picker-title-row {
   width: 100%;
+}
+
+.profile-name {
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.profile-auto-select {
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.profile-auto-select.is-active {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: rgba(84, 87, 255, 0.1);
+}
+
+.profile-auto-select:disabled,
+.profile-resume-settings:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.profile-resume-settings:focus-visible,
+.profile-auto-select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@container profile-card (max-width: 360px) {
+  .profile-item-header {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .profile-item-header .profile-actions {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+.profile-resume-settings-modal .modal-panel {
+  width: min(100%, 680px);
+}
+
+.profile-resume-settings-modal .profile-prompt-resume-section {
+  max-height: 55vh;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .profile-picker-title-row h2 {

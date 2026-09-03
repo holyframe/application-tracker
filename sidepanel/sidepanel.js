@@ -306,7 +306,12 @@ const jobDescriptionFormModalCancelButton = document.querySelector("#jobDescript
 const jobDescriptionFormModalSubmitButton = document.querySelector("#jobDescriptionFormModalSubmitButton");
 const jobDescriptionContentInput = document.querySelector("#jobDescriptionContentInput");
 const profileList = document.querySelector("#profileList");
-const profilePromptResumeSection = document.querySelector("#profilePromptResumeSection");
+const profileResumeSettingsModal = document.querySelector("#profileResumeSettingsModal");
+const profileResumeSettingsModalTitle = document.querySelector("#profileResumeSettingsModalTitle");
+const profileResumeSettingsModalBackdrop = document.querySelector("#profileResumeSettingsModalBackdrop");
+const profileResumeSettingsModalCloseButton = document.querySelector("#profileResumeSettingsModalCloseButton");
+const profileResumeSettingsAddButton = document.querySelector("#profileResumeSettingsAddButton");
+const profileResumeSettingsDoneButton = document.querySelector("#profileResumeSettingsDoneButton");
 const addProfileButton = document.querySelector("#addProfileButton");
 const profileFormModal = document.querySelector("#profileFormModal");
 const profileFormModalTitle = document.querySelector("#profileFormModalTitle");
@@ -345,7 +350,7 @@ const AI_PROVIDER_URL_LABELS = Object.freeze({
   none: "Context Doc"
 });
 const PROFILE_SELECTION_STORAGE_KEY = "profileSelection";
-const PROFILE_SELECTION_VERSION = 3;
+const PROFILE_SELECTION_VERSION = 4;
 const DEFAULT_PROFILE_NAME = "Default";
 // Survives side-panel reloads for as long as the Chrome tab stays open.
 const TAB_SESSION_STORAGE_KEY = "tabSessionById";
@@ -420,6 +425,7 @@ function createTabState() {
     profileFormMode: "add",
     editingProfileId: null,
     notesProfileId: null,
+    profileResumeSettingsProfileId: null,
     promptResumeFormMode: "add",
     editingPromptResumeId: null,
     pickupWindowIds: []
@@ -622,6 +628,7 @@ function captureActiveTabState() {
   state.profileFormMode = profileFormMode;
   state.editingProfileId = editingProfileId;
   state.notesProfileId = notesProfileId;
+  state.profileResumeSettingsProfileId = profileResumeSettingsProfileId;
   state.promptResumeFormMode = promptResumeFormMode;
   state.editingPromptResumeId = editingPromptResumeId;
 }
@@ -654,6 +661,7 @@ function loadTabStateIntoRegisters(tabId) {
   profileFormMode = state.profileFormMode;
   editingProfileId = state.editingProfileId;
   notesProfileId = state.notesProfileId;
+  profileResumeSettingsProfileId = state.profileResumeSettingsProfileId;
   promptResumeFormMode = state.promptResumeFormMode;
   editingPromptResumeId = state.editingPromptResumeId;
 }
@@ -888,9 +896,20 @@ function getManagedModals() {
       fields: [profileNotesInput]
     },
     {
+      id: "profileResumeSettings",
+      element: profileResumeSettingsModal,
+      setOpen: (isOpen) => setProfileResumeSettingsModalOpen(isOpen, {
+        returnFocus: false,
+        preserveProfile: true
+      }),
+      fields: []
+    },
+    {
       id: "promptResumeForm",
       element: promptResumeFormModal,
-      setOpen: setPromptResumeFormModalOpen,
+      setOpen: (isOpen) => setPromptResumeFormModalOpen(isOpen, {
+        returnToSettings: false
+      }),
       fields: [promptResumeLabelInput, promptResumeContentInput]
     },
     {
@@ -956,6 +975,7 @@ function restoreManagedModalState() {
   const preservedProfileFormMode = profileFormMode;
   const preservedEditingProfileId = editingProfileId;
   const preservedNotesProfileId = notesProfileId;
+  const preservedResumeSettingsProfileId = profileResumeSettingsProfileId;
   const preservedPromptResumeFormMode = promptResumeFormMode;
   const preservedEditingPromptResumeId = editingPromptResumeId;
 
@@ -974,9 +994,11 @@ function restoreManagedModalState() {
   profileFormMode = preservedProfileFormMode;
   editingProfileId = preservedEditingProfileId;
   notesProfileId = preservedNotesProfileId;
+  profileResumeSettingsProfileId = preservedResumeSettingsProfileId;
   promptResumeFormMode = preservedPromptResumeFormMode;
   editingPromptResumeId = preservedEditingPromptResumeId;
 
+  renderProfileResumeSettings();
   getManagedModals()
     .find((modal) => modal.id === targetModalId)
     ?.fields.forEach((field) => {
@@ -1021,7 +1043,7 @@ let profileSelectionState = {
   selectionVersion: PROFILE_SELECTION_VERSION
 };
 
-let expandedProfileIds = new Set();
+let profileResumeSettingsProfileId = null;
 let draggedProfileId = "";
 let profileFormMode = "add";
 let editingProfileId = null;
@@ -1112,7 +1134,7 @@ function getAutoSelectedPromptResumeId(promptResumes) {
   return promptResumes.find((entry) => entry.autoSelect)?.id || "";
 }
 
-function normalizePromptResumeSelection(selection, { applyAutoSelect = false } = {}) {
+function normalizePromptResumeSelection(selection) {
   let promptResumes = (
     Array.isArray(selection?.promptResumes) ? selection.promptResumes : []
   )
@@ -1121,15 +1143,19 @@ function normalizePromptResumeSelection(selection, { applyAutoSelect = false } =
 
   promptResumes = enforceSingleAutoSelectPromptResume(promptResumes);
 
-  let selectedPromptResumeId =
+  const selectedPromptResumeId =
     promptResumes.some(
       (entry) => entry.id === selection?.selectedPromptResumeId
     )
       ? selection.selectedPromptResumeId
-      : "";
+      : promptResumes[0]?.id || "";
 
-  if (applyAutoSelect && !selectedPromptResumeId) {
-    selectedPromptResumeId = getAutoSelectedPromptResumeId(promptResumes);
+  // Auto belongs to the profile and follows its assigned resume.
+  if (promptResumes.some((entry) => entry.autoSelect)) {
+    promptResumes = promptResumes.map((entry) => ({
+      ...entry,
+      autoSelect: entry.id === selectedPromptResumeId
+    }));
   }
 
   return { promptResumes, selectedPromptResumeId };
@@ -1167,16 +1193,10 @@ function normalizeProfile(entry) {
 }
 
 function normalizeProfileSelectionState(selection) {
-  const hasCurrentSelectionVersion =
-    selection?.selectionVersion === PROFILE_SELECTION_VERSION;
-  const profiles = (Array.isArray(selection?.profiles) ? selection.profiles : [])
+  const sourceProfiles = Array.isArray(selection?.profiles) ? selection.profiles : [];
+  const profiles = sourceProfiles
     .map(normalizeProfile)
-    .filter(Boolean)
-    .map((profile) =>
-      hasCurrentSelectionVersion
-        ? profile
-        : { ...profile, selectedPromptResumeId: "" }
-    );
+    .filter(Boolean);
 
   if (profiles.length === 0) {
     const defaultProfile = createDefaultProfile();
@@ -1193,8 +1213,20 @@ function normalizeProfileSelectionState(selection) {
       ? selection.selectedProfileId
       : profiles[0].id;
 
+  // V3 coupled application inclusion to the resume selection. Preserve those
+  // checked profiles before defaulting previously unassigned resumes.
+  const selectedIds = new Set(
+    selection?.selectionVersion === PROFILE_SELECTION_VERSION
+      ? (Array.isArray(selection.selectedProfileIds) ? selection.selectedProfileIds : [])
+      : selection?.selectionVersion === 3
+        ? sourceProfiles.filter((source) => source?.selectedPromptResumeId &&
+            profiles.some((profile) => profile.id === String(source.id) &&
+              profile.selectedPromptResumeId === source.selectedPromptResumeId)
+          ).map((profile) => String(profile.id))
+        : []
+  );
   const selectedProfileIds = profiles
-    .filter((profile) => Boolean(profile.selectedPromptResumeId))
+    .filter((profile) => selectedIds.has(profile.id) && profile.selectedPromptResumeId)
     .map((profile) => profile.id);
 
   return {
@@ -1258,9 +1290,12 @@ function syncPromptResumeStateFromSelectedProfile() {
 
 function applyPromptResumeStateToSelectedProfile(
   promptResumes,
-  selectedPromptResumeId
+  selectedPromptResumeId,
+  profileId = getSelectedProfile()?.id
 ) {
-  const selectedProfile = getSelectedProfile();
+  const selectedProfile = profileSelectionState.profiles.find(
+    (profile) => profile.id === profileId
+  );
   if (!selectedProfile) {
     return;
   }
@@ -1284,7 +1319,8 @@ function applyPromptResumeStateToSelectedProfile(
     ...profileSelectionState,
     profiles,
     selectedProfileIds: profiles
-      .filter((profile) => Boolean(profile.selectedPromptResumeId))
+      .filter((profile) => profile.selectedPromptResumeId &&
+        profileSelectionState.selectedProfileIds.includes(profile.id))
       .map((profile) => profile.id)
   };
 }
@@ -1375,7 +1411,7 @@ function setProfileNotesModalOpen(isOpen) {
     profileNotesModalSubmitButton.disabled = false;
   }
   profileList
-    ?.querySelector(".profile-item.is-expanded .profile-notes")
+    ?.querySelector(".profile-notes")
     ?.focus();
 }
 
@@ -1509,141 +1545,85 @@ function openEditProfileModal(profileId) {
   setProfileFormModalOpen(true);
 }
 
-function parkProfilePromptResumeSection() {
-  if (!profilePromptResumeSection || !profileList?.parentElement) {
-    return;
-  }
+function renderProfileResumeSettings() {
+  if (!profileResumeSettingsProfileId) return;
 
-  profilePromptResumeSection.classList.add("is-hidden");
-  profilePromptResumeSection.hidden = true;
-  profileList.parentElement.insertBefore(
-    profilePromptResumeSection,
-    profileList.nextSibling
+  const profile = profileSelectionState.profiles.find(
+    (entry) => entry.id === profileResumeSettingsProfileId
   );
-}
-
-function mountProfilePromptResumeSection(body) {
-  if (!profilePromptResumeSection || !body) {
+  if (!profile) {
+    setProfileResumeSettingsModalOpen(false);
     return;
   }
 
-  profilePromptResumeSection.classList.remove("is-hidden");
-  profilePromptResumeSection.hidden = false;
-  body.append(profilePromptResumeSection);
-}
-
-async function activateProfilePromptResume(profileId, promptResumeId) {
-
-  if (profileSelectionState.selectedProfileId !== profileId) {
-    await selectProfile(profileId);
+  // Resume edits stay attached to the profile whose settings are open.
+  profileSelectionState.selectedProfileId = profile.id;
+  syncPromptResumeStateFromSelectedProfile();
+  if (profileResumeSettingsModalTitle) {
+    profileResumeSettingsModalTitle.textContent = `Prompt resumes · ${profile.name}`;
   }
-
-  if (profileSelectionState.selectedProfileId === profileId) {
-    await selectPromptResume(promptResumeId);
+  if (profileResumeSettingsAddButton) {
+    profileResumeSettingsAddButton.disabled = areActionButtonsDisabled;
   }
 }
 
-function renderProfilePromptResumeMirror(profile, body) {
-  const list = document.createElement("ul");
-  list.className = "prompt-resume-list profile-prompt-resume-mirror";
-  list.setAttribute("aria-label", `${profile.name} prompt resumes`);
+function setProfileResumeSettingsModalOpen(
+  isOpen,
+  { returnFocus = true, preserveProfile = false } = {}
+) {
+  if (!profileResumeSettingsModal) return;
 
-  if (profile.promptResumes.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "prompt-resume-list-empty";
-    empty.textContent = "No prompt resumes yet. Add one above.";
-    list.appendChild(empty);
-    body.appendChild(list);
-    return;
-  }
+  const profileId = profileResumeSettingsProfileId;
+  profileResumeSettingsModal.classList.toggle("is-hidden", !isOpen);
+  profileResumeSettingsModal.setAttribute("aria-hidden", String(!isOpen));
 
-  profile.promptResumes.forEach((promptResume) => {
-    const isSelected = promptResume.id === profile.selectedPromptResumeId;
-    const item = document.createElement("li");
-    item.className = "prompt-resume-item";
-    item.classList.toggle("is-selected", isSelected);
-
-    const dragSpacer = document.createElement("span");
-    dragSpacer.className = "prompt-resume-drag-spacer";
-    dragSpacer.setAttribute("aria-hidden", "true");
-
-    const radio = document.createElement("input");
-    radio.type = "radio";
-    radio.name = `promptResume-${profile.id}`;
-    radio.value = promptResume.id;
-    radio.checked = isSelected;
-    radio.setAttribute("aria-label", `Use ${promptResume.label} for ${profile.name}`);
-
-    const copy = document.createElement("div");
-    copy.className = "prompt-resume-copy";
-
-    const label = document.createElement("span");
-    label.className = "prompt-resume-label";
-    label.textContent = promptResume.label;
-
-    const preview = document.createElement("span");
-    preview.className = "prompt-resume-preview";
-    preview.textContent = truncatePreviewText(promptResume.content);
-    copy.append(label, preview);
-
-    const updatedAtText = formatPromptResumeUpdatedAt(promptResume.updatedAt);
-    if (updatedAtText) {
-      const updated = document.createElement("span");
-      updated.className = "prompt-resume-updated";
-      updated.textContent = updatedAtText;
-      copy.append(updated);
+  if (isOpen) {
+    if (!profileSelectionState.profiles.some((profile) => profile.id === profileId)) {
+      setProfileResumeSettingsModalOpen(false, { returnFocus: false });
+      return;
     }
+    renderProfileResumeSettings();
+    const selectedControl = promptResumeList?.querySelector(
+      'input[type="radio"]:checked'
+    ) || promptResumeList?.querySelector('input[type="radio"]');
+    (selectedControl || profileResumeSettingsAddButton)?.focus();
+    return;
+  }
 
-    const actions = document.createElement("div");
-    actions.className = "prompt-resume-actions";
+  if (!preserveProfile) {
+    profileResumeSettingsProfileId = null;
+  }
+  if (returnFocus) {
+    Array.from(profileList?.querySelectorAll(".profile-item") || [])
+      .find((item) => item.dataset.profileId === profileId)
+      ?.querySelector(".profile-resume-settings")?.focus();
+  }
+}
 
-    const autoButton = document.createElement("button");
-    autoButton.type = "button";
-    autoButton.className = "prompt-resume-auto-select";
-    autoButton.classList.toggle("is-active", Boolean(promptResume.autoSelect));
-    autoButton.textContent = "Auto";
-    autoButton.setAttribute(
-      "aria-pressed",
-      String(Boolean(promptResume.autoSelect))
-    );
-    autoButton.setAttribute(
-      "aria-label",
-      promptResume.autoSelect
-        ? `Stop auto-selecting ${promptResume.label} for ${profile.name}`
-        : `Auto-select ${promptResume.label} for ${profile.name}`
-    );
-    autoButton.title = promptResume.autoSelect
-      ? "Auto-select on for next applications"
-      : "Auto-select this resume after each save";
-    autoButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      setPromptResumeAutoSelect(
-        profile.id,
-        promptResume.id,
-        !promptResume.autoSelect
-      );
-    });
-    actions.append(autoButton);
+async function openProfileResumeSettingsModal(profileId) {
+  if (areActionButtonsDisabled) return;
+  await selectProfile(profileId);
+  profileResumeSettingsProfileId = profileId;
+  setProfileResumeSettingsModalOpen(true);
+}
 
-    item.addEventListener("click", () => {
-      activateProfilePromptResume(profile.id, promptResume.id);
-    });
-    radio.addEventListener("click", (event) => {
-      event.stopPropagation();
-      activateProfilePromptResume(profile.id, promptResume.id);
-    });
+async function toggleProfileAutoSelect(profileId) {
+  if (areActionButtonsDisabled) return;
+  const profile = profileSelectionState.profiles.find(
+    (entry) => entry.id === profileId
+  );
+  if (!profile) return;
 
-    item.append(dragSpacer, radio, copy, actions);
-    list.appendChild(item);
-  });
+  const autoResume = profile.promptResumes.find((resume) => resume.autoSelect);
+  const promptResumeId = autoResume?.id || profile.selectedPromptResumeId;
+  if (!promptResumeId) return;
 
-  body.appendChild(list);
+  await setPromptResumeAutoSelect(profileId, promptResumeId, !autoResume);
 }
 
 function renderProfileList() {
   if (!profileList) return;
 
-  parkProfilePromptResumeSection();
   profileList.innerHTML = "";
 
   if (profileSelectionState.profiles.length === 0) {
@@ -1655,14 +1635,11 @@ function renderProfileList() {
   }
 
   profileSelectionState.profiles.forEach((profile) => {
-    const isExpanded = expandedProfileIds.has(profile.id);
     const isSelected = profileSelectionState.selectedProfileIds.includes(profile.id);
-    const bodyId = `profile-body-${profile.id}`;
 
     const item = document.createElement("li");
     item.className = "profile-item";
     item.dataset.profileId = profile.id;
-    item.classList.toggle("is-expanded", isExpanded);
     item.classList.toggle("is-selected", isSelected);
 
     const header = document.createElement("div");
@@ -1737,59 +1714,59 @@ function renderProfileList() {
       clearProfileDragState();
     });
 
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "profile-item-toggle";
-    toggle.setAttribute("aria-expanded", String(isExpanded));
-    toggle.setAttribute("aria-controls", bodyId);
-    toggle.setAttribute(
-      "aria-label",
-      isExpanded ? `${profile.name} (expanded)` : `Expand ${profile.name}`
-    );
-
     const copy = document.createElement("div");
-    copy.className = "profile-copy";
+    copy.className = "profile-copy profile-name";
 
     const label = document.createElement("span");
     label.className = "profile-label";
     label.textContent = profile.name;
+    label.title = profile.name;
     copy.append(label);
-
-    const chevron = document.createElement("span");
-    chevron.className = "profile-chevron";
-    chevron.setAttribute("aria-hidden", "true");
-    chevron.innerHTML = `
-      <svg viewBox="0 0 24 24">
-        <path d="m6 9 6 6 6-6" />
-      </svg>
-    `;
-
-    toggle.append(copy, chevron);
-    toggle.addEventListener("click", () => {
-      toggleProfileExpand(profile.id);
-    });
 
     const actions = document.createElement("div");
     actions.className = "profile-actions";
 
-    const addPromptResumeButton = document.createElement("button");
-    addPromptResumeButton.type = "button";
-    addPromptResumeButton.className = "profile-add-prompt-resume";
-    addPromptResumeButton.textContent = "+";
-    addPromptResumeButton.setAttribute(
-      "aria-label",
-      `Add a prompt resume to ${profile.name}`
+    const autoResume = profile.promptResumes.find((resume) => resume.autoSelect);
+    const autoButton = document.createElement("button");
+    autoButton.type = "button";
+    autoButton.className = "profile-auto-select";
+    autoButton.textContent = "Auto";
+    autoButton.classList.toggle("is-active", Boolean(autoResume));
+    autoButton.setAttribute("aria-pressed", String(Boolean(autoResume)));
+    autoButton.setAttribute("aria-label", `Auto-select prompt resume for ${profile.name}`);
+    autoButton.dataset.hasResume = String(
+      Boolean(autoResume || profile.selectedPromptResumeId)
     );
-    addPromptResumeButton.addEventListener("click", async (event) => {
-      event.stopPropagation();
+    autoButton.disabled =
+      areActionButtonsDisabled || autoButton.dataset.hasResume !== "true";
+    autoButton.title = autoResume
+      ? `Auto-select on: ${autoResume.label}`
+      : profile.selectedPromptResumeId
+        ? "Automatically select this profile's chosen resume after each save"
+        : "Choose a prompt resume in Settings first";
+    autoButton.addEventListener("click", () => toggleProfileAutoSelect(profile.id));
 
-
-      if (profile.id !== profileSelectionState.selectedProfileId) {
-        await selectProfile(profile.id);
-      }
-
-      openAddPromptResumeModal();
-    });
+    const settingsButton = document.createElement("button");
+    settingsButton.type = "button";
+    settingsButton.className = "profile-resume-settings";
+    settingsButton.disabled = areActionButtonsDisabled;
+    settingsButton.title = "Prompt resume settings";
+    settingsButton.setAttribute("aria-label", `Prompt resume settings for ${profile.name}`);
+    settingsButton.setAttribute("aria-haspopup", "dialog");
+    settingsButton.setAttribute("aria-controls", "profileResumeSettingsModal");
+    settingsButton.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h9" />
+        <circle cx="16" cy="7" r="2" />
+        <path d="M18 7h2" />
+        <path d="M4 17h2" />
+        <circle cx="9" cy="17" r="2" />
+        <path d="M11 17h9" />
+      </svg>
+    `;
+    settingsButton.addEventListener("click", () =>
+      openProfileResumeSettingsModal(profile.id)
+    );
 
     const notesButton = document.createElement("button");
     notesButton.type = "button";
@@ -1841,23 +1818,13 @@ function renderProfileList() {
       removeProfile(profile.id);
     });
 
-    actions.append(addPromptResumeButton, notesButton, editButton, removeButton);
-    header.append(dragHandle, selectionCheckbox, toggle, actions);
+    actions.append(autoButton, settingsButton, notesButton, editButton, removeButton);
+    header.append(dragHandle, selectionCheckbox, copy, actions);
 
-    const body = document.createElement("div");
-    body.id = bodyId;
-    body.className = "profile-item-body";
-    body.hidden = !isExpanded;
-
-    if (isExpanded && profile.id === profileSelectionState.selectedProfileId) {
-      mountProfilePromptResumeSection(body);
-    } else if (isExpanded) {
-      renderProfilePromptResumeMirror(profile, body);
-    }
-
-    item.append(header, body);
+    item.append(header);
     profileList.appendChild(item);
   });
+  renderProfileResumeSettings();
 }
 
 async function persistProfileSelection(successMessage) {
@@ -1874,16 +1841,6 @@ async function persistProfileSelection(successMessage) {
   }
 
   profileSelectionState = normalizeProfileSelectionState(response);
-
-  const validProfileIds = new Set(
-    profileSelectionState.profiles.map((entry) => entry.id)
-  );
-  expandedProfileIds = new Set(
-    [
-      ...Array.from(expandedProfileIds).filter((id) => validProfileIds.has(id)),
-      ...profileSelectionState.selectedProfileIds
-    ]
-  );
 
   syncPromptResumeStateFromSelectedProfile();
   renderProfileList();
@@ -1911,15 +1868,8 @@ async function toggleProfileSelection(profileId) {
   if (willSelect) {
     selectedIds.add(profileId);
     profileSelectionState.selectedProfileId = profileId;
-    expandedProfileIds.add(profileId);
   } else {
     selectedIds.delete(profileId);
-    profileSelectionState.profiles = profileSelectionState.profiles.map(
-      (entry) =>
-        entry.id === profileId
-          ? { ...entry, selectedPromptResumeId: "" }
-          : entry
-    );
   }
 
   profileSelectionState.selectedProfileIds = profileSelectionState.profiles
@@ -1950,53 +1900,18 @@ async function loadProfileSelection() {
     }
 
     profileSelectionState = normalizeProfileSelectionState(response);
-    expandedProfileIds = new Set(
-      profileSelectionState.profiles.map((profile) => profile.id)
-    );
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
   } catch (error) {
     console.error(error);
     profileSelectionState = normalizeProfileSelectionState(null);
-    expandedProfileIds = new Set(
-      profileSelectionState.profiles.map((profile) => profile.id)
-    );
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
     addLog("error", error.message || "Could not load profiles.");
   }
 }
 
-async function toggleProfileExpand(profileId) {
-
-  const isSelected = profileSelectionState.selectedProfileIds.includes(profileId);
-  if (expandedProfileIds.has(profileId)) {
-    if (isSelected) {
-      if (profileId !== profileSelectionState.selectedProfileId) {
-        await selectProfile(profileId);
-      }
-      return;
-    }
-
-    expandedProfileIds.delete(profileId);
-    renderProfileList();
-    return;
-  }
-
-  expandedProfileIds.add(profileId);
-
-  if (profileId !== profileSelectionState.selectedProfileId) {
-    await selectProfile(profileId);
-    return;
-  }
-
-  syncPromptResumeStateFromSelectedProfile();
-  renderProfileList();
-}
-
 async function selectProfile(profileId) {
-
-  expandedProfileIds.add(profileId);
 
   if (profileId === profileSelectionState.selectedProfileId) {
     syncPromptResumeStateFromSelectedProfile();
@@ -2034,8 +1949,6 @@ async function removeProfile(profileId) {
     profileSelectionState.selectedProfileId =
       profileSelectionState.profiles[0]?.id || "";
   }
-
-  expandedProfileIds.delete(profileId);
 
   try {
     await persistProfileSelection(
@@ -2092,7 +2005,6 @@ async function submitProfileForm() {
       };
       profileSelectionState.profiles = [...profileSelectionState.profiles, profile];
       profileSelectionState.selectedProfileId = profile.id;
-      expandedProfileIds.add(profile.id);
     }
 
     await persistProfileSelection(
@@ -2353,16 +2265,21 @@ function setSaveButtonsDisabled(disabled) {
   if (addProfileButton) addProfileButton.disabled = disabled;
   profileList
     ?.querySelectorAll(
-      ".profile-add-prompt-resume, .profile-notes, .profile-selection-checkbox"
+      ".profile-resume-settings, .profile-auto-select, .profile-notes, .profile-selection-checkbox"
     )
     .forEach((control) => {
       const isUnavailableProfileCheckbox =
         control.classList.contains("profile-selection-checkbox") &&
         control.dataset.hasSelectedPromptResume !== "true";
-      control.disabled = disabled || isUnavailableProfileCheckbox;
+      const isUnavailableProfileAuto =
+        control.classList.contains("profile-auto-select") &&
+        control.dataset.hasResume !== "true";
+      control.disabled =
+        disabled || isUnavailableProfileCheckbox || isUnavailableProfileAuto;
     });
   if (profileFormModalSubmitButton) profileFormModalSubmitButton.disabled = disabled;
   if (profileNotesModalSubmitButton) profileNotesModalSubmitButton.disabled = disabled;
+  if (profileResumeSettingsAddButton) profileResumeSettingsAddButton.disabled = disabled;
   if (promptResumeFormModalSubmitButton) promptResumeFormModalSubmitButton.disabled = disabled;
   if (promptFormModalSubmitButton) promptFormModalSubmitButton.disabled = disabled;
   if (jobDescriptionFormModalSubmitButton) jobDescriptionFormModalSubmitButton.disabled = disabled;
@@ -2766,13 +2683,17 @@ function updatePromptResumeFormModalCopy() {
   }
 }
 
-function setPromptResumeFormModalOpen(isOpen) {
+function setPromptResumeFormModalOpen(isOpen, { returnToSettings = true } = {}) {
   if (!promptResumeFormModal) return;
 
   promptResumeFormModal.classList.toggle("is-hidden", !isOpen);
   promptResumeFormModal.setAttribute("aria-hidden", String(!isOpen));
 
   if (isOpen) {
+    setProfileResumeSettingsModalOpen(false, {
+      returnFocus: false,
+      preserveProfile: true
+    });
     updatePromptResumeFormModalCopy();
     clearPromptResumeFormModalStatus();
     promptResumeLabelInput?.focus();
@@ -2783,12 +2704,13 @@ function setPromptResumeFormModalOpen(isOpen) {
   editingPromptResumeId = null;
   resetPromptResumeFormModal();
   updatePromptResumeFormModalCopy();
-  profileList
-    ?.querySelector(".profile-item.is-expanded .profile-add-prompt-resume")
-    ?.focus();
+  if (returnToSettings && profileResumeSettingsProfileId) {
+    setProfileResumeSettingsModalOpen(true);
+  }
 }
 
 function openAddPromptResumeModal() {
+  if (areActionButtonsDisabled) return;
 
   addLog("info", "Add a Prompt Resume clicked.");
   promptResumeFormMode = "add";
@@ -2882,7 +2804,7 @@ function renderPromptResumeList() {
   if (promptResumeSelectionState.promptResumes.length === 0) {
     const empty = document.createElement("p");
     empty.className = "prompt-resume-list-empty";
-    empty.textContent = "No prompt resumes yet. Add one below.";
+    empty.textContent = "No prompt resumes yet. Use Add prompt resume to create one.";
     promptResumeList.appendChild(empty);
     return;
   }
@@ -2899,7 +2821,7 @@ function renderPromptResumeList() {
     const dragHandle = document.createElement("button");
     dragHandle.type = "button";
     dragHandle.className = "prompt-resume-drag-handle";
-    dragHandle.draggable = true;
+    dragHandle.draggable = !areActionButtonsDisabled;
     dragHandle.setAttribute("aria-label", `Reorder ${promptResume.label}`);
     dragHandle.innerHTML = `
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2943,6 +2865,7 @@ function renderPromptResumeList() {
 
     const radio = document.createElement("input");
     radio.type = "radio";
+    radio.disabled = areActionButtonsDisabled;
     radio.name = "promptResume";
     radio.value = promptResume.id;
     radio.checked =
@@ -2973,44 +2896,13 @@ function renderPromptResumeList() {
     const actions = document.createElement("div");
     actions.className = "prompt-resume-actions";
 
-    const autoButton = document.createElement("button");
-    autoButton.type = "button";
-    autoButton.className = "prompt-resume-auto-select";
-    autoButton.classList.toggle("is-active", Boolean(promptResume.autoSelect));
-    autoButton.textContent = "Auto";
-    autoButton.setAttribute(
-      "aria-pressed",
-      String(Boolean(promptResume.autoSelect))
-    );
-    autoButton.setAttribute(
-      "aria-label",
-      promptResume.autoSelect
-        ? `Stop auto-selecting ${promptResume.label}`
-        : `Auto-select ${promptResume.label}`
-    );
-    autoButton.title = promptResume.autoSelect
-      ? "Auto-select on for next applications"
-      : "Auto-select this resume after each save";
-    autoButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const selectedProfile = getSelectedProfile();
-      if (!selectedProfile) {
-        return;
-      }
-      setPromptResumeAutoSelect(
-        selectedProfile.id,
-        promptResume.id,
-        !promptResume.autoSelect
-      );
-    });
-    actions.append(autoButton);
-
     const isSelected =
       promptResume.id === promptResumeSelectionState.selectedPromptResumeId;
 
     if (isSelected) {
       const editButton = document.createElement("button");
       editButton.type = "button";
+      editButton.disabled = areActionButtonsDisabled;
       editButton.className = "prompt-resume-edit";
       editButton.setAttribute("aria-label", `View or edit ${promptResume.label}`);
       editButton.innerHTML = `
@@ -3028,9 +2920,14 @@ function renderPromptResumeList() {
 
     const removeButton = document.createElement("button");
     removeButton.type = "button";
+    removeButton.disabled = areActionButtonsDisabled ||
+      promptResumeSelectionState.promptResumes.length <= 1;
     removeButton.className = "prompt-resume-remove";
     removeButton.textContent = "×";
     removeButton.setAttribute("aria-label", `Remove ${promptResume.label}`);
+    if (promptResumeSelectionState.promptResumes.length <= 1) {
+      removeButton.title = "Each profile must keep at least one prompt resume";
+    }
     removeButton.addEventListener("click", (event) => {
       event.stopPropagation();
       removePromptResume(promptResume.id);
@@ -3059,24 +2956,22 @@ async function loadPromptResumeSelection() {
       return;
     }
 
+    const profileId = profileResumeSettingsProfileId || getSelectedProfile()?.id;
     const response = await chrome.runtime.sendMessage({
-      type: "GET_PROMPT_RESUME_SELECTION"
+      type: "GET_PROMPT_RESUME_SELECTION",
+      profileId
     });
 
     if (!response?.ok) {
       throw new Error(response?.error || "Could not load prompt resumes.");
     }
 
-    promptResumeSelectionState = {
-      promptResumes: Array.isArray(response.promptResumes)
-        ? response.promptResumes
-        : [],
-      selectedPromptResumeId: response.selectedPromptResumeId || ""
-    };
     applyPromptResumeStateToSelectedProfile(
-      promptResumeSelectionState.promptResumes,
-      promptResumeSelectionState.selectedPromptResumeId
+      response.promptResumes || [],
+      response.selectedPromptResumeId || "",
+      profileId
     );
+    syncPromptResumeStateFromSelectedProfile();
     renderPromptResumeList();
     renderProfileList();
   } catch (error) {
@@ -3087,8 +2982,10 @@ async function loadPromptResumeSelection() {
 }
 
 async function persistPromptResumeSelection(successMessage) {
+  const profileId = profileResumeSettingsProfileId || getSelectedProfile()?.id;
   const response = await chrome.runtime.sendMessage({
     type: "SAVE_PROMPT_RESUME_SELECTION",
+    profileId,
     promptResumes: promptResumeSelectionState.promptResumes,
     selectedPromptResumeId: promptResumeSelectionState.selectedPromptResumeId
   });
@@ -3097,16 +2994,12 @@ async function persistPromptResumeSelection(successMessage) {
     throw new Error(response?.error || "Could not save prompt resume selection.");
   }
 
-  promptResumeSelectionState = {
-    promptResumes: Array.isArray(response.promptResumes)
-      ? response.promptResumes
-      : [],
-    selectedPromptResumeId: response.selectedPromptResumeId || ""
-  };
   applyPromptResumeStateToSelectedProfile(
-    promptResumeSelectionState.promptResumes,
-    promptResumeSelectionState.selectedPromptResumeId
+    response.promptResumes || [],
+    response.selectedPromptResumeId || "",
+    profileId
   );
+  syncPromptResumeStateFromSelectedProfile();
   renderPromptResumeList();
   renderProfileList();
 
@@ -3116,6 +3009,7 @@ async function persistPromptResumeSelection(successMessage) {
 }
 
 async function selectPromptResume(promptResumeId) {
+  if (areActionButtonsDisabled) return;
   const selectedProfile = getSelectedProfile();
   const isProfileChecked = Boolean(
     selectedProfile &&
@@ -3136,6 +3030,13 @@ async function selectPromptResume(promptResumeId) {
     return;
   }
 
+  if (selectedProfile.promptResumes.some((entry) => entry.autoSelect)) {
+    promptResumeSelectionState.promptResumes =
+      promptResumeSelectionState.promptResumes.map((entry) => ({
+        ...entry,
+        autoSelect: entry.id === promptResumeId
+      }));
+  }
   promptResumeSelectionState.selectedPromptResumeId = promptResumeId;
   applyPromptResumeStateToSelectedProfile(
     promptResumeSelectionState.promptResumes,
@@ -3191,13 +3092,12 @@ async function setPromptResumeAutoSelect(profileId, promptResumeId, enabled) {
     }))
   );
 
-  let selectedPromptResumeId = profile.selectedPromptResumeId;
-  if (enabled && !selectedPromptResumeId) {
-    selectedPromptResumeId = promptResumeId;
-  }
-  if (!enabled && selectedPromptResumeId === promptResumeId) {
-    selectedPromptResumeId = "";
-  }
+  const selectedPromptResumeId = enabled
+    ? promptResumeId
+    : profile.selectedPromptResumeId || promptResumes[0]?.id || "";
+  const selectedIds = new Set(profileSelectionState.selectedProfileIds);
+  if (enabled) selectedIds.add(profileId);
+  else selectedIds.delete(profileId);
 
   profileSelectionState.profiles = profileSelectionState.profiles.map(
     (entry) =>
@@ -3210,7 +3110,7 @@ async function setPromptResumeAutoSelect(profileId, promptResumeId, enabled) {
         : entry
   );
   profileSelectionState.selectedProfileIds = profileSelectionState.profiles
-    .filter((entry) => Boolean(entry.selectedPromptResumeId))
+    .filter((entry) => selectedIds.has(entry.id) && entry.selectedPromptResumeId)
     .map((entry) => entry.id);
 
   if (profileSelectionState.selectedProfileId === profileId) {
@@ -3222,16 +3122,13 @@ async function setPromptResumeAutoSelect(profileId, promptResumeId, enabled) {
 
   if (enabled && selectedPromptResumeId === promptResumeId) {
     profileSelectionState.selectedProfileId = profileId;
-    expandedProfileIds.add(profileId);
   }
 
   try {
     await persistProfileSelection(
       enabled
         ? `Auto-select enabled for "${promptResume.label}".`
-        : selectedPromptResumeId
-          ? `Auto-select disabled for "${promptResume.label}".`
-          : `Auto-select disabled for "${promptResume.label}". Prompt resume and profile deselected.`
+        : `Auto-select disabled for "${promptResume.label}". Profile deselected; its prompt resume remains assigned.`
     );
     renderPromptResumeList();
     renderProfileList();
@@ -3243,6 +3140,12 @@ async function setPromptResumeAutoSelect(profileId, promptResumeId, enabled) {
 }
 
 async function removePromptResume(promptResumeId) {
+  if (areActionButtonsDisabled) return;
+  if (promptResumeSelectionState.promptResumes.length <= 1) {
+    addLog("error", "Each profile must keep at least one prompt resume.");
+    return;
+  }
+
   const removed = promptResumeSelectionState.promptResumes.find(
     (entry) => entry.id === promptResumeId
   );
@@ -3254,15 +3157,19 @@ async function removePromptResume(promptResumeId) {
     );
 
   if (promptResumeSelectionState.selectedPromptResumeId === promptResumeId) {
-    promptResumeSelectionState.selectedPromptResumeId = "";
+    promptResumeSelectionState.selectedPromptResumeId =
+      promptResumeSelectionState.promptResumes[0]?.id || "";
+    if (removed?.autoSelect) {
+      promptResumeSelectionState.promptResumes =
+        promptResumeSelectionState.promptResumes.map((entry) => ({
+          ...entry,
+          autoSelect: entry.id === promptResumeSelectionState.selectedPromptResumeId
+        }));
+    }
   }
 
   try {
-    const message =
-      promptResumeSelectionState.promptResumes.length === 0
-        ? "All prompt resumes removed."
-        : "Prompt resume removed.";
-    await persistPromptResumeSelection(message);
+    await persistPromptResumeSelection("Prompt resume removed.");
   } catch (error) {
     console.error(error);
     const message = error.message || "Could not remove prompt resume.";
@@ -3273,6 +3180,7 @@ async function removePromptResume(promptResumeId) {
 
 async function submitPromptResumeForm() {
   clearPromptResumeFormModalStatus();
+  const profileId = profileResumeSettingsProfileId || getSelectedProfile()?.id;
 
   const label = promptResumeLabelInput?.value.trim() || "";
   const content = promptResumeContentInput?.value.trim() || "";
@@ -3324,6 +3232,7 @@ async function submitPromptResumeForm() {
   try {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_PROMPT_RESUME_SELECTION",
+      profileId,
       promptResumes,
       selectedPromptResumeId: promptResumeSelectionState.selectedPromptResumeId
     });
@@ -3335,18 +3244,16 @@ async function submitPromptResumeForm() {
       );
     }
 
-    promptResumeSelectionState = {
-      promptResumes: Array.isArray(response.promptResumes)
-        ? response.promptResumes
-        : [],
-      selectedPromptResumeId: response.selectedPromptResumeId || ""
-    };
     applyPromptResumeStateToSelectedProfile(
-      promptResumeSelectionState.promptResumes,
-      promptResumeSelectionState.selectedPromptResumeId
+      response.promptResumes || [],
+      response.selectedPromptResumeId || "",
+      profileId
     );
+    syncPromptResumeStateFromSelectedProfile();
 
-    setPromptResumeFormModalOpen(false);
+    if (profileResumeSettingsProfileId === profileId) {
+      setPromptResumeFormModalOpen(false);
+    }
     renderPromptResumeList();
     renderProfileList();
     const successMessage = isEdit ? `"${label}" updated.` : `"${label}" added.`;
@@ -8502,6 +8409,17 @@ profileNotesModalCloseButton?.addEventListener("click", () => setProfileNotesMod
 profileNotesModalCancelButton?.addEventListener("click", () => setProfileNotesModalOpen(false));
 profileNotesModalSubmitButton?.addEventListener("click", submitProfileNotesForm);
 
+profileResumeSettingsModalBackdrop?.addEventListener("click", () =>
+  setProfileResumeSettingsModalOpen(false)
+);
+profileResumeSettingsModalCloseButton?.addEventListener("click", () =>
+  setProfileResumeSettingsModalOpen(false)
+);
+profileResumeSettingsDoneButton?.addEventListener("click", () =>
+  setProfileResumeSettingsModalOpen(false)
+);
+profileResumeSettingsAddButton?.addEventListener("click", openAddPromptResumeModal);
+
 
 exportAppDataIconButton?.addEventListener("click", openExportAppDataModal);
 applicationWorkspaceExportButton?.addEventListener(
@@ -8628,6 +8546,11 @@ document.addEventListener("keydown", (event) => {
 
   if (promptResumeFormModal && !promptResumeFormModal.classList.contains("is-hidden")) {
     setPromptResumeFormModalOpen(false);
+    return;
+  }
+
+  if (profileResumeSettingsModal && !profileResumeSettingsModal.classList.contains("is-hidden")) {
+    setProfileResumeSettingsModalOpen(false);
     return;
   }
 
