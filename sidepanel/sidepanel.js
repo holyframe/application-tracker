@@ -59,14 +59,6 @@ const homeCancelProcessButton = document.querySelector("#homeCancelProcessButton
 const applicationCancelProcessButton = document.querySelector(
   "#applicationCancelProcessButton"
 );
-const homeSavePostProcessTime = document.querySelector("#homeSavePostProcessTime");
-const applicationSavePostProcessTime = document.querySelector(
-  "#applicationSavePostProcessTime"
-);
-const homeSavePostProcessBar = document.querySelector("#homeSavePostProcessBar");
-const applicationSavePostProcessBar = document.querySelector(
-  "#applicationSavePostProcessBar"
-);
 const splitWindowsModalCancelButton = document.querySelector("#splitWindowsModalCancelButton");
 const splitWindowsModalOpenButton = document.querySelector("#splitWindowsModalOpenButton");
 const splitWindowUrlsInput = document.querySelector("#splitWindowUrlsInput");
@@ -206,9 +198,6 @@ const buildResumeContextStatus = document.querySelector(
 const buildResumeContextInput = document.querySelector(
   "#buildResumeContextInput"
 );
-const workspaceHeaderStatuses = document.querySelectorAll(
-  ".workspace-header-status"
-);
 const deletedRowsCard = document.querySelector("#deletedRowsCard");
 const deletedRowsList = document.querySelector("#deletedRowsList");
 const emptyDeletedRows = document.querySelector("#emptyDeletedRows");
@@ -336,14 +325,17 @@ const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
 const SAVE_PROCESS_BUSY_CODE = "SAVE_PROCESS_BUSY";
 const DEFAULT_AI_PROVIDER_ID = "chatgpt";
+const NO_MODEL_PROGRESS_STORAGE_KEY = "noModelSaveProgressByTabId";
+let configuredAiProviderId = DEFAULT_AI_PROVIDER_ID;
+let noModelProgressByTabId = {};
+let pendingNoModelDeleteTarget = null;
 const CONTEXT_DOC_AI_PROVIDER_ID = "none";
 const AI_PROVIDER_LABELS = Object.freeze({
   chatgpt: "ChatGPT",
   deepseek: "DeepSeek",
   none: "No Model"
 });
-// "No Model" keeps the assembled context in a Google Doc instead of a chat
-// conversation, so workspace controls name that URL differently.
+// Keep Context Doc labels for older imported No Model records.
 const AI_PROVIDER_URL_LABELS = Object.freeze({
   chatgpt: "ChatGPT",
   deepseek: "DeepSeek",
@@ -763,7 +755,6 @@ function renderActiveTabState() {
   syncCurrentSaveWorkspace();
   renderLogEntries();
   renderDeletedRowEntries();
-  renderHeaderStatus();
   restoreManagedModalState();
   if (isSplitWindowsDialogOpen) {
     // Another tab may have left the shared region showing a workspace preview.
@@ -1226,7 +1217,7 @@ function normalizeProfileSelectionState(selection) {
         : []
   );
   const selectedProfileIds = profiles
-    .filter((profile) => selectedIds.has(profile.id) && profile.selectedPromptResumeId)
+    .filter((profile) => selectedIds.has(profile.id))
     .map((profile) => profile.id);
 
   return {
@@ -1625,6 +1616,9 @@ function renderProfileList() {
   if (!profileList) return;
 
   profileList.innerHTML = "";
+  const noModelReport = isNoModelSaveMode()
+    ? noModelProgressByTabId[activeTabId]
+    : null;
 
   if (profileSelectionState.profiles.length === 0) {
     const empty = document.createElement("p");
@@ -1636,11 +1630,22 @@ function renderProfileList() {
 
   profileSelectionState.profiles.forEach((profile) => {
     const isSelected = profileSelectionState.selectedProfileIds.includes(profile.id);
+    const savedProgress = noModelReport?.profiles?.find(
+      (entry) => entry.id === profile.id
+    );
 
     const item = document.createElement("li");
     item.className = "profile-item";
     item.dataset.profileId = profile.id;
     item.classList.toggle("is-selected", isSelected);
+    item.classList.toggle("has-no-model-progress", Boolean(savedProgress));
+    if (savedProgress) {
+      item.dataset.saveStatus = savedProgress.deleted
+        ? "deleted"
+        : savedProgress.deleting
+          ? "deleting"
+          : savedProgress.status;
+    }
 
     const header = document.createElement("div");
     header.className = "profile-item-header";
@@ -1678,7 +1683,7 @@ function renderProfileList() {
       hasSelectedPromptResume
     );
     selectionCheckbox.disabled =
-      areActionButtonsDisabled || !hasSelectedPromptResume;
+      areActionButtonsDisabled || (!hasSelectedPromptResume && !isNoModelSaveMode() && !isSelected);
     selectionCheckbox.setAttribute(
       "aria-label",
       `${isSelected ? "Remove" : "Add"} ${profile.name} ${
@@ -1714,8 +1719,21 @@ function renderProfileList() {
       clearProfileDragState();
     });
 
-    const copy = document.createElement("div");
-    copy.className = "profile-copy profile-name";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "profile-copy profile-name profile-selection-label";
+    copy.disabled = selectionCheckbox.disabled;
+    copy.dataset.hasSelectedPromptResume = String(hasSelectedPromptResume);
+    copy.setAttribute("aria-pressed", String(isSelected));
+    copy.setAttribute(
+      "aria-label",
+      `${isSelected ? "Remove" : "Add"} ${profile.name} ${
+        isSelected ? "from" : "to"
+      } this application`
+    );
+    copy.addEventListener("click", async () => {
+      await toggleProfileSelection(profile.id);
+    });
 
     const label = document.createElement("span");
     label.className = "profile-label";
@@ -1822,6 +1840,11 @@ function renderProfileList() {
     header.append(dragHandle, selectionCheckbox, copy, actions);
 
     item.append(header);
+    if (savedProgress) {
+      item.append(
+        createNoModelProfileProgress(noModelReport, savedProgress)
+      );
+    }
     profileList.appendChild(item);
   });
   renderProfileResumeSettings();
@@ -1860,7 +1883,7 @@ async function toggleProfileSelection(profileId) {
 
   const selectedIds = new Set(profileSelectionState.selectedProfileIds);
   const willSelect = !selectedIds.has(profileId);
-  if (willSelect && !profile.selectedPromptResumeId) {
+  if (willSelect && !profile.selectedPromptResumeId && !isNoModelSaveMode()) {
     renderProfileList();
     return;
   }
@@ -2265,17 +2288,26 @@ function setSaveButtonsDisabled(disabled) {
   if (addProfileButton) addProfileButton.disabled = disabled;
   profileList
     ?.querySelectorAll(
-      ".profile-resume-settings, .profile-auto-select, .profile-notes, .profile-selection-checkbox"
+      ".profile-resume-settings, .profile-auto-select, .profile-notes, " +
+      ".profile-selection-checkbox, .profile-selection-label"
     )
     .forEach((control) => {
-      const isUnavailableProfileCheckbox =
-        control.classList.contains("profile-selection-checkbox") &&
+      const isProfileSelectionControl =
+        control.classList.contains("profile-selection-checkbox") ||
+        control.classList.contains("profile-selection-label");
+      const isSelectedProfileControl =
+        control.classList.contains("profile-selection-checkbox")
+          ? control.checked
+          : control.getAttribute("aria-pressed") === "true";
+      const isUnavailableProfileSelection =
+        isProfileSelectionControl &&
+        !isNoModelSaveMode() && !isSelectedProfileControl &&
         control.dataset.hasSelectedPromptResume !== "true";
       const isUnavailableProfileAuto =
         control.classList.contains("profile-auto-select") &&
         control.dataset.hasResume !== "true";
       control.disabled =
-        disabled || isUnavailableProfileCheckbox || isUnavailableProfileAuto;
+        disabled || isUnavailableProfileSelection || isUnavailableProfileAuto;
     });
   if (profileFormModalSubmitButton) profileFormModalSubmitButton.disabled = disabled;
   if (profileNotesModalSubmitButton) profileNotesModalSubmitButton.disabled = disabled;
@@ -2304,30 +2336,6 @@ function setSaveButtonsDisabledForTab(tabId, disabled) {
 
 function isSavePostProcessActive(state = savePostProcessState) {
   return Boolean(state && typeof state === "object" && state.runId);
-}
-
-function getSavePostProcessProgressPercent(state = savePostProcessState) {
-  if (!isSavePostProcessActive(state)) {
-    return 0;
-  }
-
-  const profileCount = Math.max(1, Number(state.profileCount) || 1);
-  const completedCount = Math.max(0, Number(state.completedCount) || 0);
-  return Math.max(0, Math.min(100, Math.round((completedCount / profileCount) * 100)));
-}
-
-function getSavePostProcessProgressLabel(state = savePostProcessState) {
-  if (!isSavePostProcessActive(state)) {
-    return "Save progress";
-  }
-
-  const profileCount = Math.max(1, Number(state.profileCount) || 1);
-  const completedCount = Math.max(0, Number(state.completedCount) || 0);
-  if (profileCount <= 1) {
-    return completedCount > 0 ? "Save progress 1/1" : "Save progress";
-  }
-
-  return `Save progress ${Math.min(completedCount, profileCount)}/${profileCount}`;
 }
 
 function resolveSavePostProcessTargetTabIds(state, fallbackOwnerTabId = null) {
@@ -2364,63 +2372,272 @@ function resolveSavePostProcessTargetTabIds(state, fallbackOwnerTabId = null) {
   return [...tabIds];
 }
 
-function updateSavePostProcessBar(element, state, visible) {
-  if (!element) return;
+function getSelectedAiProviderId() {
+  return normalizeAiProviderId(
+    aiProviderInput?.value || configuredAiProviderId
+  );
+}
 
-  const fill = element.querySelector(".workspace-save-progress-bar-fill");
-  element.classList.toggle("is-hidden", !visible);
-  if (!visible) {
-    element.classList.remove("is-indeterminate");
-    if (fill) fill.style.width = "0%";
-    element.setAttribute("aria-valuenow", "0");
+function isNoModelSaveMode() {
+  return getSelectedAiProviderId() === "none";
+}
+
+function syncSaveModeUi() {
+  document.querySelector(".job-description-card")?.classList.toggle("is-hidden", isNoModelSaveMode());
+  if (isNoModelSaveMode() && jobDescriptionFormModal &&
+      !jobDescriptionFormModal.classList.contains("is-hidden")) {
+    setJobDescriptionFormModalOpen(false);
+  }
+  renderNoModelSaveProgress();
+}
+
+async function loadNoModelSaveProgress() {
+  const stored = await chrome.storage.session.get(NO_MODEL_PROGRESS_STORAGE_KEY);
+  noModelProgressByTabId = stored[NO_MODEL_PROGRESS_STORAGE_KEY] || {};
+  renderNoModelSaveProgress();
+}
+
+async function persistNoModelProgressReport(report) {
+  if (!Number.isInteger(report?.ownerTabId)) return;
+  noModelProgressByTabId = {
+    ...noModelProgressByTabId,
+    [report.ownerTabId]: report
+  };
+  renderNoModelSaveProgress();
+  await chrome.storage.session.set({
+    [NO_MODEL_PROGRESS_STORAGE_KEY]: noModelProgressByTabId
+  });
+}
+
+function renderNoModelSaveProgress() {
+  renderProfileList();
+}
+
+function createNoModelProfileProgress(report, profile) {
+  const progress = document.createElement("section");
+  progress.className = "no-model-profile-progress";
+  progress.dataset.status = profile.deleted
+    ? "deleted"
+    : profile.deleting
+      ? "deleting"
+      : profile.status;
+  progress.setAttribute("role", "status");
+  progress.setAttribute("aria-live", "polite");
+  progress.setAttribute(
+    "aria-label",
+    `Application save progress for ${profile.name}`
+  );
+
+  const heading = document.createElement("div");
+  heading.className = "no-model-profile-progress-heading";
+  const job = document.createElement("span");
+  job.className = "no-model-profile-job";
+  job.textContent = report.jobTitle || "Job page";
+  job.title = report.jobUrl || "";
+  const badge = document.createElement("span");
+  badge.className = "no-model-profile-badge";
+  const labels = {
+    queued: "Waiting",
+    saved: "Saved",
+    failed: "Failed",
+    cancelled: "Cancelled",
+    skipped: "Not started"
+  };
+  badge.textContent = profile.deleted
+    ? "Deleted"
+    : profile.deleting
+      ? "Deleting"
+      : labels[profile.status] ||
+        (profile.stage === "sheet" ? "Saving row" : "Copying resume");
+  heading.append(job, badge);
+
+  const steps = document.createElement("ol");
+  steps.className = "no-model-profile-steps";
+  [
+    "Page captured",
+    "Resume copied",
+    profile.deleted ? "Sheet removed" : "Sheet saved"
+  ].forEach(
+    (label, stepIndex) => {
+      const done = stepIndex === 0 ||
+        (stepIndex === 1 && profile.resumeUrl) ||
+        (stepIndex === 2 && profile.status === "saved");
+      const current = stepIndex === (profile.stage === "sheet" ? 2 : 1);
+      const stopped = current &&
+        (profile.status === "failed" || profile.status === "cancelled");
+      const state = done
+        ? "done"
+        : current && profile.status === "running"
+          ? "active"
+          : stopped
+            ? profile.status
+            : "pending";
+      const step = document.createElement("li");
+      step.dataset.state = state;
+      step.setAttribute(
+        "aria-label",
+        `${label}: ${state === "done" ? "complete" : state}`
+      );
+      const marker = document.createElement("span");
+      marker.className = "no-model-step-marker";
+      marker.setAttribute("aria-hidden", "true");
+      marker.textContent = done ? "\u2713" : String(stepIndex + 1);
+      const caption = document.createElement("span");
+      caption.textContent = label;
+      step.append(marker, caption);
+      steps.append(step);
+    }
+  );
+  progress.append(heading, steps);
+
+  const actions = document.createElement("div");
+  actions.className = "no-model-profile-actions";
+  if (isGoogleSheetsDocumentUrl(profile.sheetUrl)) {
+    const link = document.createElement("a");
+    link.className =
+      "no-model-profile-action no-model-profile-open-sheet";
+    link.href = profile.sheetUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Open Google Sheet";
+    actions.append(link);
+  }
+  if (profile.status === "saved" && !profile.deleted) {
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className =
+      "no-model-profile-action no-model-profile-delete";
+    deleteButton.disabled = profile.deleting || areActionButtonsDisabled;
+    deleteButton.setAttribute(
+      "aria-label",
+      `Delete ${profile.name} application from Google Sheet`
+    );
+    deleteButton.title = "Delete saved Google Sheet row";
+    deleteButton.textContent = profile.deleting ? "Deleting..." : "Delete";
+    deleteButton.addEventListener("click", () => {
+      requestDeleteNoModelProfileApplication(report, profile);
+    });
+    actions.append(deleteButton);
+  }
+  if (actions.children.length > 0) {
+    progress.append(actions);
+  }
+
+  const errorMessage = profile.deleteError ||
+    (
+      report.error &&
+      (profile.status === "failed" || profile.status === "cancelled")
+        ? report.error
+        : ""
+    );
+  if (errorMessage) {
+    const error = document.createElement("p");
+    error.className = "no-model-profile-error";
+    error.setAttribute("role", "alert");
+    error.textContent = errorMessage;
+    progress.append(error);
+  }
+
+  return progress;
+}
+
+function requestDeleteNoModelProfileApplication(report, profile) {
+  if (
+    areActionButtonsDisabled ||
+    profile?.status !== "saved" ||
+    profile.deleted ||
+    profile.deleting
+  ) {
     return;
   }
 
-  const profileCount = Math.max(1, Number(state?.profileCount) || 1);
-  const completedCount = Math.max(0, Number(state?.completedCount) || 0);
-  const percent = getSavePostProcessProgressPercent(state);
-  const indeterminate = completedCount <= 0 && profileCount >= 1;
+  pendingNoModelDeleteTarget = {
+    ownerTabId: report.ownerTabId,
+    profileId: profile.id,
+    profileName: profile.name,
+    jobUrl: report.jobUrl,
+    resumeUrl: profile.resumeUrl
+  };
+  setDeleteApplicationModalOpen(true);
+}
 
-  element.classList.toggle("is-indeterminate", indeterminate);
-  element.setAttribute("aria-valuenow", String(percent));
-  element.setAttribute("aria-valuemax", "100");
-  element.setAttribute("aria-label", getSavePostProcessProgressLabel(state));
-  if (fill) {
-    fill.style.width = indeterminate ? "" : `${percent}%`;
+async function confirmDeleteNoModelProfileApplication() {
+  const target = pendingNoModelDeleteTarget;
+  if (!target) return;
+
+  const report = noModelProgressByTabId[target.ownerTabId];
+  const profile = report?.profiles?.find(
+    (entry) => entry.id === target.profileId
+  );
+  if (!profile || profile.status !== "saved" || profile.deleted) {
+    setDeleteApplicationModalOpen(false);
+    return;
+  }
+
+  setDeleteApplicationModalOpen(false, { returnFocus: false });
+  profile.deleting = true;
+  profile.deleteError = "";
+  await persistNoModelProgressReport(report);
+  const runId = createRunId();
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "DELETE_APPLICATION_RECORD",
+      runId,
+      ownerTabId: target.ownerTabId,
+      profileName: target.profileName,
+      jobUrl: target.jobUrl,
+      resumeUrl: target.resumeUrl,
+      chatGptUrl: "",
+      trashResume: false
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not delete the application.");
+    }
+    if ((Number(response.removed) || 0) < 1) {
+      throw new Error("The saved Google Sheet row could not be found.");
+    }
+
+    profile.deleting = false;
+    profile.deleted = true;
+    profile.deletedAt = new Date().toISOString();
+    await persistNoModelProgressReport(report);
+    showStatusForTab(
+      target.ownerTabId,
+      "success",
+      target.profileName,
+      "Deleted from Google Sheet:"
+    );
+    addLogForTab(
+      target.ownerTabId,
+      "success",
+      `Deleted the saved Google Sheet row for "${target.profileName}".`
+    );
+  } catch (error) {
+    console.error(error);
+    profile.deleting = false;
+    profile.deleteError =
+      error.message || "Could not delete the application from Google Sheets.";
+    await persistNoModelProgressReport(report);
+    showStatusForTab(target.ownerTabId, "error", profile.deleteError);
+    addLogForTab(target.ownerTabId, "error", profile.deleteError);
   }
 }
 
+async function confirmDeleteApplication() {
+  if (pendingNoModelDeleteTarget) {
+    await confirmDeleteNoModelProfileApplication();
+    return;
+  }
+  await confirmDeleteApplicationWorkspace();
+}
+
 function renderSavePostProcessControls() {
+  renderNoModelSaveProgress();
   const hasState = isSavePostProcessActive();
   const applicationControlsVisible = hasState && !isSplitWindowsDialogOpen;
   // Only tabs that own/participate in this save get a locked workspace switch.
   const exchangeDisabled = hasState;
-
-  const progressLabel = getSavePostProcessProgressLabel();
-  const progressStatuses = [
-    {
-      element: homeSavePostProcessTime,
-      visible: hasState
-    },
-    {
-      element: applicationSavePostProcessTime,
-      visible: applicationControlsVisible
-    }
-  ];
-
-  progressStatuses.forEach(({ element, visible }) => {
-    if (!element) return;
-    element.classList.toggle("is-hidden", !visible);
-    element.textContent = progressLabel;
-    element.setAttribute("aria-label", progressLabel);
-  });
-
-  updateSavePostProcessBar(homeSavePostProcessBar, savePostProcessState, hasState);
-  updateSavePostProcessBar(
-    applicationSavePostProcessBar,
-    savePostProcessState,
-    applicationControlsVisible
-  );
 
   homeCancelProcessButton?.classList.toggle("is-hidden", !hasState);
   applicationCancelProcessButton?.classList.toggle(
@@ -3603,7 +3820,7 @@ let jobDescriptionState = {
 function setJobDescriptionFormModalOpen(isOpen) {
   if (!jobDescriptionFormModal) return;
 
-  const shouldOpen = Boolean(isOpen) && !isCurrentTabJobright;
+  const shouldOpen = Boolean(isOpen) && !isCurrentTabJobright && !isNoModelSaveMode();
   jobDescriptionFormModal.classList.toggle("is-hidden", !shouldOpen);
   jobDescriptionFormModal.setAttribute("aria-hidden", String(!shouldOpen));
 
@@ -3799,6 +4016,8 @@ async function loadSheetConfig() {
     if (aiProviderInput) {
       aiProviderInput.value = normalizeAiProviderId(response.aiProviderId);
     }
+    configuredAiProviderId = normalizeAiProviderId(response.aiProviderId);
+    syncSaveModeUi();
   } catch (error) {
     console.error(error);
     addLog("error", error.message || "Could not load configuration.");
@@ -3831,6 +4050,8 @@ async function saveSheetConfig() {
     if (aiProviderInput) {
       aiProviderInput.value = normalizeAiProviderId(response.aiProviderId);
     }
+    configuredAiProviderId = normalizeAiProviderId(response.aiProviderId);
+    syncSaveModeUi();
     addLog(
       "success",
       `Saved. Sheet tab "${response.sheetName}". AI provider: ${getAiProviderLabel(response.aiProviderId)}.`
@@ -4191,41 +4412,11 @@ function isActiveTab(tabId) {
   return !Number.isInteger(tabId) || tabId === activeTabId;
 }
 
-function renderHeaderStatus() {
-  const displayText = headerStatusState
-    ? (() => {
-        const label =
-          headerStatusState.type === "error"
-            ? "Error"
-            : String(headerStatusState.titleText || "Saved").replace(/:\s*$/, "");
-        const detail = String(headerStatusState.message || "").trim();
-        return `Last status: ${label}${detail ? ` — ${detail}` : ""}`;
-      })()
-    : "";
-
-  workspaceHeaderStatuses.forEach((statusElement) => {
-    const statusText = statusElement.querySelector(
-      ".workspace-header-status-text"
-    );
-    if (statusText) {
-      statusText.textContent = displayText;
-    } else {
-      statusElement.textContent = displayText;
-    }
-    statusElement.title = displayText;
-    statusElement.classList.toggle(
-      "is-error",
-      headerStatusState?.type === "error"
-    );
-  });
-}
-
 function showStatusForTab(tabId, type, message, titleText) {
   const status = { type, message, titleText };
 
   if (isActiveTab(tabId)) {
     headerStatusState = status;
-    renderHeaderStatus();
     schedulePersistTabSession();
     return;
   }
@@ -4403,12 +4594,13 @@ async function refreshApplicationInputsAfterSave() {
 
 function validateSaveCurrentTabInputs() {
   const missing = [];
+  const requiresAiMessage = !isNoModelSaveMode();
 
-  if (!promptState.content?.trim()) {
+  if (requiresAiMessage && !promptState.content?.trim()) {
     missing.push("AI prompt");
   }
 
-  if (!jobDescriptionState.content?.trim()) {
+  if (requiresAiMessage && !jobDescriptionState.content?.trim()) {
     missing.push("job description");
   }
 
@@ -4425,7 +4617,7 @@ function validateSaveCurrentTabInputs() {
       )
   );
 
-  if (profilesMissingResume.length > 0) {
+  if (requiresAiMessage && profilesMissingResume.length > 0) {
     const profileNames = profilesMissingResume.map(
       (profile) => `"${profile.name}"`
     );
@@ -4537,7 +4729,8 @@ async function runCurrentAppActionOnce() {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_CURRENT_TAB_URL_TO_SHEET",
       runId,
-      ownerTabId
+      ownerTabId,
+      aiProviderId: getSelectedAiProviderId()
     });
 
     if (!response?.ok) {
@@ -5756,6 +5949,14 @@ function setDeleteApplicationModalOpen(isOpen, { returnFocus = true } = {}) {
   deleteApplicationModal.setAttribute("aria-hidden", String(!isOpen));
 
   if (isOpen) {
+    if (pendingNoModelDeleteTarget) {
+      if (deleteApplicationModalHelp) {
+        deleteApplicationModalHelp.textContent =
+          `Delete the "${pendingNoModelDeleteTarget.profileName}" application from Google Sheets? The copied resume document will be kept.`;
+      }
+      deleteApplicationModalConfirmButton?.focus();
+      return;
+    }
     const workspace = currentSaveWorkspace;
     const profileName = String(workspace?.profileName || "").trim();
     const jobUrl = String(workspace?.jobUrl || "").trim();
@@ -5774,8 +5975,17 @@ function setDeleteApplicationModalOpen(isOpen, { returnFocus = true } = {}) {
     return;
   }
 
+  const noModelTarget = pendingNoModelDeleteTarget;
+  pendingNoModelDeleteTarget = null;
   if (returnFocus) {
-    applicationWorkspaceDeleteButton?.focus();
+    if (noModelTarget) {
+      Array.from(profileList?.querySelectorAll(".profile-item") || [])
+        .find((item) => item.dataset.profileId === noModelTarget.profileId)
+        ?.querySelector(".no-model-profile-delete")
+        ?.focus();
+    } else {
+      applicationWorkspaceDeleteButton?.focus();
+    }
   }
 }
 
@@ -5793,6 +6003,7 @@ function requestDeleteApplicationWorkspace() {
     return;
   }
 
+  pendingNoModelDeleteTarget = null;
   setDeleteApplicationModalOpen(true);
 }
 
@@ -6875,7 +7086,7 @@ function parseSplitWindowUrls(value) {
         );
       }
 
-      const chatUrl = parseSplitWindowUrlField(
+      const chatUrl = isSavedSheetRow && !fields[chatIndex] ? "" : parseSplitWindowUrlField(
         fields[chatIndex],
         "Entry " +
           entryNumber +
@@ -7957,7 +8168,9 @@ function showMakeResumeApplicationWorkspaces(openedPairs, returnTabId, runId) {
       batchCount: openedPairs.length,
       jobTitle:
         String(pair.jobTitle || "").trim() || `Information page ${index + 1}`,
-      jobUrl: pair.chatUrl,
+      jobUrl: pair.chatUrl || pair.jobUrl,
+      aiProviderId: pair.chatUrl ? inferAiProviderIdFromUrl(pair.chatUrl) : "none",
+      aiProviderLabel: pair.chatUrl ? "" : "Job page",
       recordJobUrl: pair.jobUrl,
       profileName: pair.profileName,
       profileNotes: pair.profileNotes,
@@ -8333,7 +8546,7 @@ deleteApplicationModalCancelButton?.addEventListener("click", () =>
 );
 deleteApplicationModalConfirmButton?.addEventListener(
   "click",
-  confirmDeleteApplicationWorkspace
+  confirmDeleteApplication
 );
 applicationWorkspaceUrlInput?.addEventListener("input", () => {
   applicationWorkspaceUrlInput.removeAttribute("aria-invalid");
@@ -8465,6 +8678,7 @@ configModalCloseButton?.addEventListener("click", () => setConfigModalOpen(false
 configModalCancelButton?.addEventListener("click", () => setConfigModalOpen(false));
 
 saveConfigButton?.addEventListener("click", saveSheetConfig);
+aiProviderInput?.addEventListener("change", syncSaveModeUi);
 
 promptResumeFormModalBackdrop?.addEventListener("click", () =>
   setPromptResumeFormModalOpen(false)
@@ -8694,6 +8908,10 @@ chrome.windows.onRemoved.addListener((windowId) => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "session" && changes[NO_MODEL_PROGRESS_STORAGE_KEY]) {
+    noModelProgressByTabId = changes[NO_MODEL_PROGRESS_STORAGE_KEY].newValue || {};
+    renderNoModelSaveProgress();
+  }
   if (areaName !== "local") {
     return;
   }
@@ -8723,15 +8941,23 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       changes[SAVE_POST_PROCESS_STORAGE_KEY].newValue
     );
   }
+  if (changes.sheetConfig) {
+    configuredAiProviderId = normalizeAiProviderId(
+      changes.sheetConfig.newValue?.aiProviderId
+    );
+    if (aiProviderInput) {
+      aiProviderInput.value = configuredAiProviderId;
+    }
+    syncSaveModeUi();
+  }
 });
 
 renderSaveWorkspaceSidePanelView();
 updateLogsState();
 updateDeletedRowsState();
 loadProfileSelection();
-loadSheetConfig();
 loadPromptSelection();
-Promise.all([loadJobDescriptionSelection(), restoreTabSession()])
+Promise.all([loadSheetConfig(), loadNoModelSaveProgress(), loadJobDescriptionSelection(), restoreTabSession()])
   .catch((error) => {
     console.error("Could not restore side panel startup state:", error);
   })
@@ -8741,6 +8967,7 @@ Promise.all([loadJobDescriptionSelection(), restoreTabSession()])
     refreshMakeResumeButtonAvailability().then(() => {
       if (
         getCurrentSidePanelView() !== "home" ||
+        isNoModelSaveMode() ||
         isSplitWindowsDialogOpen ||
         readOpenManagedModalId()
       ) {

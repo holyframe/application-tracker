@@ -105,6 +105,7 @@ class Element {
     }
   }
   appendChild(child) { this.append(child); return child; }
+  replaceChildren(...children) { this.children = []; this.append(...children); }
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return this.attributes[name] ?? null; }
   removeAttribute(name) { delete this.attributes[name]; }
@@ -163,7 +164,11 @@ function fixture() {
   const context = vm.createContext({
     ...Object.fromEntries(elements),
     document: { createElement: (tag) => new Element(tag) },
-    console, Set, Map, Array, String, Boolean, Date,
+    console, Set, Map, Array, String, Boolean, Date, URL,
+    configuredAiProviderId: "chatgpt", activeTabId: 7, noModelProgressByTabId: {},
+    pendingNoModelDeleteTarget: null,
+    normalizeAiProviderId: (value) =>
+      ["chatgpt", "deepseek", "none"].includes(value) ? value : "chatgpt",
     DEFAULT_PROFILE_NAME: "Default",
     PROFILE_SELECTION_VERSION: profileSelectionVersion,
     profileSelectionState: structuredClone(data),
@@ -213,6 +218,9 @@ function fixture() {
     throw new Error("Unexpected test message: " + message.type);
   } } };
   const names = [
+    "getSelectedAiProviderId", "isNoModelSaveMode",
+    "isGoogleSheetsDocumentUrl", "requestDeleteNoModelProfileApplication",
+    "createNoModelProfileProgress", "renderNoModelSaveProgress",
     "normalizePromptResumeEntry", "enforceSingleAutoSelectPromptResume",
     "getAutoSelectedPromptResumeId", "normalizePromptResumeSelection",
     "createDefaultProfile", "normalizeProfile", "normalizeProfileSelectionState",
@@ -242,6 +250,125 @@ function fixture() {
   };
 }
 
+test("No Model allows selecting a profile without prompt resumes and persists it", async () => {
+  const { ctx, node, stored } = fixture();
+  ctx.configuredAiProviderId = "none";
+  ctx.renderProfileList();
+  const empty = node("profileList").children.find((item) => item.dataset.profileId === "empty");
+  assert.equal(empty.querySelector(".profile-selection-checkbox").disabled, false);
+  await ctx.toggleProfileSelection("empty");
+  assert.ok(stored().selectedProfileIds.includes("empty"));
+  assert.equal(stored().profiles.find((profile) => profile.id === "empty").selectedPromptResumeId, "");
+});
+
+test("clicking the profile label area selects and deselects the profile", async () => {
+  const { ctx, node, stored } = fixture();
+  const getAlice = () =>
+    node("profileList").children.find((item) => item.dataset.profileId === "alice");
+
+  let labelArea = getAlice().querySelector(".profile-selection-label");
+  assert.equal(labelArea.getAttribute("aria-pressed"), "false");
+  await labelArea.listeners.click[0]();
+  assert.ok(stored().selectedProfileIds.includes("alice"));
+
+  labelArea = getAlice().querySelector(".profile-selection-label");
+  assert.equal(labelArea.getAttribute("aria-pressed"), "true");
+  assert.equal(
+    getAlice().querySelector(".profile-selection-checkbox").checked,
+    true
+  );
+  await labelArea.listeners.click[0]();
+  assert.ok(!stored().selectedProfileIds.includes("alice"));
+});
+
+test("per-profile progress renders states, Sheet actions, and follows the owner tab", () => {
+  const { ctx, node } = fixture();
+  ctx.configuredAiProviderId = "none";
+  ctx.noModelProgressByTabId[7] = {
+    jobTitle: "<img src=x>", jobUrl: "https://jobs.example/1", status: "running",
+    profiles: [
+      { id: "alice", name: "Alice", status: "saved", stage: "done",
+        resumeUrl: "https://docs.google.com/document/d/one/edit",
+        sheetUrl: "https://docs.google.com/spreadsheets/d/sheet/edit#gid=1" },
+      { id: "bob", name: "Bob", status: "running", stage: "sheet", resumeUrl: "https://docs.google.com/document/d/two/edit" }
+    ]
+  };
+  ctx.renderNoModelSaveProgress();
+  const getProfile = (id) =>
+    node("profileList").children.find((item) => item.dataset.profileId === id);
+  assert.equal(node("profileList").querySelectorAll(".no-model-profile-progress").length, 2);
+  assert.equal(getProfile("empty").querySelector(".no-model-profile-progress"), null);
+  assert.equal(node("profileList").querySelectorAll(".no-model-profile-open-sheet").length, 1);
+  const aliceProgress = getProfile("alice").querySelector(".no-model-profile-progress");
+  const openSheet = aliceProgress.querySelector(".no-model-profile-open-sheet");
+  const deleteButton = aliceProgress.querySelector(".no-model-profile-delete");
+  assert.equal(openSheet.textContent, "Open Google Sheet");
+  assert.equal(openSheet.href, "https://docs.google.com/spreadsheets/d/sheet/edit#gid=1");
+  assert.equal(deleteButton.textContent, "Delete");
+  assert.ok(openSheet.classList.contains("no-model-profile-action"));
+  assert.ok(deleteButton.classList.contains("no-model-profile-action"));
+  deleteButton.listeners.click[0]();
+  assert.equal(ctx.pendingNoModelDeleteTarget.profileId, "alice");
+  assert.match(getProfile("bob").textContent, /<img src=x>/);
+  const current = getProfile("bob").querySelector(".no-model-profile-progress");
+  assert.equal(current.querySelector(".no-model-profile-steps").children[2].dataset.state, "active");
+  ctx.noModelProgressByTabId[7].status = "failed";
+  ctx.noModelProgressByTabId[7].error = "Sheet failed; check before retrying.";
+  ctx.noModelProgressByTabId[7].profiles[1].status = "failed";
+  ctx.renderNoModelSaveProgress();
+  assert.match(getProfile("bob").querySelector(".no-model-profile-error").textContent, /Sheet failed/);
+  assert.equal(getProfile("alice").querySelector(".no-model-profile-error"), null);
+  ctx.activeTabId = 8;
+  ctx.renderNoModelSaveProgress();
+  assert.equal(node("profileList").querySelectorAll(".no-model-profile-progress").length, 0);
+  assert.ok(!html.includes('id="noModelProgressPanel"'));
+});
+
+test("confirming a profile Delete removes only its Sheet row and keeps the resume", async () => {
+  const profile = {
+    id: "alice",
+    name: "Alice",
+    status: "saved",
+    resumeUrl: "https://docs.google.com/document/d/resume/edit"
+  };
+  const report = {
+    ownerTabId: 7,
+    jobUrl: "https://jobs.example/1",
+    profiles: [profile]
+  };
+  let sentMessage = null;
+  let persisted = 0;
+  const ctx = vm.createContext({
+    console,
+    Date,
+    pendingNoModelDeleteTarget: {
+      ownerTabId: 7,
+      profileId: "alice",
+      profileName: "Alice",
+      jobUrl: report.jobUrl,
+      resumeUrl: profile.resumeUrl
+    },
+    noModelProgressByTabId: { 7: report },
+    setDeleteApplicationModalOpen: () => {},
+    persistNoModelProgressReport: async () => { persisted += 1; },
+    createRunId: () => "delete-run",
+    showStatusForTab: () => {},
+    addLogForTab: () => {},
+    chrome: { runtime: { sendMessage: async (message) => {
+      sentMessage = message;
+      return { ok: true, removed: 1 };
+    } } }
+  });
+  loadFunctions(source, ["confirmDeleteNoModelProfileApplication"], ctx);
+  await ctx.confirmDeleteNoModelProfileApplication();
+  assert.equal(sentMessage.type, "DELETE_APPLICATION_RECORD");
+  assert.equal(sentMessage.profileName, "Alice");
+  assert.equal(sentMessage.trashResume, false);
+  assert.equal(profile.deleted, true);
+  assert.equal(profile.deleting, false);
+  assert.equal(persisted, 2);
+});
+
 test("profile cards are compact; prompt lists live only in Settings", () => {
   const start = html.indexOf('<section class="card profile-picker-card">');
   const home = html.slice(start, html.indexOf("</section>", start));
@@ -254,6 +381,8 @@ test("profile cards are compact; prompt lists live only in Settings", () => {
   assert.equal(node("profileList").querySelectorAll(".profile-auto-select").length, 3);
   assert.equal(node("profileList").querySelectorAll(".prompt-resume-item").length, 0);
   assert.equal(node("profileList").querySelectorAll(".profile-item-body").length, 0);
+  assert.ok(!html.includes("workspace-save-progress-bar"));
+  assert.ok(!html.includes("workspace-header-status"));
 });
 
 test("Settings shows only its profile, saves one selection, and preserves other profiles", async () => {

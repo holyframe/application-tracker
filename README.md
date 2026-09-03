@@ -29,7 +29,7 @@ is saved. It repeats that process once per checked profile, using the prompt and
 job-description snapshot captured when the run starts. Only one Save App run can
 be active at a time.
 
-`Save App` creates one selected-provider workflow per checked profile. ChatGPT
+With ChatGPT or DeepSeek, `Save App` creates one selected-provider workflow per checked profile. ChatGPT
 is the default; DeepSeek and No Model are also selectable in Save App settings.
 It reuses the original job tab for the first profile and creates one additional
 target tab for every remaining profile. Before navigating each target to the
@@ -37,11 +37,20 @@ selected provider, the extension opens a full-page Application workspace in the 
 header is labeled `Application workspace {profile name}`, and the copied
 profile resume is embedded without a separate tab panel.
 
-With `No Model`, nothing is sent to a chat site. The full prepared GPT message is written
-into a new Google Doc titled `{job title} - Context` (or
-`{job title} - {profile name} - Context` for multi-profile runs), that doc opens
-in the profile's target tab, and its URL is saved in place of the conversation
-URL.
+With `No Model`, Save App captures the current job title and URL, copies each
+checked profile's Google Docs resume template, and appends the application row
+to that profile's sheet tab. No AI prompt, job description, or prompt-resume
+selection is required. The job-description card and automatic editor are hidden.
+No Context Doc, new browser tab, or Application workspace is opened; the job page
+stays in place. Column D is blank. Each involved profile card shows its own page
+capture, resume copy, and sheet save progress, including waiting, saved, failed,
+and cancelled states. Results remain visible for that job tab until its next No Model
+save or until the tab closes. Existing inputs and profile selections are preserved.
+After a profile is saved, its progress area shows matching `Open Google Sheet`
+and `Delete` actions. The Sheet action opens that profile's exact tab. Confirming
+Delete removes only the matching Google Sheet row and keeps the copied resume document.
+If a run stops partway through, completed records and resume copies remain;
+check the sheet before retrying to avoid duplicates.
 
 Build resume, Download resume, and Exchange appear above the URL panel. Build
 resume opens a Resume Context dialog and maps the submitted text onto the
@@ -66,10 +75,8 @@ never edited, and no placeholder is required.
 
 No new Chrome tab group is created by `Save App`. It accepts an ungrouped or
 already-grouped job tab and leaves any existing group unchanged. While either
-application action is running, the matching **Home workspace** and **Application
-workspace** headers show `Save progress` inside the same compact status/log
-line and a progress bar in the workspace label panel. Cancel Process stays at
-the far right of the header. The header Exchange icon that switches between
+application action is running, Cancel Process stays at the far right of the
+matching workspace header. The header Exchange icon that switches between
 Home and Application workspaces stays disabled on involved tabs until the
 final Google Sheet row is saved. Saving that row ends progress immediately.
 Cancel Process stops both progress and the active save early. Successful completion or cancellation ends save progress and clears
@@ -79,13 +86,11 @@ until that Chrome tab is closed. Completed sheet rows and opened tabs are
 never rolled back. No Chrome notification is created.
 
 While save progress is active, only the Chrome tabs involved in that run
-show a progress bar in the workspace header and keep the Home/Application
-workspace switch icon disabled. Other tabs stay unlocked for non-save work, but
+keep the Home/Application workspace switch icon disabled. Other tabs stay unlocked for non-save work, but
 another Save App request is rejected until the active run finishes or is cancelled.
 
 Outside save progress, the matching workspace headers show an Exchange icon
-for switching between the two views. The compact line below each title retains
-the app's most recent success or error. The Home workspace header also provides
+for switching between the two views. The Home workspace header also provides
 a left-side Settings icon that opens configuration in a modal.
 
 Before `Save App` runs, and on browser tabs that are not bound to the current
@@ -106,7 +111,7 @@ automatically. The extension appends seven columns:
 | A | ISO timestamp |
 | B | Job-page title |
 | C | Profile name, exactly as stored in the app |
-| D | Selected AI provider conversation URL, or the context Google Doc URL with No Model |
+| D | Selected AI provider conversation URL; blank with No Model (older records may contain a Context Doc URL) |
 | E | Normalized job URL |
 | F | Copied resume-document URL |
 | G | Reserved (left blank by Save App) |
@@ -152,7 +157,8 @@ columns C-F shift to D-G.
 - **Make a resume** accepts rows copied from the seven-column Google Sheet
   layout written by Save App: timestamp, job title, profile, AI conversation,
   job page, Google Docs resume, and optional Apply Now (columns A-G). A row with
-  only populated columns A-F is also accepted when G is blank. The older
+  only populated columns A-F is also accepted when G is blank.
+  No Model rows with a blank conversation column are accepted as well. The older
   four-field Profile, Chat, Job, Google Doc format remains supported. URL fields
   can be plain URLs or Markdown links such as `[**URL**](URL)`. It opens every
   job URL in a new main tab and registers each tab in the same full-page
@@ -180,11 +186,10 @@ columns C-F shift to D-G.
 the side panel has keyboard focus. If the panel is closed, Chrome ignores both
 application actions.
 
-Pinned tabs keep the side panel closed automatically, except for Google Sheets
-(where Make a resume needs it) and Jobright. The side panel and Save App remain
-available while `jobright.ai` is pinned. Switching back to another pinned tab
-closes the panel; per-tab process and workspace details for other open tabs are
-kept until those tabs close.
+After it is opened, the side panel stays available while switching between or
+navigating normal tabs, including pinned tabs. Opening `chrome://extensions/`
+automatically closes the panel for that tab; returning to any other page enables
+it again. Per-tab process and workspace details are kept until those tabs close.
 
 ## Configuration and storage
 

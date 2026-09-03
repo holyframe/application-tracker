@@ -22,13 +22,13 @@ const AI_PROVIDERS = Object.freeze({
     requiredMode: "Expert",
     maxConnectionAttempts: 60
   },
-  // Sends nothing to a chat site. The assembled context becomes a Google Doc and
-  // that doc URL takes the place of the conversation URL everywhere downstream.
+  // Save only: copy the resume and record the job, without navigating the tab.
   none: {
     id: "none",
     label: "No Model",
     urlLabel: "Context Doc",
-    contextDocOnly: true
+    contextDocOnly: true, // Recognize Context Doc URLs in older saved records.
+    saveOnly: true
   }
 });
 const SHEET_CONFIG_STORAGE_KEY = "sheetConfig";
@@ -40,6 +40,7 @@ const PROMPT_SELECTION_STORAGE_KEY = "promptSelection";
 const JOB_DESCRIPTION_SELECTION_STORAGE_KEY = "jobDescriptionSelection";
 const SAVE_POST_PROCESS_ALARM_NAME = "save-current-tab-post-process";
 const SAVE_POST_PROCESS_STORAGE_KEY = "savePostProcess";
+const NO_MODEL_PROGRESS_STORAGE_KEY = "noModelSaveProgressByTabId";
 // Side panel mirrors of per-tab workspace/process state. Kept until the Chrome
 // tab closes so reopening the panel still restores each tab's details.
 const TAB_SESSION_STORAGE_KEY = "tabSessionById";
@@ -149,6 +150,14 @@ function parseSpreadsheetId(input) {
   }
 
   return raw;
+}
+
+function buildGoogleSheetTabUrl(spreadsheetIdInput, sheetId) {
+  const spreadsheetId = parseSpreadsheetId(spreadsheetIdInput);
+  if (!spreadsheetId || !Number.isInteger(sheetId)) {
+    return "";
+  }
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#gid=${sheetId}`;
 }
 
 function formatSheetRange(sheetName, cellRange) {
@@ -594,7 +603,8 @@ function normalizeProfileSelectionState(selection) {
         : []
   );
   const selectedProfileIds = profiles
-    .filter((profile) => selectedIds.has(profile.id) && profile.selectedPromptResumeId)
+    // Keep inclusion independent of AI inputs; each save mode validates its needs.
+    .filter((profile) => selectedIds.has(profile.id))
     .map((profile) => profile.id);
 
   return {
@@ -1667,6 +1677,14 @@ function isTabInGroup(tab) {
   return typeof tab?.groupId === "number" && tab.groupId !== -1;
 }
 
+function isChromeExtensionsPageUrl(url) {
+  const normalizedUrl = String(url || "").trim().toLowerCase();
+  return (
+    normalizedUrl === "chrome://extensions" ||
+    normalizedUrl.startsWith("chrome://extensions/")
+  );
+}
+
 function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
   if (!tab) {
     throw new Error("No active tab found.");
@@ -1690,9 +1708,10 @@ function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
 }
 
 function shouldEnableSidePanelForTab(tab) {
-  // The extension UI remains available while the user moves between any tabs.
-  // Individual actions still validate whether the active page can support them.
-  return Number.isInteger(tab?.id);
+  // Keep the extension UI available while the user moves between tabs. Chrome's
+  // extensions manager is the sole exception: disabling this tab-scoped panel
+  // makes Chrome close it automatically until the user returns to another tab.
+  return Number.isInteger(tab?.id) && !isChromeExtensionsPageUrl(tab.url);
 }
 
 async function syncSidePanelForTab(tab) {
@@ -1833,7 +1852,7 @@ function formatSaveValidationError(missing) {
   return `These are required before saving: ${missing.join(", ")}.`;
 }
 
-async function validateApplicationInputsForSave() {
+async function validateApplicationInputsForSave(aiProviderIdOverride = "") {
   const [promptState, jobDescriptionState, profileState, sheetConfig] = await Promise.all([
     getPromptSelectionState(),
     getJobDescriptionSelectionState(),
@@ -1843,12 +1862,16 @@ async function validateApplicationInputsForSave() {
 
   const missing = [];
   const selectedProfiles = getSelectedProfilesFromState(profileState);
+  const aiProviderId = aiProviderIdOverride
+    ? normalizeAiProviderId(aiProviderIdOverride)
+    : sheetConfig.aiProviderId;
+  const requiresAiMessage = !getAiProviderConfig(aiProviderId).saveOnly;
 
-  if (!promptState.content?.trim()) {
+  if (requiresAiMessage && !promptState.content?.trim()) {
     missing.push("AI prompt");
   }
 
-  if (!jobDescriptionState.content?.trim()) {
+  if (requiresAiMessage && !jobDescriptionState.content?.trim()) {
     missing.push("job description");
   }
 
@@ -1864,7 +1887,7 @@ async function validateApplicationInputsForSave() {
       )
   );
 
-  if (profilesMissingResume.length > 0) {
+  if (requiresAiMessage && profilesMissingResume.length > 0) {
     const profileNames = profilesMissingResume.map(
       (profile) => `"${profile.name}"`
     );
@@ -1880,9 +1903,9 @@ async function validateApplicationInputsForSave() {
       ok: true,
       profileState,
       selectedProfiles,
-      promptContent: promptState.content.trim(),
-      jobDescriptionContent: jobDescriptionState.content.trim(),
-      aiProviderId: sheetConfig.aiProviderId
+      promptContent: String(promptState.content || "").trim(),
+      jobDescriptionContent: String(jobDescriptionState.content || "").trim(),
+      aiProviderId
     };
   }
 
@@ -2574,7 +2597,8 @@ async function performSavePostProcessCleanup({
     };
   }
 
-  if (resetInputs) {
+  const shouldResetInputs = resetInputs && state.saveOnly !== true;
+  if (shouldResetInputs) {
     await resetApplicationInputsAfterSave(controllerRunId);
   }
 
@@ -2585,9 +2609,11 @@ async function performSavePostProcessCleanup({
   if (runId) {
     const message =
       reason === "cancelled"
-        ? "Save process cancelled. Application inputs cleared."
-        : "Google Sheet saving finished. Save process completed and application inputs cleared.";
-    sendLog(runId, "info", message);
+        ? "Save process cancelled."
+        : reason === "failed"
+          ? "Save process stopped after an error."
+          : "Google Sheet saving finished. Save process completed.";
+    sendLog(runId, "info", message + (shouldResetInputs ? " Application inputs cleared." : ""));
   }
 
   return {
@@ -2620,7 +2646,7 @@ async function clearSavePostProcess(options = {}) {
 }
 
 async function scheduleSavePostProcess(
-  { mode = "save", profileCount = 1, ownerTabId = null } = {},
+  { mode = "save", profileCount = 1, ownerTabId = null, saveOnly = false } = {},
   runId
 ) {
   const normalizedRunId = String(runId || "");
@@ -2647,6 +2673,7 @@ async function scheduleSavePostProcess(
     runId: normalizedRunId,
     ownerTabId: resolvedOwnerTabId,
     mode: "save",
+    saveOnly,
     profileCount: Math.max(1, Number(profileCount) || 1),
     completedCount: 0,
     involvedTabIds: Number.isInteger(resolvedOwnerTabId)
@@ -2917,6 +2944,7 @@ async function forgetPersistedTabSession(tabId) {
 // persisted workspace/process details.
 chrome.tabs.onRemoved.addListener((tabId) => {
   sidePanelDisabledTabIds.delete(tabId);
+  clearNoModelProgressForTab(tabId).catch(console.error);
 
   const ownedRunIds = [...runOwnerTabIds.entries()]
     .filter(([, ownerTabId]) => ownerTabId === tabId)
@@ -3304,7 +3332,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const runPromise =
     message.type === "SAVE_CURRENT_TAB_URL_TO_SHEET"
       ? run(message.runId, {
-          ownerTabId: message.ownerTabId
+          ownerTabId: message.ownerTabId,
+          aiProviderId: message.aiProviderId
         })
       : message.type === "CANCEL_SAVE_POST_PROCESS"
         ? run(message.runId, message.ownerTabId)
@@ -3382,6 +3411,116 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+async function persistNoModelProgress(report) {
+  // Never recreate progress for a job tab closed during a pending operation.
+  try {
+    await chrome.tabs.get(report.ownerTabId);
+  } catch (_error) {
+    return;
+  }
+  const stored = await chrome.storage.session.get(NO_MODEL_PROGRESS_STORAGE_KEY);
+  await chrome.storage.session.set({
+    [NO_MODEL_PROGRESS_STORAGE_KEY]: {
+      ...(stored[NO_MODEL_PROGRESS_STORAGE_KEY] || {}),
+      [report.ownerTabId]: report
+    }
+  });
+}
+
+async function clearNoModelProgressForTab(tabId) {
+  const stored = await chrome.storage.session.get(NO_MODEL_PROGRESS_STORAGE_KEY);
+  const reports = { ...(stored[NO_MODEL_PROGRESS_STORAGE_KEY] || {}) };
+  delete reports[tabId];
+  await chrome.storage.session.set({ [NO_MODEL_PROGRESS_STORAGE_KEY]: reports });
+}
+
+async function runNoModelSave(tab, validation, runId, ownerTabId) {
+  const jobUrl = tab.url;
+  const jobTitle = tab.title || "Job page";
+  const urlForSheet = normalizeUrlForStorage(jobUrl);
+  const profiles = validation.selectedProfiles;
+  const report = {
+    runId, ownerTabId, jobTitle, jobUrl, status: "running",
+    profiles: profiles.map((profile) => ({
+      id: profile.id, name: profile.name, stage: "resume", status: "queued"
+    }))
+  };
+  await scheduleSavePostProcess({
+    ownerTabId, profileCount: profiles.length, saveOnly: true
+  }, runId);
+  const signal = getActiveSaveProcessSignal(runId);
+  const results = [];
+
+  try {
+    await persistNoModelProgress(report);
+    sendLog(runId, "success", `Job page captured: ${jobUrl}`);
+    for (let index = 0; index < profiles.length; index += 1) {
+      throwIfSaveProcessCancelled(signal);
+      const profile = profiles[index];
+      const progress = report.profiles[index];
+      progress.status = "running";
+      await persistNoModelProgress(report);
+      const token = await waitForSaveProcessOperation(() => getGoogleAccessToken(), signal);
+      throwIfSaveProcessCancelled(signal);
+      sendLog(runId, "info", `Creating resume copy for "${profile.name}" (${index + 1}/${profiles.length})...`);
+      const title = profiles.length > 1 ? `${jobTitle} - ${profile.name}` : jobTitle;
+      const resumeUrl = await copyResumeAndGetUrl(
+        token, title, getProfileResumeTemplateId(profile), runId, { signal }
+      );
+      progress.resumeUrl = resumeUrl;
+      progress.stage = "sheet";
+      await persistNoModelProgress(report);
+      throwIfSaveProcessCancelled(signal);
+      sendLog(runId, "info", `Saving application to "${profile.name}"...`);
+      const row = buildApplicationSheetRow({
+        timestamp: new Date().toISOString(), jobTitle, profileName: profile.name,
+        jobUrl: urlForSheet, chatGptUrl: "", resumeUrl
+      });
+      const sheetResult = await appendRowsToGoogleSheet([row], runId, {
+        sheetName: profile.name,
+        signal
+      });
+      // Record a confirmed sheet write before checking for cancellation again.
+      progress.sheetUrl = sheetResult?.sheetUrl || "";
+      progress.stage = "done";
+      progress.status = "saved";
+      results.push({
+        profileId: profile.id,
+        profileName: profile.name,
+        resumeUrl,
+        sheetUrl: progress.sheetUrl,
+        chatGptUrl: ""
+      });
+      await persistNoModelProgress(report);
+      await updateSavePostProcessProgress({
+        runId, ownerTabId, completedCount: results.length, profileCount: profiles.length
+      });
+      sendLog(runId, "success", `Saved application for "${profile.name}".`);
+    }
+    report.status = "completed";
+    await persistNoModelProgress(report);
+    await completeSavePostProcess(runId, ownerTabId);
+    return { url: urlForSheet, jobUrl, jobTitle, aiProviderId: "none",
+      profileCount: profiles.length, results, grouped: false };
+  } catch (error) {
+    const cancelled = isSaveProcessCancelledError(error);
+    report.status = cancelled ? "cancelled" : "failed";
+    report.error = cancelled ? "Save cancelled. Completed records are kept." :
+      `${error.message || error} Completed records are kept; check the sheet before retrying.`;
+    report.profiles.forEach((profile) => {
+      if (profile.status === "running") {
+        profile.status = report.status;
+      } else if (profile.status === "queued") {
+        profile.status = cancelled ? "cancelled" : "skipped";
+      }
+    });
+    await persistNoModelProgress(report).catch(console.error);
+    await clearSavePostProcess({ resetInputs: false,
+      reason: cancelled ? "cancelled" : "failed", runId, ownerTabId }).catch(console.error);
+    throw error;
+  }
+}
+
 async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId, options = {}) {
   const { signal } = options;
   if (typeof sourceTab?.id !== "number") {
@@ -3450,7 +3589,9 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
     : getRunOwnerTabId(runId);
   sendLog(runId, "info", "Starting save process...");
 
-  const validation = await validateApplicationInputsForSave();
+  const validation = await validateApplicationInputsForSave(
+    options.aiProviderId
+  );
   if (!validation.ok) {
     throw new Error(validation.error);
   }
@@ -3472,6 +3613,9 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
 
   const selectedProfiles = validation.selectedProfiles;
   const aiProvider = getAiProviderConfig(validation.aiProviderId);
+  if (aiProvider.saveOnly) {
+    return runNoModelSave(tab, validation, runId, ownerTabId);
+  }
   const aiProviderUrlLabel = getAiProviderUrlLabel(aiProvider.id);
   const inputSnapshot = {
     promptContent: validation.promptContent,
@@ -4367,7 +4511,7 @@ async function appendRowsToGoogleSheet(rows, runId, options = {}) {
 
   sendLog(runId, "success", "Google authorization token received.");
 
-  await ensureSheetExists(
+  const sheetId = await ensureSheetExists(
     token,
     sheetConfig.spreadsheetId,
     sheetName,
@@ -4409,7 +4553,13 @@ async function appendRowsToGoogleSheet(rows, runId, options = {}) {
 
   sendLog(runId, "success", "Google Sheet row appended successfully.");
 
-  return result;
+  return {
+    ...result,
+    spreadsheetId: sheetConfig.spreadsheetId,
+    sheetName,
+    sheetId,
+    sheetUrl: buildGoogleSheetTabUrl(sheetConfig.spreadsheetId, sheetId)
+  };
 }
 
 async function getGoogleAccessToken(options = {}) {

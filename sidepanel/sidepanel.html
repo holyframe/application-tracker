@@ -34,32 +34,6 @@
         </div>
 
         <h2>Home workspace</h2>
-        <p
-          id="homeWorkspaceLastStatus"
-          class="workspace-header-status"
-          aria-live="polite"
-        >
-          <span class="workspace-header-status-text">
-            Last status: No application activity yet.
-          </span>
-          <span
-            id="homeSavePostProcessTime"
-            class="workspace-save-progress-status is-hidden"
-          >
-            Save progress
-          </span>
-        </p>
-        <div
-          id="homeSavePostProcessBar"
-          class="workspace-save-progress-bar is-hidden"
-          role="progressbar"
-          aria-label="Save progress"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuenow="0"
-        >
-          <div class="workspace-save-progress-bar-fill"></div>
-        </div>
         <div class="workspace-header-actions">
           <button
             id="homeWorkspaceImportButton"
@@ -538,11 +512,11 @@
             <select id="aiProviderInput" class="config-input">
               <option value="chatgpt" selected>ChatGPT (default)</option>
               <option value="deepseek">DeepSeek</option>
-              <option value="none">No Model (save context to Google Docs)</option>
+              <option value="none">No Model (resume copy + Google Sheet)</option>
             </select>
             <p class="config-help">
-              With No Model, Save App writes the full prepared GPT context into a new
-              Google Doc and stores that doc URL instead of a chat URL.
+              With No Model, capture the job page, copy each profile's resume, and
+              save to Google Sheets. No job description, AI prompt, or workspace switch.
             </p>
           </div>
 
@@ -973,32 +947,6 @@
             </button>
           </div>
           <h2 id="splitWindowsModalTitle">Open Tab + Sidebar</h2>
-          <p
-            id="applicationWorkspaceLastStatus"
-            class="workspace-header-status"
-            aria-live="polite"
-          >
-            <span class="workspace-header-status-text">
-              Last status: No application activity yet.
-            </span>
-            <span
-              id="applicationSavePostProcessTime"
-              class="workspace-save-progress-status is-hidden"
-            >
-              Save progress
-            </span>
-          </p>
-          <div
-            id="applicationSavePostProcessBar"
-            class="workspace-save-progress-bar is-hidden"
-            role="progressbar"
-            aria-label="Save progress"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            aria-valuenow="0"
-          >
-            <div class="workspace-save-progress-bar-fill"></div>
-          </div>
           <div class="workspace-header-actions split-windows-header-actions">
             <button
               id="applicationWorkspaceImportButton"
