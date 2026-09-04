@@ -134,6 +134,20 @@ input {
   border-top: 1px solid var(--line);
   background: var(--bg-soft);
 }
+.no-model-profile-progress.is-disabled {
+  opacity: 0.52;
+  filter: saturate(0.35);
+}
+.no-model-profile-progress.is-profile-selection-target[data-selection-enabled="true"] {
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    opacity 160ms ease;
+}
+.no-model-profile-progress.is-profile-selection-target[data-selection-enabled="true"]:hover {
+  background: var(--primary-soft);
+  opacity: 0.78;
+}
 .no-model-profile-progress-heading {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
 }
@@ -166,8 +180,39 @@ input {
   color: var(--muted); background: var(--bg);
 }
 .no-model-profile-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 0; margin: 12px 0 0; list-style: none; }
-.no-model-profile-steps li { display: grid; justify-items: center; gap: 6px; color: var(--muted); text-align: center; font-size: var(--text-xs); line-height: 1.4; }
-.no-model-step-marker { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; background: var(--bg); border: 1px solid var(--line); font-weight: 700; }
+.no-model-profile-steps li { position: relative; display: grid; justify-items: center; gap: 6px; color: var(--muted); text-align: center; font-size: var(--text-xs); line-height: 1.4; }
+.no-model-profile-steps li:not(:last-child)::after,
+.no-model-profile-steps li:not(:last-child)::before {
+  position: absolute;
+  z-index: 0;
+  top: 12px;
+  left: calc(50% + 15px);
+  width: calc(100% - 24px);
+  height: 2px;
+  border-radius: 999px;
+  content: "";
+  pointer-events: none;
+}
+.no-model-profile-steps li:not(:last-child)::after {
+  background: var(--line-strong);
+}
+.no-model-profile-steps li[data-connector-state="done"]::before {
+  z-index: 1;
+  background: var(--success);
+}
+.no-model-profile-steps li[data-connector-state="active"]::before {
+  z-index: 1;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--primary) 42%,
+    var(--primary) 58%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: no-model-connector-flow 1.05s linear infinite;
+}
+.no-model-step-marker { position: relative; z-index: 2; display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; background: var(--bg); border: 1px solid var(--line); font-weight: 700; }
 .no-model-profile-steps [data-state="done"] { color: var(--success); }
 .no-model-profile-steps [data-state="done"] .no-model-step-marker { background: var(--success-soft); border-color: var(--success-line); }
 .no-model-profile-steps [data-state="active"] { color: var(--primary-dark); }
@@ -219,8 +264,13 @@ input {
 .no-model-profile-delete:disabled { cursor: wait; opacity: 0.55; }
 .no-model-profile-error { margin: 10px 0 0; padding: 9px; border-radius: 8px; color: var(--danger); background: var(--danger-soft); overflow-wrap: anywhere; font-size: var(--text-xs); }
 @keyframes no-model-progress-pulse { 50% { box-shadow: 0 0 0 4px var(--primary-soft); } }
+@keyframes no-model-connector-flow {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
 @media (prefers-reduced-motion: reduce) {
   .no-model-profile-steps [data-state="active"] .no-model-step-marker { animation: none; }
+  .no-model-profile-steps li[data-connector-state="active"]::before { animation: none; }
 }
 
 .workspace-header-actions {
@@ -541,6 +591,11 @@ h1 {
   justify-content: center;
   gap: 6px;
   min-width: 0;
+}
+
+.global-open-google-sheet-button {
+  width: 100%;
+  margin-top: 8px;
 }
 
 .jobright-open-section {

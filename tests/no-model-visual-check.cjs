@@ -74,18 +74,20 @@ if (!outputDir) throw new Error("Pass a screenshot output directory.");
             ? "Save stopped. Completed records are kept; check the sheet before retrying."
             : "",
           profiles: [
-            { id: "frontend", name: "Frontend", status: "saved", stage: "done",
-              resumeUrl: "https://docs.google.com/document/d/one/edit",
-              sheetUrl: "https://docs.google.com/spreadsheets/d/test/edit#gid=1" },
+            { id: "frontend", name: "Frontend",
+              status: status === "idle" ? "idle" : "saved",
+              stage: status === "idle" ? "idle" : "done",
+              resumeUrl: status === "idle" ? "" : "https://docs.google.com/document/d/one/edit",
+              sheetUrl: status === "idle" ? "" : "https://docs.google.com/spreadsheets/d/test/edit#gid=1" },
             { id: "backend", name: "Backend / Platform engineering",
-              status: status === "completed" ? "saved" : status === "running" ? "running" : status,
-              stage: status === "completed" ? "done" : "sheet",
-              resumeUrl: "https://docs.google.com/document/d/two/edit",
+              status: status === "idle" ? "idle" : status === "completed" ? "saved" : status === "running" ? "running" : status,
+              stage: status === "idle" ? "idle" : status === "completed" ? "done" : "sheet",
+              resumeUrl: status === "idle" ? "" : "https://docs.google.com/document/d/two/edit",
               sheetUrl: status === "completed"
                 ? "https://docs.google.com/spreadsheets/d/test/edit#gid=2"
                 : "" },
             { id: "data", name: "Data and analytics",
-              status: status === "completed" ? "saved" : status === "running" ? "queued" :
+              status: status === "idle" ? "idle" : status === "completed" ? "saved" : status === "running" ? "queued" :
                 status === "cancelled" ? "cancelled" : "skipped",
               stage: status === "completed" ? "done" : "resume",
               resumeUrl: status === "completed"
@@ -103,7 +105,7 @@ if (!outputDir) throw new Error("Pass a screenshot output directory.");
     fs.mkdirSync(outputDir, { recursive: true });
     for (const width of [320, 440]) {
       await page.setViewportSize({ width, height: 1000 });
-      for (const status of ["running", "completed", "failed", "cancelled"]) {
+      for (const status of ["idle", "running", "completed", "failed", "cancelled"]) {
         await page.evaluate((value) => previewStatus(value), status);
         const dimensions = await page.evaluate(() => ({
           bodyWidth: document.documentElement.clientWidth,
@@ -115,7 +117,11 @@ if (!outputDir) throw new Error("Pass a screenshot output directory.");
           errorCount: document.querySelectorAll(".no-model-profile-error").length,
           openSheetCount:
             document.querySelectorAll(".no-model-profile-open-sheet").length,
-          deleteCount: document.querySelectorAll(".no-model-profile-delete").length
+          deleteCount: document.querySelectorAll(".no-model-profile-delete").length,
+          disabledProgressCount:
+            document.querySelectorAll(".no-model-profile-progress.is-disabled").length,
+          activeConnectorCount:
+            document.querySelectorAll('[data-connector-state="active"]').length
         }));
         assert.equal(dimensions.profileCount, 3);
         assert.equal(dimensions.embeddedProgressCount, 3);
@@ -124,9 +130,11 @@ if (!outputDir) throw new Error("Pass a screenshot output directory.");
           dimensions.errorCount,
           status === "failed" ? 1 : status === "cancelled" ? 2 : 0
         );
-        const completedCount = status === "completed" ? 3 : 1;
+        const completedCount = status === "idle" ? 0 : status === "completed" ? 3 : 1;
         assert.equal(dimensions.openSheetCount, completedCount);
         assert.equal(dimensions.deleteCount, completedCount);
+        assert.equal(dimensions.disabledProgressCount, status === "idle" ? 3 : 0);
+        assert.equal(dimensions.activeConnectorCount, status === "running" ? 1 : 0);
         assert.ok(
           dimensions.contentWidth <= dimensions.bodyWidth,
           JSON.stringify(dimensions)

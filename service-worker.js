@@ -802,17 +802,10 @@ async function savePromptResumeSelectionState(
 }
 
 async function resetApplicationInputsAfterSave(runId = "") {
-  const profileState = await getProfileSelectionState();
-  await saveProfileSelectionState({
-    ...profileState,
-    selectedProfileIds: profileState.profiles
-      .filter((profile) => getAutoSelectedPromptResumeId(profile.promptResumes))
-      .map((profile) => profile.id)
-  });
   await saveJobDescriptionSelectionState("");
 
   const message =
-    "Cleared job description and restored Auto profiles for the next application. Assigned prompt resumes were kept.";
+    "Cleared job description for the next application. Profile selections and assigned prompt resumes were kept.";
 
   if (runId) {
     sendLog(runId, "info", message);
@@ -1852,7 +1845,10 @@ function formatSaveValidationError(missing) {
   return `These are required before saving: ${missing.join(", ")}.`;
 }
 
-async function validateApplicationInputsForSave(aiProviderIdOverride = "") {
+async function validateApplicationInputsForSave(
+  aiProviderIdOverride = "",
+  selectedProfileIdsOverride = null
+) {
   const [promptState, jobDescriptionState, profileState, sheetConfig] = await Promise.all([
     getPromptSelectionState(),
     getJobDescriptionSelectionState(),
@@ -1861,7 +1857,22 @@ async function validateApplicationInputsForSave(aiProviderIdOverride = "") {
   ]);
 
   const missing = [];
-  const selectedProfiles = getSelectedProfilesFromState(profileState);
+  const overriddenSelectedIds = Array.isArray(selectedProfileIdsOverride)
+    ? new Set(selectedProfileIdsOverride.map(String))
+    : null;
+  const effectiveProfileState = overriddenSelectedIds
+    ? {
+        ...profileState,
+        selectedProfileIds: profileState.profiles
+          .filter(
+            (profile) =>
+              overriddenSelectedIds.has(profile.id) ||
+              Boolean(getAutoSelectedPromptResumeId(profile.promptResumes))
+          )
+          .map((profile) => profile.id)
+      }
+    : profileState;
+  const selectedProfiles = getSelectedProfilesFromState(effectiveProfileState);
   const aiProviderId = aiProviderIdOverride
     ? normalizeAiProviderId(aiProviderIdOverride)
     : sheetConfig.aiProviderId;
@@ -1901,7 +1912,7 @@ async function validateApplicationInputsForSave(aiProviderIdOverride = "") {
   if (missing.length === 0) {
     return {
       ok: true,
-      profileState,
+      profileState: effectiveProfileState,
       selectedProfiles,
       promptContent: String(promptState.content || "").trim(),
       jobDescriptionContent: String(jobDescriptionState.content || "").trim(),
@@ -2613,7 +2624,11 @@ async function performSavePostProcessCleanup({
         : reason === "failed"
           ? "Save process stopped after an error."
           : "Google Sheet saving finished. Save process completed.";
-    sendLog(runId, "info", message + (shouldResetInputs ? " Application inputs cleared." : ""));
+    sendLog(
+      runId,
+      "info",
+      message + (shouldResetInputs ? " Job description cleared; profile selections kept." : "")
+    );
   }
 
   return {
@@ -2855,11 +2870,22 @@ async function getSidePanelStatus() {
     });
     return {
       open: response?.open === true,
-      saveActionPending: response?.saveActionPending === true
+      saveActionPending: response?.saveActionPending === true,
+      activeTabId: Number.isInteger(response?.activeTabId)
+        ? response.activeTabId
+        : null,
+      selectedProfileIds: Array.isArray(response?.selectedProfileIds)
+        ? response.selectedProfileIds.map(String)
+        : []
     };
   } catch (error) {
     if (isReceivingEndMissingError(error)) {
-      return { open: false, saveActionPending: false };
+      return {
+        open: false,
+        saveActionPending: false,
+        activeTabId: null,
+        selectedProfileIds: []
+      };
     }
 
     throw error;
@@ -3020,8 +3046,15 @@ chrome.commands.onCommand.addListener((command) => {
     // The tab the shortcut fired on owns the run's status.
     registerRunOwnerTab(runId, tab?.id);
     const ownerTabId = getRunOwnerTabId(runId);
+    const selectedProfileIds = await getTabSelectedProfileIds(
+      ownerTabId,
+      sidePanelStatus
+    );
 
-    const validation = await validateApplicationInputsForSave();
+    const validation = await validateApplicationInputsForSave(
+      "",
+      selectedProfileIds
+    );
     if (!validation.ok) {
       sendLog(runId, "error", validation.error);
       await notifyExtensionPages({
@@ -3052,6 +3085,7 @@ chrome.commands.onCommand.addListener((command) => {
 
     const result = await saveCurrentTabUrlToSheet(runId, {
       ownerTabId,
+      selectedProfileIds,
       notifyHotkeyStarted: true
     });
 
@@ -3333,7 +3367,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     message.type === "SAVE_CURRENT_TAB_URL_TO_SHEET"
       ? run(message.runId, {
           ownerTabId: message.ownerTabId,
-          aiProviderId: message.aiProviderId
+          aiProviderId: message.aiProviderId,
+          selectedProfileIds: message.selectedProfileIds
         })
       : message.type === "CANCEL_SAVE_POST_PROCESS"
         ? run(message.runId, message.ownerTabId)
@@ -3521,6 +3556,28 @@ async function runNoModelSave(tab, validation, runId, ownerTabId) {
   }
 }
 
+async function getTabSelectedProfileIds(tabId, sidePanelStatus) {
+  if (
+    Number.isInteger(tabId) &&
+    sidePanelStatus?.activeTabId === tabId &&
+    Array.isArray(sidePanelStatus.selectedProfileIds)
+  ) {
+    return sidePanelStatus.selectedProfileIds.map(String);
+  }
+
+  if (!Number.isInteger(tabId)) {
+    return [];
+  }
+
+  const stored = await chrome.storage.session.get(TAB_SESSION_STORAGE_KEY);
+  const manualSelectedProfileIds =
+    stored[TAB_SESSION_STORAGE_KEY]?.tabStates?.[String(tabId)]
+      ?.manualSelectedProfileIds;
+  return Array.isArray(manualSelectedProfileIds)
+    ? manualSelectedProfileIds.map(String)
+    : [];
+}
+
 async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId, options = {}) {
   const { signal } = options;
   if (typeof sourceTab?.id !== "number") {
@@ -3590,7 +3647,8 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
   sendLog(runId, "info", "Starting save process...");
 
   const validation = await validateApplicationInputsForSave(
-    options.aiProviderId
+    options.aiProviderId,
+    options.selectedProfileIds
   );
   if (!validation.ok) {
     throw new Error(validation.error);

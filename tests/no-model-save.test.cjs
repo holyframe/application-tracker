@@ -76,13 +76,13 @@ function fixture({ mode = "none", failCopy = -1, failSheet = -1, cancelCopy = -1
       } }
     }
   });
-  load(worker, ["getSelectedProfilesFromState", "formatSaveValidationError", "validateApplicationInputsForSave",
+  load(worker, ["getAutoSelectedPromptResumeId", "getSelectedProfilesFromState", "formatSaveValidationError", "validateApplicationInputsForSave",
     "normalizeUrlForStorage", "buildApplicationSheetRow", "persistNoModelProgress", "clearNoModelProgressForTab",
     "runNoModelSave", "runSaveCurrentTabUrlToSheet"], ctx);
   return { ctx, profiles, storage, rows, copies, snapshots, cleanup,
-    run: (aiProviderId = "") => ctx.runSaveCurrentTabUrlToSheet(
+    run: (aiProviderId = "", selectedProfileIds = null) => ctx.runSaveCurrentTabUrlToSheet(
       "test-run",
-      { ownerTabId: 7, aiProviderId }
+      { ownerTabId: 7, aiProviderId, selectedProfileIds }
     ) };
 }
 
@@ -97,6 +97,30 @@ test("an explicit No Model save overrides a stale saved ChatGPT provider", async
   const result = await run("none");
   assert.equal(result.profileCount, 3);
   assert.equal(rows.length, 3);
+});
+test("an explicit tab selection overrides stale global profile checks", async () => {
+  const { run, rows } = fixture();
+  const result = await run("none", ["1"]);
+  assert.equal(result.profileCount, 1);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].sheetName, "Backend");
+});
+test("Auto profiles are added above a tab's manual selection", async () => {
+  const { ctx, profiles } = fixture();
+  profiles[2].selectedPromptResumeId = "data-auto";
+  profiles[2].promptResumes = [
+    {
+      id: "data-auto",
+      label: "Data Auto",
+      content: "Data resume",
+      autoSelect: true
+    }
+  ];
+  const validation = await ctx.validateApplicationInputsForSave("none", ["1"]);
+  assert.deepEqual(
+    validation.selectedProfiles.map((profile) => profile.id),
+    ["1", "2"]
+  );
 });
 for (const mode of ["chatgpt", "deepseek"]) {
   test(`${mode} retains AI input validation`, async () => {
@@ -173,7 +197,7 @@ test("closing a tab drops its saved progress", async () => {
 });
 
 for (const reason of ["completed", "cancelled"]) {
-  test(`No Model ${reason} cleanup preserves AI inputs and selections`, async () => {
+  test(`No Model ${reason} cleanup preserves AI inputs and profile selections`, async () => {
     let resets = 0;
     const state = { runId: "run", saveOnly: true };
     const ctx = vm.createContext({
@@ -216,7 +240,47 @@ test("frontend validation follows the selected mode rather than requiring AI tex
 });
 test("Save App sends the provider currently selected in the dropdown", () => {
   assert.match(panel, /aiProviderId:\s*getSelectedAiProviderId\(\)/);
-  assert.match(worker, /validateApplicationInputsForSave\(\s*options\.aiProviderId\s*\)/);
+  assert.match(panel, /selectedProfileIds\s*\n\s*\}\);/);
+  assert.match(
+    worker,
+    /validateApplicationInputsForSave\(\s*options\.aiProviderId,\s*options\.selectedProfileIds\s*\)/
+  );
+});
+test("keyboard saves prefer live tab checks and fall back to that tab's session", async () => {
+  const ctx = vm.createContext({
+    Number,
+    String,
+    Array,
+    TAB_SESSION_STORAGE_KEY: "tabSessionById",
+    chrome: {
+      storage: {
+        session: {
+          get: async () => ({
+            tabSessionById: {
+              tabStates: {
+                7: { manualSelectedProfileIds: ["session-profile"] }
+              }
+            }
+          })
+        }
+      }
+    }
+  });
+  load(worker, ["getTabSelectedProfileIds"], ctx);
+  assert.deepEqual(
+    [...await ctx.getTabSelectedProfileIds(7, {
+      activeTabId: 7,
+      selectedProfileIds: ["live-profile"]
+    })],
+    ["live-profile"]
+  );
+  assert.deepEqual(
+    [...await ctx.getTabSelectedProfileIds(7, {
+      activeTabId: 8,
+      selectedProfileIds: ["wrong-tab"]
+    })],
+    ["session-profile"]
+  );
 });
 test("saved No Model rows with blank D import, while malformed populated chat URLs still fail", () => {
   const ctx = vm.createContext({ URL });

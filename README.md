@@ -14,12 +14,13 @@ It combines:
 
 ## Main workflow
 
-Before saving an application, expand one or more profiles and choose one resume
-variant for each. Choosing a variant checks its profile automatically; profiles
-can still be unchecked to exclude them, which also clears that profile's resume
-choice. A new application starts with every profile and prompt-resume selection
-clear. Every checked profile remains expanded so all selected resume variants
-stay visible. Then provide a base AI prompt and job description.
+Before saving an application, check one or more profiles and choose one resume
+variant for each. Manual profile checks belong to the Chrome tab where they were
+made: a different tab starts unchecked, and returning to the original tab restores
+its checks. Profiles with Auto enabled are always checked on every tab. Choosing a
+resume variant checks its profile automatically, while unchecking a profile keeps
+its assigned resume available for the next application. Then provide a base AI
+prompt and job description.
 
 `Save App` normalizes the active job URL, copies each checked profile's
 configured Google Docs resume template, submits the prepared message to the selected
@@ -42,13 +43,18 @@ checked profile's Google Docs resume template, and appends the application row
 to that profile's sheet tab. No AI prompt, job description, or prompt-resume
 selection is required. The job-description card and automatic editor are hidden.
 No Context Doc, new browser tab, or Application workspace is opened; the job page
-stays in place. Column D is blank. Each involved profile card shows its own page
-capture, resume copy, and sheet save progress, including waiting, saved, failed,
-and cancelled states. Results remain visible for that job tab until its next No Model
-save or until the tab closes. Existing inputs and profile selections are preserved.
+stays in place. Column D is blank. In No Model mode, every profile card shows its
+process panel from the start in a muted, disabled state. During saving, animated
+connectors advance through page capture, resume copy, and Sheet save. Each involved
+profile shows waiting, saved, failed, and cancelled states. Results remain visible for that job tab until its next No Model
+save or until the tab closes. Existing AI text inputs and profile selections are
+preserved when the process finishes.
 After a profile is saved, its progress area shows matching `Open Google Sheet`
-and `Delete` actions. The Sheet action opens that profile's exact tab. Confirming
-Delete removes only the matching Google Sheet row and keeps the copied resume document.
+and `Delete` actions. The Sheet action opens that profile's exact tab in a new,
+focused Chrome window. Confirming Delete removes only the matching Google Sheet
+row and keeps the copied resume document.
+The main action card also has an `Open Google Sheet` button outside the profile
+list. It opens the currently configured workbook in a new, focused Chrome window.
 If a run stops partway through, completed records and resume copies remain;
 check the sheet before retrying to avoid duplicates.
 
@@ -79,11 +85,18 @@ application action is running, Cancel Process stays at the far right of the
 matching workspace header. The header Exchange icon that switches between
 Home and Application workspaces stays disabled on involved tabs until the
 final Google Sheet row is saved. Saving that row ends progress immediately.
-Cancel Process stops both progress and the active save early. Successful completion or cancellation ends save progress and clears
-checked profiles, selected prompt-resume variants, and the job description.
-Each tab keeps its Application workspace details, process logs, and status
+Cancel Process stops both progress and the active save early. Successful
+completion or cancellation keeps profile selections unchanged. ChatGPT and
+DeepSeek clear the job description; No Model preserves its unused AI text
+inputs. Assigned prompt-resume variants are retained. By default, no profile is
+checked; enabling Auto checks that profile automatically. When selection is not
+locked by an active save, clicking anywhere in a profile's process panel also
+toggles that profile. Its Open Sheet and Delete actions do not toggle selection.
+Each tab keeps its manual profile checks, Application workspace details, process
+logs, and status
 until that Chrome tab is closed. Completed sheet rows and opened tabs are
-never rolled back. No Chrome notification is created.
+never rolled back. The newest process log is shown first. No Chrome notification
+is created.
 
 While save progress is active, only the Chrome tabs involved in that run
 keep the Home/Application workspace switch icon disabled. Other tabs stay unlocked for non-save work, but
@@ -200,10 +213,11 @@ profile tabs are created automatically. The configured default tab name is
 retained for backward compatibility.
 
 Profiles, prompts, job descriptions, notes, selected resume variants, and
-sheet configuration are stored in `chrome.storage.local`. Per-tab Application
-workspace details, process logs, and status are kept in `chrome.storage.session`
-until that Chrome tab closes. The extension has no application server or
-third-party JavaScript dependencies.
+sheet configuration are stored in `chrome.storage.local`. Manual profile checks,
+Application workspace details, process logs, and status are kept per tab in
+`chrome.storage.session` until that Chrome tab closes. Auto-enabled profiles are
+global and remain checked on every tab. The extension has no application server
+or third-party JavaScript dependencies.
 
 Google authorization uses `chrome.identity` and the OAuth configuration in
 `manifest.json`. The signed-in account must be able to access the configured

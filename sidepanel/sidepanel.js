@@ -2,6 +2,7 @@ const saveButton = document.querySelector("#saveButton");
 const saveOptionsButton = document.querySelector("#saveOptionsButton");
 const openSplitWindowsButton = document.querySelector("#openSplitWindowsButton");
 const makeResumeOptionsButton = document.querySelector("#makeResumeOptionsButton");
+const openGoogleSheetButton = document.querySelector("#openGoogleSheetButton");
 const jobrightOpenCountInput = document.querySelector("#jobrightOpenCountInput");
 const openJobrightJobsButton = document.querySelector("#openJobrightJobsButton");
 const openJobrightOptionsButton = document.querySelector("#openJobrightOptionsButton");
@@ -420,6 +421,7 @@ function createTabState() {
     profileResumeSettingsProfileId: null,
     promptResumeFormMode: "add",
     editingPromptResumeId: null,
+    manualSelectedProfileIds: [],
     pickupWindowIds: []
   };
 }
@@ -457,6 +459,9 @@ function cloneTabStateForPersistence(state) {
       state.managedModalDrafts && typeof state.managedModalDrafts === "object"
         ? { ...state.managedModalDrafts }
         : {},
+    manualSelectedProfileIds: Array.isArray(state.manualSelectedProfileIds)
+      ? [...new Set(state.manualSelectedProfileIds.map(String).filter(Boolean))]
+      : [],
     pickupWindowIds: Array.isArray(state.pickupWindowIds)
       ? [...new Set(state.pickupWindowIds.map(Number).filter(Number.isInteger))]
       : []
@@ -623,6 +628,7 @@ function captureActiveTabState() {
   state.profileResumeSettingsProfileId = profileResumeSettingsProfileId;
   state.promptResumeFormMode = promptResumeFormMode;
   state.editingPromptResumeId = editingPromptResumeId;
+  state.manualSelectedProfileIds = [...manualSelectedProfileIds];
 }
 
 function loadTabStateIntoRegisters(tabId) {
@@ -656,6 +662,7 @@ function loadTabStateIntoRegisters(tabId) {
   profileResumeSettingsProfileId = state.profileResumeSettingsProfileId;
   promptResumeFormMode = state.promptResumeFormMode;
   editingPromptResumeId = state.editingPromptResumeId;
+  manualSelectedProfileIds = [...state.manualSelectedProfileIds];
 }
 
 function switchActiveTab(tabId) {
@@ -753,6 +760,8 @@ function beginRunForActiveTab() {
 
 function renderActiveTabState() {
   syncCurrentSaveWorkspace();
+  syncProfileSelectionForActiveTab();
+  renderProfileList();
   renderLogEntries();
   renderDeletedRowEntries();
   restoreManagedModalState();
@@ -801,9 +810,7 @@ async function syncActiveTabFromBrowser() {
         : { active: true, windowId: panelWindowId }
     );
     if (Number.isInteger(tab?.id) && tab.id !== activeTabId) {
-      activeTabId = tab.id;
-      loadTabStateIntoRegisters(activeTabId);
-      renderActiveTabState();
+      switchActiveTab(tab.id);
     }
   } catch (error) {
     console.error("Could not resolve the active tab:", error);
@@ -1033,6 +1040,7 @@ let profileSelectionState = {
   selectedProfileIds: [],
   selectionVersion: PROFILE_SELECTION_VERSION
 };
+let manualSelectedProfileIds = [];
 
 let profileResumeSettingsProfileId = null;
 let draggedProfileId = "";
@@ -1123,6 +1131,45 @@ function enforceSingleAutoSelectPromptResume(promptResumes) {
 
 function getAutoSelectedPromptResumeId(promptResumes) {
   return promptResumes.find((entry) => entry.autoSelect)?.id || "";
+}
+
+function getAutoSelectedProfileIds(selection = profileSelectionState) {
+  return (Array.isArray(selection?.profiles) ? selection.profiles : [])
+    .filter((profile) => getAutoSelectedPromptResumeId(profile.promptResumes || []))
+    .map((profile) => profile.id);
+}
+
+function syncProfileSelectionForActiveTab() {
+  const validProfileIds = new Set(
+    profileSelectionState.profiles.map((profile) => profile.id)
+  );
+  const autoSelectedIds = new Set(getAutoSelectedProfileIds());
+
+  manualSelectedProfileIds = manualSelectedProfileIds.filter(
+    (profileId) => validProfileIds.has(profileId) && !autoSelectedIds.has(profileId)
+  );
+  const manualSelectedIds = new Set(manualSelectedProfileIds);
+  profileSelectionState.selectedProfileIds = profileSelectionState.profiles
+    .filter(
+      (profile) =>
+        autoSelectedIds.has(profile.id) || manualSelectedIds.has(profile.id)
+    )
+    .map((profile) => profile.id);
+}
+
+function rememberCurrentManualProfileSelection() {
+  const autoSelectedIds = new Set(getAutoSelectedProfileIds());
+  manualSelectedProfileIds = profileSelectionState.selectedProfileIds.filter(
+    (profileId) => !autoSelectedIds.has(profileId)
+  );
+
+  if (typeof getTabState === "function" && Number.isInteger(activeTabId)) {
+    const state = getTabState(activeTabId);
+    if (state) state.manualSelectedProfileIds = [...manualSelectedProfileIds];
+  }
+  if (typeof schedulePersistTabSession === "function") {
+    schedulePersistTabSession();
+  }
 }
 
 function normalizePromptResumeSelection(selection) {
@@ -1314,6 +1361,7 @@ function applyPromptResumeStateToSelectedProfile(
         profileSelectionState.selectedProfileIds.includes(profile.id))
       .map((profile) => profile.id)
   };
+  syncProfileSelectionForActiveTab();
 }
 
 function showProfileFormModalStatus(type, message) {
@@ -1616,7 +1664,8 @@ function renderProfileList() {
   if (!profileList) return;
 
   profileList.innerHTML = "";
-  const noModelReport = isNoModelSaveMode()
+  const showNoModelProgress = isNoModelSaveMode();
+  const noModelReport = showNoModelProgress
     ? noModelProgressByTabId[activeTabId]
     : null;
 
@@ -1630,21 +1679,36 @@ function renderProfileList() {
 
   profileSelectionState.profiles.forEach((profile) => {
     const isSelected = profileSelectionState.selectedProfileIds.includes(profile.id);
+    const autoResume = profile.promptResumes.find((resume) => resume.autoSelect);
+    const isAutoSelected = Boolean(autoResume);
     const savedProgress = noModelReport?.profiles?.find(
       (entry) => entry.id === profile.id
     );
+    const displayedProgress = savedProgress || (showNoModelProgress
+      ? {
+          id: profile.id,
+          name: profile.name,
+          stage: "idle",
+          status: "idle"
+        }
+      : null);
+    const displayedReport = noModelReport || {
+      jobTitle: "Save process",
+      jobUrl: "",
+      status: "idle"
+    };
 
     const item = document.createElement("li");
     item.className = "profile-item";
     item.dataset.profileId = profile.id;
     item.classList.toggle("is-selected", isSelected);
-    item.classList.toggle("has-no-model-progress", Boolean(savedProgress));
-    if (savedProgress) {
-      item.dataset.saveStatus = savedProgress.deleted
+    item.classList.toggle("has-no-model-progress", Boolean(displayedProgress));
+    if (displayedProgress) {
+      item.dataset.saveStatus = displayedProgress.deleted
         ? "deleted"
-        : savedProgress.deleting
+        : displayedProgress.deleting
           ? "deleting"
-          : savedProgress.status;
+          : displayedProgress.status;
     }
 
     const header = document.createElement("div");
@@ -1683,7 +1747,12 @@ function renderProfileList() {
       hasSelectedPromptResume
     );
     selectionCheckbox.disabled =
-      areActionButtonsDisabled || (!hasSelectedPromptResume && !isNoModelSaveMode() && !isSelected);
+      areActionButtonsDisabled ||
+      isAutoSelected ||
+      (!hasSelectedPromptResume && !isNoModelSaveMode() && !isSelected);
+    selectionCheckbox.title = isAutoSelected
+      ? "Auto-enabled profiles stay selected"
+      : "";
     selectionCheckbox.setAttribute(
       "aria-label",
       `${isSelected ? "Remove" : "Add"} ${profile.name} ${
@@ -1723,6 +1792,7 @@ function renderProfileList() {
     copy.type = "button";
     copy.className = "profile-copy profile-name profile-selection-label";
     copy.disabled = selectionCheckbox.disabled;
+    copy.title = isAutoSelected ? "Auto-enabled profiles stay selected" : "";
     copy.dataset.hasSelectedPromptResume = String(hasSelectedPromptResume);
     copy.setAttribute("aria-pressed", String(isSelected));
     copy.setAttribute(
@@ -1744,7 +1814,6 @@ function renderProfileList() {
     const actions = document.createElement("div");
     actions.className = "profile-actions";
 
-    const autoResume = profile.promptResumes.find((resume) => resume.autoSelect);
     const autoButton = document.createElement("button");
     autoButton.type = "button";
     autoButton.className = "profile-auto-select";
@@ -1840,10 +1909,30 @@ function renderProfileList() {
     header.append(dragHandle, selectionCheckbox, copy, actions);
 
     item.append(header);
-    if (savedProgress) {
-      item.append(
-        createNoModelProfileProgress(noModelReport, savedProgress)
+    if (displayedProgress) {
+      const progressPanel = createNoModelProfileProgress(
+        displayedReport,
+        displayedProgress
       );
+      const selectionEnabled = !selectionCheckbox.disabled;
+      progressPanel.classList.add("is-profile-selection-target");
+      progressPanel.dataset.selectionEnabled = String(selectionEnabled);
+      progressPanel.title = isAutoSelected
+        ? `${profile.name} stays selected while Auto is enabled`
+        : selectionEnabled
+          ? `${isSelected ? "Deselect" : "Select"} ${profile.name}`
+          : `Profile selection is locked while saving ${profile.name}`;
+      progressPanel.addEventListener("click", async (event) => {
+        if (
+          !selectionEnabled ||
+          event.defaultPrevented ||
+          event.target?.closest?.(".no-model-profile-action")
+        ) {
+          return;
+        }
+        await toggleProfileSelection(profile.id);
+      });
+      item.append(progressPanel);
     }
     profileList.appendChild(item);
   });
@@ -1864,6 +1953,7 @@ async function persistProfileSelection(successMessage) {
   }
 
   profileSelectionState = normalizeProfileSelectionState(response);
+  syncProfileSelectionForActiveTab();
 
   syncPromptResumeStateFromSelectedProfile();
   renderProfileList();
@@ -1878,6 +1968,12 @@ async function toggleProfileSelection(profileId) {
     (entry) => entry.id === profileId
   );
   if (!profile) {
+    return;
+  }
+
+  if (getAutoSelectedPromptResumeId(profile.promptResumes)) {
+    syncProfileSelectionForActiveTab();
+    renderProfileList();
     return;
   }
 
@@ -1898,6 +1994,7 @@ async function toggleProfileSelection(profileId) {
   profileSelectionState.selectedProfileIds = profileSelectionState.profiles
     .map((entry) => entry.id)
     .filter((id) => selectedIds.has(id));
+  rememberCurrentManualProfileSelection();
 
   try {
     await persistProfileSelection(
@@ -1923,11 +2020,13 @@ async function loadProfileSelection() {
     }
 
     profileSelectionState = normalizeProfileSelectionState(response);
+    syncProfileSelectionForActiveTab();
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
   } catch (error) {
     console.error(error);
     profileSelectionState = normalizeProfileSelectionState(null);
+    syncProfileSelectionForActiveTab();
     syncPromptResumeStateFromSelectedProfile();
     renderProfileList();
     addLog("error", error.message || "Could not load profiles.");
@@ -1967,6 +2066,7 @@ async function removeProfile(profileId) {
   );
   profileSelectionState.selectedProfileIds =
     profileSelectionState.selectedProfileIds.filter((id) => id !== profileId);
+  rememberCurrentManualProfileSelection();
 
   if (profileSelectionState.selectedProfileId === profileId) {
     profileSelectionState.selectedProfileId =
@@ -2413,9 +2513,54 @@ function renderNoModelSaveProgress() {
   renderProfileList();
 }
 
+async function openNoModelProfileGoogleSheet(sheetUrl) {
+  const targetUrl = String(sheetUrl || "").trim();
+  if (!isGoogleSheetsDocumentUrl(targetUrl)) {
+    throw new Error("A valid Google Sheet URL is required.");
+  }
+
+  return chrome.windows.create({
+    url: targetUrl,
+    type: "normal",
+    focused: true
+  });
+}
+
+function buildConfiguredGoogleSheetUrl(spreadsheetIdInput) {
+  const rawValue = String(spreadsheetIdInput || "").trim();
+  const urlMatch = rawValue.match(
+    /\/spreadsheets\/(?:u\/\d+\/)?d\/([a-zA-Z0-9-_]+)/
+  );
+  const spreadsheetId = urlMatch ? urlMatch[1] : rawValue;
+  if (!/^[a-zA-Z0-9-_]+$/.test(spreadsheetId)) {
+    throw new Error("A valid Google Sheet ID is required in Save settings.");
+  }
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+}
+
+async function openConfiguredGoogleSheet() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "GET_SHEET_CONFIG"
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not load Google Sheet settings.");
+    }
+
+    const sheetUrl = buildConfiguredGoogleSheetUrl(response.spreadsheetId);
+    await openNoModelProfileGoogleSheet(sheetUrl);
+    addLog("success", "Opened the configured Google Sheet in a new Chrome window.");
+  } catch (error) {
+    console.error("Could not open the configured Google Sheet:", error);
+    addLog("error", error.message || "Could not open the configured Google Sheet.");
+  }
+}
+
 function createNoModelProfileProgress(report, profile) {
+  const isIdle = profile.status === "idle";
   const progress = document.createElement("section");
   progress.className = "no-model-profile-progress";
+  progress.classList.toggle("is-disabled", isIdle);
   progress.dataset.status = profile.deleted
     ? "deleted"
     : profile.deleting
@@ -2423,6 +2568,7 @@ function createNoModelProfileProgress(report, profile) {
       : profile.status;
   progress.setAttribute("role", "status");
   progress.setAttribute("aria-live", "polite");
+  progress.setAttribute("aria-disabled", String(isIdle));
   progress.setAttribute(
     "aria-label",
     `Application save progress for ${profile.name}`
@@ -2432,11 +2578,12 @@ function createNoModelProfileProgress(report, profile) {
   heading.className = "no-model-profile-progress-heading";
   const job = document.createElement("span");
   job.className = "no-model-profile-job";
-  job.textContent = report.jobTitle || "Job page";
+  job.textContent = isIdle ? "Save process" : report.jobTitle || "Job page";
   job.title = report.jobUrl || "";
   const badge = document.createElement("span");
   badge.className = "no-model-profile-badge";
   const labels = {
+    idle: "Not started",
     queued: "Waiting",
     saved: "Saved",
     failed: "Failed",
@@ -2453,27 +2600,43 @@ function createNoModelProfileProgress(report, profile) {
 
   const steps = document.createElement("ol");
   steps.className = "no-model-profile-steps";
-  [
+  const stepLabels = [
     "Page captured",
     "Resume copied",
     profile.deleted ? "Sheet removed" : "Sheet saved"
-  ].forEach(
+  ];
+  const stepStates = stepLabels.map((_label, stepIndex) => {
+    const done = !isIdle && (
+      stepIndex === 0 ||
+      (stepIndex === 1 && profile.resumeUrl) ||
+      (stepIndex === 2 && profile.status === "saved")
+    );
+    const current = !isIdle &&
+      stepIndex === (profile.stage === "sheet" ? 2 : 1);
+    const stopped = current &&
+      (profile.status === "failed" || profile.status === "cancelled");
+    return done
+      ? "done"
+      : current && profile.status === "running"
+        ? "active"
+        : stopped
+          ? profile.status
+          : "pending";
+  });
+  stepLabels.forEach(
     (label, stepIndex) => {
-      const done = stepIndex === 0 ||
-        (stepIndex === 1 && profile.resumeUrl) ||
-        (stepIndex === 2 && profile.status === "saved");
-      const current = stepIndex === (profile.stage === "sheet" ? 2 : 1);
-      const stopped = current &&
-        (profile.status === "failed" || profile.status === "cancelled");
-      const state = done
-        ? "done"
-        : current && profile.status === "running"
-          ? "active"
-          : stopped
-            ? profile.status
-            : "pending";
+      const state = stepStates[stepIndex];
+      const done = state === "done";
       const step = document.createElement("li");
       step.dataset.state = state;
+      if (stepIndex < stepStates.length - 1) {
+        const nextState = stepStates[stepIndex + 1];
+        step.dataset.connectorState = nextState === "done"
+          ? "done"
+          : state === "done" && nextState === "active"
+            ? "active"
+            : "pending";
+      }
       step.setAttribute(
         "aria-label",
         `${label}: ${state === "done" ? "complete" : state}`
@@ -2497,9 +2660,17 @@ function createNoModelProfileProgress(report, profile) {
     link.className =
       "no-model-profile-action no-model-profile-open-sheet";
     link.href = profile.sheetUrl;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
+    link.title = "Open Google Sheet in a new Chrome window";
     link.textContent = "Open Google Sheet";
+    link.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        await openNoModelProfileGoogleSheet(profile.sheetUrl);
+      } catch (error) {
+        console.error("Could not open Google Sheet in a new window:", error);
+      }
+    });
     actions.append(link);
   }
   if (profile.status === "saved" && !profile.deleted) {
@@ -2514,7 +2685,8 @@ function createNoModelProfileProgress(report, profile) {
     );
     deleteButton.title = "Delete saved Google Sheet row";
     deleteButton.textContent = profile.deleting ? "Deleting..." : "Delete";
-    deleteButton.addEventListener("click", () => {
+    deleteButton.addEventListener("click", (event) => {
+      event?.stopPropagation();
       requestDeleteNoModelProfileApplication(report, profile);
     });
     actions.append(deleteButton);
@@ -3269,6 +3441,7 @@ async function selectPromptResume(promptResumeId) {
       .map((entry) => entry.id)
       .filter((id) => selectedIds.has(id));
   }
+  rememberCurrentManualProfileSelection();
 
   addLog("info", `Selected prompt resume: ${promptResume?.label || promptResumeId}`);
 
@@ -3329,6 +3502,7 @@ async function setPromptResumeAutoSelect(profileId, promptResumeId, enabled) {
   profileSelectionState.selectedProfileIds = profileSelectionState.profiles
     .filter((entry) => selectedIds.has(entry.id) && entry.selectedPromptResumeId)
     .map((entry) => entry.id);
+  rememberCurrentManualProfileSelection();
 
   if (profileSelectionState.selectedProfileId === profileId) {
     promptResumeSelectionState = {
@@ -4464,12 +4638,12 @@ function renderLogEntries() {
   if (!logsList) return;
 
   logsList.innerHTML = "";
-  logEntries.forEach((entry) => {
+  [...logEntries].reverse().forEach((entry) => {
     logsList.appendChild(createLogListItem(entry));
   });
 
   updateLogsState();
-  logsList.scrollTop = logsList.scrollHeight;
+  logsList.scrollTop = 0;
 }
 
 function addLogForTab(
@@ -4506,9 +4680,9 @@ function addLogForTab(
     return;
   }
 
-  logsList.appendChild(createLogListItem(entry));
+  logsList.prepend(createLogListItem(entry));
   updateLogsState();
-  logsList.scrollTop = logsList.scrollHeight;
+  logsList.scrollTop = 0;
   schedulePersistTabSession();
 }
 
@@ -4698,6 +4872,7 @@ async function runCurrentAppActionOnce() {
   // Capture the source tab before any async validation so a tab switch cannot
   // redirect this save to a different page.
   const requestedOwnerTabId = activeTabId;
+  const selectedProfileIds = [...profileSelectionState.selectedProfileIds];
   clearStatus();
   clearDeletedRows();
 
@@ -4730,7 +4905,8 @@ async function runCurrentAppActionOnce() {
       type: "SAVE_CURRENT_TAB_URL_TO_SHEET",
       runId,
       ownerTabId,
-      aiProviderId: getSelectedAiProviderId()
+      aiProviderId: getSelectedAiProviderId(),
+      selectedProfileIds
     });
 
     if (!response?.ok) {
@@ -4786,7 +4962,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "SIDE_PANEL_PING") {
     sendResponse({
       open: true,
-      saveActionPending: isSaveActionRunning || areActionButtonsDisabled
+      saveActionPending: isSaveActionRunning || areActionButtonsDisabled,
+      activeTabId,
+      selectedProfileIds: [...profileSelectionState.selectedProfileIds]
     });
     return;
   }
@@ -8679,6 +8857,7 @@ configModalCancelButton?.addEventListener("click", () => setConfigModalOpen(fals
 
 saveConfigButton?.addEventListener("click", saveSheetConfig);
 aiProviderInput?.addEventListener("change", syncSaveModeUi);
+openGoogleSheetButton?.addEventListener("click", openConfiguredGoogleSheet);
 
 promptResumeFormModalBackdrop?.addEventListener("click", () =>
   setPromptResumeFormModalOpen(false)
