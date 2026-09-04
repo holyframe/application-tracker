@@ -203,8 +203,7 @@ application actions.
 
 After Save App accepts a run from either the button or `Ctrl+Q`, it keeps the
 source job attached to that run and activates the existing tab immediately to
-its right. From the last tab it wraps to the first tab, matching `Ctrl+Tab`;
-when only one tab exists, the source tab remains active.
+its right. If there is no tab to the right, the source tab remains active.
 
 After it is opened, the side panel stays available while switching between or
 navigating normal tabs, including pinned tabs. Opening `chrome://extensions/`

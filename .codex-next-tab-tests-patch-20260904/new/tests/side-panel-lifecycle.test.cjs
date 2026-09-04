@@ -115,7 +115,7 @@ function createNextTabContext(tabs) {
       }
     }
   });
-  load(worker, ["activateNextTabLikeCtrlTab"], context);
+  load(worker, ["activateNextTabToRight"], context);
   return { context, queries, updates };
 }
 
@@ -128,35 +128,28 @@ test("Save App activates the immediate tab to the right", async () => {
   ];
   const { context, queries, updates } = createNextTabContext(tabs);
 
-  const result = await context.activateNextTabLikeCtrlTab(tabs[1]);
+  const result = await context.activateNextTabToRight(tabs[1]);
 
   assert.equal(result.id, 12);
   assert.deepEqual(queries, [{ windowId: 5 }]);
   assert.deepEqual(updates, [{ tabId: 12, changes: { active: true } }]);
 });
 
-test("Save App wraps from the last tab to the first like Ctrl+Tab", async () => {
+test("Save App does not wrap from the last tab or override a manual switch", async () => {
   const tabs = [
     { id: 21, windowId: 8, index: 0 },
     { id: 22, windowId: 8, index: 1, active: true }
   ];
-  const { context, queries, updates } = createNextTabContext(tabs);
+  const lastTabRun = createNextTabContext(tabs);
+  assert.equal(
+    await lastTabRun.context.activateNextTabToRight(tabs[1]),
+    null
+  );
+  assert.deepEqual(lastTabRun.updates, []);
 
-  const result = await context.activateNextTabLikeCtrlTab(tabs[1]);
-
-  assert.equal(result.id, 21);
-  assert.deepEqual(queries, [{ windowId: 8 }]);
-  assert.deepEqual(updates, [{ tabId: 21, changes: { active: true } }]);
-});
-
-test("Save App does not override a manual tab switch", async () => {
-  const tabs = [
-    { id: 21, windowId: 8, index: 0 },
-    { id: 22, windowId: 8, index: 1, active: true }
-  ];
   const inactiveSourceRun = createNextTabContext(tabs);
   assert.equal(
-    await inactiveSourceRun.context.activateNextTabLikeCtrlTab({
+    await inactiveSourceRun.context.activateNextTabToRight({
       id: 21,
       windowId: 8,
       index: 0,

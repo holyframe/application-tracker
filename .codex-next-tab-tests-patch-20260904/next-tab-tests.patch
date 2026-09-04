@@ -1,0 +1,75 @@
+diff --git old/tests/side-panel-lifecycle.test.cjs new/tests/side-panel-lifecycle.test.cjs
+index 48cd9ce..36f635d 100644
+--- old/tests/side-panel-lifecycle.test.cjs
++++ new/tests/side-panel-lifecycle.test.cjs
+@@ -93,3 +93,70 @@ test("navigation closes on extensions and re-enables on the next normal page", a
+     enabled: true
+   });
+ });
++
++function createNextTabContext(tabs) {
++  const queries = [];
++  const updates = [];
++  const context = vm.createContext({
++    console,
++    chrome: {
++      tabs: {
++        query: async (options) => {
++          queries.push({ ...options });
++          return tabs;
++        },
++        update: async (tabId, changes) => {
++          updates.push({ tabId, changes: { ...changes } });
++          return {
++            ...tabs.find((tab) => tab.id === tabId),
++            ...changes
++          };
++        }
++      }
++    }
++  });
++  load(worker, ["activateNextTabToRight"], context);
++  return { context, queries, updates };
++}
++
++test("Save App activates the immediate tab to the right", async () => {
++  const tabs = [
++    { id: 14, windowId: 5, index: 4 },
++    { id: 11, windowId: 5, index: 1, active: true },
++    { id: 13, windowId: 5, index: 3 },
++    { id: 12, windowId: 5, index: 2 }
++  ];
++  const { context, queries, updates } = createNextTabContext(tabs);
++
++  const result = await context.activateNextTabToRight(tabs[1]);
++
++  assert.equal(result.id, 12);
++  assert.deepEqual(queries, [{ windowId: 5 }]);
++  assert.deepEqual(updates, [{ tabId: 12, changes: { active: true } }]);
++});
++
++test("Save App does not wrap from the last tab or override a manual switch", async () => {
++  const tabs = [
++    { id: 21, windowId: 8, index: 0 },
++    { id: 22, windowId: 8, index: 1, active: true }
++  ];
++  const lastTabRun = createNextTabContext(tabs);
++  assert.equal(
++    await lastTabRun.context.activateNextTabToRight(tabs[1]),
++    null
++  );
++  assert.deepEqual(lastTabRun.updates, []);
++
++  const inactiveSourceRun = createNextTabContext(tabs);
++  assert.equal(
++    await inactiveSourceRun.context.activateNextTabToRight({
++      id: 21,
++      windowId: 8,
++      index: 0,
++      active: false
++    }),
++    null
++  );
++  assert.deepEqual(inactiveSourceRun.queries, []);
++  assert.deepEqual(inactiveSourceRun.updates, []);
++});

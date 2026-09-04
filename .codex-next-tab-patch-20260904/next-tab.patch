@@ -1,0 +1,97 @@
+diff --git old/README.md new/README.md
+index f23bc6e..5de06a9 100644
+--- old/README.md
++++ new/README.md
+@@ -201,6 +201,10 @@ columns C-F shift to D-G.
+ the side panel has keyboard focus. If the panel is closed, Chrome ignores both
+ application actions.
+ 
++After Save App accepts a run from either the button or `Ctrl+Q`, it keeps the
++source job attached to that run and activates the existing tab immediately to
++its right. If there is no tab to the right, the source tab remains active.
++
+ After it is opened, the side panel stays available while switching between or
+ navigating normal tabs, including pinned tabs. Opening `chrome://extensions/`
+ automatically closes the panel for that tab; returning to any other page enables
+diff --git old/manifest.json new/manifest.json
+index b7d9c08..b201196 100644
+--- old/manifest.json
++++ new/manifest.json
+@@ -2,7 +2,7 @@
+   "manifest_version": 3,
+   "name": "Application Helper",
+   "description": "A Chrome extension that opens a partial-width UI and saves the current tab URL to Google Sheets.",
+-  "version": "1.0.17",
++  "version": "1.0.18",
+   "permissions": ["sidePanel", "activeTab", "storage", "identity", "tabs", "scripting", "alarms", "downloads", "clipboardWrite"],
+   "host_permissions": [
+     "https://chatgpt.com/*",
+diff --git old/service-worker.js new/service-worker.js
+index 34868aa..66791ab 100644
+--- old/service-worker.js
++++ new/service-worker.js
+@@ -1699,6 +1699,37 @@ function isChromeExtensionsPageUrl(url) {
+   );
+ }
+ 
++async function activateNextTabToRight(sourceTab) {
++  if (
++    !Number.isInteger(sourceTab?.id) ||
++    !Number.isInteger(sourceTab?.windowId) ||
++    !Number.isInteger(sourceTab?.index) ||
++    sourceTab.active !== true
++  ) {
++    return null;
++  }
++
++  const windowTabs = await chrome.tabs.query({
++    windowId: sourceTab.windowId
++  });
++  const nextTab = windowTabs
++    .filter(
++      (candidateTab) =>
++        Number.isInteger(candidateTab?.id) &&
++        Number.isInteger(candidateTab?.index) &&
++        candidateTab.index > sourceTab.index
++    )
++    .sort((leftTab, rightTab) => leftTab.index - rightTab.index)[0];
++
++  if (!nextTab) {
++    return null;
++  }
++
++  return chrome.tabs.update(nextTab.id, {
++    active: true
++  });
++}
++
+ function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
+   if (!tab) {
+     throw new Error("No active tab found.");
+@@ -3690,6 +3721,26 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
+     allowGrouped: true
+   });
+ 
++  try {
++    const nextTab = await activateNextTabToRight(tab);
++    if (nextTab) {
++      sendLog(runId, "info", "Moved to the next Chrome tab.");
++    } else if (tab.active === true) {
++      sendLog(
++        runId,
++        "info",
++        "No tab is available to the right; staying on the source tab."
++      );
++    }
++  } catch (error) {
++    console.error("Could not activate the next Chrome tab:", error);
++    sendLog(
++      runId,
++      "info",
++      "Save App is continuing, but the next Chrome tab could not be selected."
++    );
++  }
++
+   const selectedProfiles = validation.selectedProfiles;
+   const aiProvider = getAiProviderConfig(validation.aiProviderId);
+   if (aiProvider.saveOnly) {

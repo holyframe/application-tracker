@@ -1699,7 +1699,7 @@ function isChromeExtensionsPageUrl(url) {
   );
 }
 
-async function activateNextTabLikeCtrlTab(sourceTab) {
+async function activateNextTabToRight(sourceTab) {
   if (
     !Number.isInteger(sourceTab?.id) ||
     !Number.isInteger(sourceTab?.windowId) ||
@@ -1712,22 +1712,19 @@ async function activateNextTabLikeCtrlTab(sourceTab) {
   const windowTabs = await chrome.tabs.query({
     windowId: sourceTab.windowId
   });
-  const orderedTabs = windowTabs
+  const nextTab = windowTabs
     .filter(
       (candidateTab) =>
         Number.isInteger(candidateTab?.id) &&
-        Number.isInteger(candidateTab?.index)
+        Number.isInteger(candidateTab?.index) &&
+        candidateTab.index > sourceTab.index
     )
-    .sort((leftTab, rightTab) => leftTab.index - rightTab.index);
-  const sourcePosition = orderedTabs.findIndex(
-    (candidateTab) => candidateTab.id === sourceTab.id
-  );
+    .sort((leftTab, rightTab) => leftTab.index - rightTab.index)[0];
 
-  if (sourcePosition < 0 || orderedTabs.length < 2) {
+  if (!nextTab) {
     return null;
   }
 
-  const nextTab = orderedTabs[(sourcePosition + 1) % orderedTabs.length];
   return chrome.tabs.update(nextTab.id, {
     active: true
   });
@@ -3725,14 +3722,14 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
   });
 
   try {
-    const nextTab = await activateNextTabLikeCtrlTab(tab);
+    const nextTab = await activateNextTabToRight(tab);
     if (nextTab) {
       sendLog(runId, "info", "Moved to the next Chrome tab.");
     } else if (tab.active === true) {
       sendLog(
         runId,
         "info",
-        "No other tab is available; staying on the source tab."
+        "No tab is available to the right; staying on the source tab."
       );
     }
   } catch (error) {

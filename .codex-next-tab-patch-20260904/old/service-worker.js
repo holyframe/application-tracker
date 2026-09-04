@@ -1699,40 +1699,6 @@ function isChromeExtensionsPageUrl(url) {
   );
 }
 
-async function activateNextTabLikeCtrlTab(sourceTab) {
-  if (
-    !Number.isInteger(sourceTab?.id) ||
-    !Number.isInteger(sourceTab?.windowId) ||
-    !Number.isInteger(sourceTab?.index) ||
-    sourceTab.active !== true
-  ) {
-    return null;
-  }
-
-  const windowTabs = await chrome.tabs.query({
-    windowId: sourceTab.windowId
-  });
-  const orderedTabs = windowTabs
-    .filter(
-      (candidateTab) =>
-        Number.isInteger(candidateTab?.id) &&
-        Number.isInteger(candidateTab?.index)
-    )
-    .sort((leftTab, rightTab) => leftTab.index - rightTab.index);
-  const sourcePosition = orderedTabs.findIndex(
-    (candidateTab) => candidateTab.id === sourceTab.id
-  );
-
-  if (sourcePosition < 0 || orderedTabs.length < 2) {
-    return null;
-  }
-
-  const nextTab = orderedTabs[(sourcePosition + 1) % orderedTabs.length];
-  return chrome.tabs.update(nextTab.id, {
-    active: true
-  });
-}
-
 function assertActiveJobTabUsable(tab, { allowGrouped = false } = {}) {
   if (!tab) {
     throw new Error("No active tab found.");
@@ -3723,26 +3689,6 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
   assertActiveJobTabUsable(tab, {
     allowGrouped: true
   });
-
-  try {
-    const nextTab = await activateNextTabLikeCtrlTab(tab);
-    if (nextTab) {
-      sendLog(runId, "info", "Moved to the next Chrome tab.");
-    } else if (tab.active === true) {
-      sendLog(
-        runId,
-        "info",
-        "No other tab is available; staying on the source tab."
-      );
-    }
-  } catch (error) {
-    console.error("Could not activate the next Chrome tab:", error);
-    sendLog(
-      runId,
-      "info",
-      "Save App is continuing, but the next Chrome tab could not be selected."
-    );
-  }
 
   const selectedProfiles = validation.selectedProfiles;
   const aiProvider = getAiProviderConfig(validation.aiProviderId);

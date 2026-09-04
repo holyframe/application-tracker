@@ -1,0 +1,68 @@
+diff --git old/tests/no-model-save.test.cjs new/tests/no-model-save.test.cjs
+index aaa87c3..ed07848 100644
+--- old/tests/no-model-save.test.cjs
++++ new/tests/no-model-save.test.cjs
+@@ -18,7 +18,7 @@ function fixture({ mode = "none", failCopy = -1, failSheet = -1, cancelCopy = -1
+     id: String(index), name, resumeTemplateId: "template" + index,
+     selectedPromptResumeId: "", promptResumes: []
+   }));
+-  const storage = {}, snapshots = [], rows = [], copies = [], cleanup = [];
++  const storage = {}, snapshots = [], rows = [], copies = [], cleanup = [], tabUpdates = [];
+   const controller = new AbortController();
+   const cancelled = () => Object.assign(new Error("Cancelled"), { cancelled: true });
+   let schedule;
+@@ -66,7 +66,27 @@ function fixture({ mode = "none", failCopy = -1, failSheet = -1, cancelCopy = -1
+     notifyExtensionPages: () => assert.fail("No Model must not activate an Application workspace"),
+     createSaveProfileTargetTabIds: () => assert.fail("No Model must not create profile tabs"),
+     chrome: {
+-      tabs: { get: async () => ({ id: 7, title: "Engineer", url: "https://jobs.example/42?utm_source=test&id=42" }) },
++      tabs: {
++        get: async () => ({
++          id: 7,
++          windowId: 3,
++          index: 0,
++          active: true,
++          title: "Engineer",
++          url: "https://jobs.example/42?utm_source=test&id=42"
++        }),
++        query: async ({ windowId }) => {
++          assert.equal(windowId, 3);
++          return [
++            { id: 7, windowId: 3, index: 0, active: true },
++            { id: 8, windowId: 3, index: 1, active: false }
++          ];
++        },
++        update: async (tabId, changes) => {
++          tabUpdates.push({ tabId, changes: structuredClone(changes) });
++          return { id: tabId, windowId: 3, index: 1, ...changes };
++        }
++      },
+       storage: { session: {
+         get: async () => structuredClone(storage),
+         set: async (values) => {
+@@ -77,9 +97,9 @@ function fixture({ mode = "none", failCopy = -1, failSheet = -1, cancelCopy = -1
+     }
+   });
+   load(worker, ["getAutoSelectedPromptResumeId", "getSelectedProfilesFromState", "formatSaveValidationError", "validateApplicationInputsForSave",
+-    "normalizeUrlForStorage", "buildApplicationSheetRow", "persistNoModelProgress", "clearNoModelProgressForTab",
++    "activateNextTabToRight", "normalizeUrlForStorage", "buildApplicationSheetRow", "persistNoModelProgress", "clearNoModelProgressForTab",
+     "runNoModelSave", "runSaveCurrentTabUrlToSheet"], ctx);
+-  return { ctx, profiles, storage, rows, copies, snapshots, cleanup,
++  return { ctx, profiles, storage, rows, copies, snapshots, cleanup, tabUpdates,
+     run: (aiProviderId = "", selectedProfileIds = null) => ctx.runSaveCurrentTabUrlToSheet(
+       "test-run",
+       { ownerTabId: 7, aiProviderId, selectedProfileIds }
+@@ -131,10 +151,11 @@ for (const mode of ["chatgpt", "deepseek"]) {
+     assert.match(result.error, /prompt resume/);
+   });
+ }
+-test("No Model saves every selected profile, labels column D, and never switches or opens tabs", async () => {
+-  const { run, rows, copies, storage, snapshots } = fixture();
++test("No Model saves each profile, advances right, and opens no automation tabs", async () => {
++  const { run, rows, copies, storage, snapshots, tabUpdates } = fixture();
+   const result = await run();
+   assert.equal(result.profileCount, 3);
++  assert.deepEqual(tabUpdates, [{ tabId: 8, changes: { active: true } }]);
+   assert.equal(rows.length, 3);
+   assert.equal(storage.progress[7].status, "completed");
+   assert.deepEqual(

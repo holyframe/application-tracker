@@ -7028,7 +7028,7 @@ async function openJobrightJobs() {
           addLogForTab(
             tab.id,
             "info",
-            `Removed tracking parameters from the application URL for ${jobLabel}.`
+            `Optimized the application URL for ${jobLabel}.`
           );
         }
       } catch (error) {
