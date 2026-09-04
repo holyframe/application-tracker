@@ -7582,9 +7582,6 @@ async function updateApplicationWorkspaceJobGptUrl() {
   const isGptUrlInMainTab =
     Boolean(mainTabUrlKey) &&
     mainTabUrlKey === getWorkspaceUrlComparisonKey(url);
-  const isJobUrlInMainTab =
-    Boolean(mainTabUrlKey) &&
-    mainTabUrlKey === getWorkspaceUrlComparisonKey(recordJobUrl);
 
   applicationWorkspaceJobGptLocation.classList.remove("is-hidden");
   applicationWorkspaceJobGptUrl.textContent = url;
@@ -7636,10 +7633,9 @@ async function updateApplicationWorkspaceJobGptUrl() {
   }
   if (applicationWorkspaceRecordJobPickupButton) {
     applicationWorkspaceRecordJobPickupButton.disabled =
-      !recordJobUrl || actionsDisabled || isJobUrlInMainTab;
-    applicationWorkspaceRecordJobPickupButton.title = isJobUrlInMainTab
-      ? "Job URL is already open in the main tab"
-      : "Open Job URL in right-side window";
+      !recordJobUrl || actionsDisabled;
+    applicationWorkspaceRecordJobPickupButton.title =
+      "Open Job URL in right-side window";
   }
   if (applicationWorkspaceRecordJobCopyButton) {
     applicationWorkspaceRecordJobCopyButton.disabled = !recordJobUrl;
