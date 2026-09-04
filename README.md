@@ -43,7 +43,7 @@ checked profile's Google Docs resume template, and appends the application row
 to that profile's sheet tab. No AI prompt, job description, or prompt-resume
 selection is required. The job-description card and automatic editor are hidden.
 No Context Doc, new browser tab, or Application workspace is opened; the job page
-stays in place. Column D is blank. In No Model mode, every profile card shows its
+stays in place. Column D contains `No Model`. In No Model mode, every profile card shows its
 process panel from the start in a muted, disabled state. During saving, animated
 connectors advance through page capture, resume copy, and Sheet save. Each involved
 profile shows waiting, saved, failed, and cancelled states. Results remain visible for that job tab until its next No Model
@@ -124,7 +124,7 @@ automatically. The extension appends seven columns:
 | A | ISO timestamp |
 | B | Job-page title |
 | C | Profile name, exactly as stored in the app |
-| D | Selected AI provider conversation URL; blank with No Model (older records may contain a Context Doc URL) |
+| D | Selected AI provider conversation URL, or `No Model` when no AI provider is used (older records may be blank or contain a Context Doc URL) |
 | E | Normalized job URL |
 | F | Copied resume-document URL |
 | G | Reserved (left blank by Save App) |
@@ -171,7 +171,8 @@ columns C-F shift to D-G.
   layout written by Save App: timestamp, job title, profile, AI conversation,
   job page, Google Docs resume, and optional Apply Now (columns A-G). A row with
   only populated columns A-F is also accepted when G is blank.
-  No Model rows with a blank conversation column are accepted as well. The older
+  No Model rows marked `No Model`, as well as legacy rows with a blank conversation
+  column, are accepted. The older
   four-field Profile, Chat, Job, Google Doc format remains supported. URL fields
   can be plain URLs or Markdown links such as `[**URL**](URL)`. It opens every
   job URL in a new main tab and registers each tab in the same full-page

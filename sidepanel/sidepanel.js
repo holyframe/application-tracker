@@ -7264,8 +7264,11 @@ function parseSplitWindowUrls(value) {
         );
       }
 
-      const chatUrl = isSavedSheetRow && !fields[chatIndex] ? "" : parseSplitWindowUrlField(
-        fields[chatIndex],
+      const chatField = String(fields[chatIndex] || "").trim();
+      const isNoModelRow =
+        isSavedSheetRow && chatField.toLocaleLowerCase() === "no model";
+      const chatUrl = isSavedSheetRow && (!chatField || isNoModelRow) ? "" : parseSplitWindowUrlField(
+        chatField,
         "Entry " +
           entryNumber +
           " " +

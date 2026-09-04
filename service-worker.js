@@ -3509,7 +3509,7 @@ async function runNoModelSave(tab, validation, runId, ownerTabId) {
       sendLog(runId, "info", `Saving application to "${profile.name}"...`);
       const row = buildApplicationSheetRow({
         timestamp: new Date().toISOString(), jobTitle, profileName: profile.name,
-        jobUrl: urlForSheet, chatGptUrl: "", resumeUrl
+        jobUrl: urlForSheet, chatGptUrl: "No Model", resumeUrl
       });
       const sheetResult = await appendRowsToGoogleSheet([row], runId, {
         sheetName: profile.name,

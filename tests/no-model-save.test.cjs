@@ -131,7 +131,7 @@ for (const mode of ["chatgpt", "deepseek"]) {
     assert.match(result.error, /prompt resume/);
   });
 }
-test("No Model saves every selected profile, blank column D, and never switches or opens tabs", async () => {
+test("No Model saves every selected profile, labels column D, and never switches or opens tabs", async () => {
   const { run, rows, copies, storage, snapshots } = fixture();
   const result = await run();
   assert.equal(result.profileCount, 3);
@@ -148,7 +148,7 @@ test("No Model saves every selected profile, blank column D, and never switches 
     const row = values[0];
     assert.equal(row.length, 7);
     assert.equal(row[1], "Engineer");
-    assert.equal(row[3], "");
+    assert.equal(row[3], "No Model");
     assert.equal(row[4], "https://jobs.example/42?id=42");
     assert.equal(row[5], `https://docs.google.com/document/d/copy${index}/edit`);
   });
@@ -282,11 +282,12 @@ test("keyboard saves prefer live tab checks and fall back to that tab's session"
     ["session-profile"]
   );
 });
-test("saved No Model rows with blank D import, while malformed populated chat URLs still fail", () => {
+test("saved No Model markers and legacy blank D values import, while malformed chat URLs still fail", () => {
   const ctx = vm.createContext({ URL });
   load(panel, ["normalizeSplitWindowUrl", "unwrapMarkdownEmphasis", "parseSplitWindowUrlField",
     "isSavedApplicationSheetHeader", "parseSplitWindowUrls", "isSupportedAiUrl", "isGoogleDocsUrl"], ctx);
-  const row = "2026-09-03\tEngineer\tFrontend\t\thttps://jobs.example/42\thttps://docs.google.com/document/d/resume/edit\t";
+  const row = "2026-09-03\tEngineer\tFrontend\tNo Model\thttps://jobs.example/42\thttps://docs.google.com/document/d/resume/edit\t";
   assert.equal(ctx.parseSplitWindowUrls(row).pairs[0].chatUrl, "");
-  assert.throws(() => ctx.parseSplitWindowUrls(row.replace("Frontend\t\t", "Frontend\tjavascript:bad\t")), /http/);
+  assert.equal(ctx.parseSplitWindowUrls(row.replace("No Model", "")).pairs[0].chatUrl, "");
+  assert.throws(() => ctx.parseSplitWindowUrls(row.replace("No Model", "javascript:bad")), /http/);
 });
