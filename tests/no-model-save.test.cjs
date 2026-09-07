@@ -33,6 +33,8 @@ function fixture({ mode = "none", failCopy = -1, failSheet = -1, cancelCopy = -1
     normalizeAiProviderId: (id) => id || "chatgpt",
     getAiProviderConfig: (id) => ({ id, saveOnly: id === "none" }),
     sendLog: () => {},
+    startSaveTabTitleStatus: async () => true,
+    activateNextTabToRight: async () => null,
     assertActiveJobTabUsable: (tab) => assert.equal(tab.id, 7),
     scheduleSavePostProcess: async (options) => { schedule = options; },
     getActiveSaveProcessSignal: () => controller.signal,

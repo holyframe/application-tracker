@@ -54,6 +54,44 @@ body {
   color: var(--text);
 }
 
+.save-result-toast {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  z-index: 3000;
+  width: min(calc(100% - 24px), 420px);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -8px);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+  box-shadow: var(--shadow-small);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.save-result-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.save-result-toast.is-success {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.save-result-toast.is-error {
+  border-color: rgba(199, 54, 76, 0.32);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 button,
 textarea,
 input {

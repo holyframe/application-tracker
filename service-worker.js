@@ -53,6 +53,9 @@ const savePostProcessCleanupPromisesByTabId = new Map();
 // Tabs we have explicitly disabled the side panel on, so the common case can
 // skip setOptions entirely.
 const sidePanelDisabledTabIds = new Set();
+// Tracks the source job title and its running/final status without moving the
+// tab itself. Entries remain until another save starts in that tab or it closes.
+const saveTitleStatusByTabId = new Map();
 
 function registerRunOwnerTab(runId, tabId) {
   const normalizedRunId = String(runId || "");
@@ -1699,7 +1702,133 @@ function isChromeExtensionsPageUrl(url) {
   );
 }
 
-async function activateNextTabLikeCtrlTab(sourceTab) {
+function stripSaveTabTitlePrefix(title) {
+  return String(title || "")
+    .replace(/^(?:⏳|✅|❌)\s+/u, "")
+    .replace(/\s+—\s+(?:successfully saved|failed)$/u, "");
+}
+
+function setSaveTabTitleStatusInPage(status, requestedBaseTitle) {
+  const prefixes = {
+    saving: "⏳ ",
+    success: "✅ ",
+    failed: "❌ "
+  };
+  const suffixes = {
+    saving: "",
+    success: " — successfully saved",
+    failed: " — failed"
+  };
+  const prefix = prefixes[status] || "";
+  const stateKey = "__applicationHelperSaveTitleStatus";
+  const stripPrefix = (title) =>
+    String(title || "")
+      .replace(/^(?:⏳|✅|❌)\s+/u, "")
+      .replace(/\s+—\s+(?:successfully saved|failed)$/u, "");
+  const currentTitle = String(document.title || "");
+  let state = window[stateKey];
+
+  if (!prefix) {
+    state?.observer?.disconnect();
+    document.title = state?.baseTitle || stripPrefix(currentTitle);
+    delete window[stateKey];
+    return document.title;
+  }
+
+  const baseTitle =
+    stripPrefix(requestedBaseTitle) ||
+    state?.baseTitle ||
+    stripPrefix(currentTitle) ||
+    "Job page";
+  if (!state) {
+    state = {
+      status,
+      baseTitle,
+      observer: null
+    };
+    window[stateKey] = state;
+  } else {
+    state.status = status;
+    state.baseTitle = baseTitle;
+  }
+
+  const applyPrefix = () => {
+    const nextTitle =
+      prefixes[state.status] + state.baseTitle + suffixes[state.status];
+    if (document.title !== nextTitle) {
+      document.title = nextTitle;
+    }
+  };
+
+  if (!state.observer) {
+    state.observer = new MutationObserver(() => {
+      const nextTitle =
+        prefixes[state.status] + state.baseTitle + suffixes[state.status];
+      if (document.title !== nextTitle) {
+        applyPrefix();
+      }
+    });
+    state.observer.observe(document.head || document.documentElement, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+  }
+
+  applyPrefix();
+  return document.title;
+}
+
+async function applySaveTabTitleStatus(tabId, status, baseTitle) {
+  if (!Number.isInteger(tabId)) {
+    return false;
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: setSaveTabTitleStatusInPage,
+      args: [status, baseTitle]
+    });
+    return true;
+  } catch (error) {
+    console.info("Could not update the Save App tab-title status:", error);
+    return false;
+  }
+}
+
+async function startSaveTabTitleStatus(tabId, baseTitle) {
+  if (!Number.isInteger(tabId)) {
+    return false;
+  }
+
+  const status = {
+    state: "saving",
+    baseTitle: stripSaveTabTitlePrefix(baseTitle) || "Job page"
+  };
+  saveTitleStatusByTabId.set(tabId, status);
+  return applySaveTabTitleStatus(tabId, status.state, status.baseTitle);
+}
+
+async function finishSaveTabTitleStatus(tabId, succeeded) {
+  if (!Number.isInteger(tabId)) {
+    return false;
+  }
+
+  const previousStatus = saveTitleStatusByTabId.get(tabId);
+  if (!previousStatus) {
+    return false;
+  }
+
+  const status = {
+    state: succeeded ? "success" : "failed",
+    baseTitle: previousStatus.baseTitle
+  };
+  saveTitleStatusByTabId.set(tabId, status);
+  return applySaveTabTitleStatus(tabId, status.state, status.baseTitle);
+}
+
+async function activateNextTabToRight(sourceTab) {
   if (
     !Number.isInteger(sourceTab?.id) ||
     !Number.isInteger(sourceTab?.windowId) ||
@@ -1712,22 +1841,26 @@ async function activateNextTabLikeCtrlTab(sourceTab) {
   const windowTabs = await chrome.tabs.query({
     windowId: sourceTab.windowId
   });
-  const orderedTabs = windowTabs
-    .filter(
-      (candidateTab) =>
-        Number.isInteger(candidateTab?.id) &&
-        Number.isInteger(candidateTab?.index)
-    )
-    .sort((leftTab, rightTab) => leftTab.index - rightTab.index);
-  const sourcePosition = orderedTabs.findIndex(
-    (candidateTab) => candidateTab.id === sourceTab.id
+  const currentSourceTab = windowTabs.find(
+    (candidateTab) => candidateTab?.id === sourceTab.id
   );
-
-  if (sourcePosition < 0 || orderedTabs.length < 2) {
+  if (currentSourceTab?.active !== true) {
     return null;
   }
 
-  const nextTab = orderedTabs[(sourcePosition + 1) % orderedTabs.length];
+  const nextTab = windowTabs
+    .filter(
+      (candidateTab) =>
+        Number.isInteger(candidateTab?.id) &&
+        Number.isInteger(candidateTab?.index) &&
+        candidateTab.index > currentSourceTab.index
+    )
+    .sort((leftTab, rightTab) => leftTab.index - rightTab.index)[0];
+
+  if (!nextTab) {
+    return null;
+  }
+
   return chrome.tabs.update(nextTab.id, {
     active: true
   });
@@ -2892,6 +3025,17 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   ) {
     syncSidePanelForTab(tab);
   }
+
+  const saveTitleStatus = saveTitleStatusByTabId.get(tabId);
+  if (saveTitleStatus && changeInfo.status === "complete") {
+    applySaveTabTitleStatus(
+      tabId,
+      saveTitleStatus.state,
+      saveTitleStatus.baseTitle
+    ).catch((error) => {
+      console.info("Could not restore the Save App tab-title status:", error);
+    });
+  }
 });
 
 configureSidePanelBehavior().catch((error) => {
@@ -3025,6 +3169,7 @@ async function forgetPersistedTabSession(tabId) {
 // persisted workspace/process details.
 chrome.tabs.onRemoved.addListener((tabId) => {
   sidePanelDisabledTabIds.delete(tabId);
+  saveTitleStatusByTabId.delete(tabId);
   clearNoModelProgressForTab(tabId).catch(console.error);
 
   const ownedRunIds = [...runOwnerTabIds.entries()]
@@ -3679,6 +3824,10 @@ async function createSaveProfileTargetTabIds(sourceTab, profileCount, runId, opt
 
 async function saveCurrentTabUrlToSheet(runId, options = {}) {
   const lockedRunId = acquireSaveProcessLock(runId);
+  const ownerTabId = Number.isInteger(options.ownerTabId)
+    ? options.ownerTabId
+    : getRunOwnerTabId(runId);
+  let saveSucceeded = false;
 
   try {
     if (options.notifyHotkeyStarted === true) {
@@ -3689,8 +3838,13 @@ async function saveCurrentTabUrlToSheet(runId, options = {}) {
       });
     }
 
-    return await runSaveCurrentTabUrlToSheet(runId, options);
+    const result = await runSaveCurrentTabUrlToSheet(runId, options);
+    saveSucceeded = true;
+    return result;
   } finally {
+    if (saveTitleStatusByTabId.get(ownerTabId)?.state === "saving") {
+      await finishSaveTabTitleStatus(ownerTabId, saveSucceeded);
+    }
     releaseSaveProcessLock(lockedRunId);
   }
 }
@@ -3723,20 +3877,17 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
   assertActiveJobTabUsable(tab, {
     allowGrouped: true
   });
+  await startSaveTabTitleStatus(ownerTabId, tab.title || "Job page");
 
   try {
-    const nextTab = await activateNextTabLikeCtrlTab(tab);
+    const nextTab = await activateNextTabToRight(tab);
     if (nextTab) {
-      sendLog(runId, "info", "Moved to the next Chrome tab.");
+      sendLog(runId, "info", "Moved focus to the next Chrome tab.");
     } else if (tab.active === true) {
-      sendLog(
-        runId,
-        "info",
-        "No other tab is available; staying on the source tab."
-      );
+      sendLog(runId, "info", "Source is the last tab; focus stayed in place.");
     }
   } catch (error) {
-    console.error("Could not activate the next Chrome tab:", error);
+    console.info("Could not activate the next Chrome tab:", error);
     sendLog(
       runId,
       "info",

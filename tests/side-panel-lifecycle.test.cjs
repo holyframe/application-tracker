@@ -94,6 +94,103 @@ test("navigation closes on extensions and re-enables on the next normal page", a
   });
 });
 
+function createSaveTitleContext(initialTitle) {
+  let observerCallback = null;
+  const scriptCalls = [];
+  const document = {
+    title: initialTitle,
+    head: {},
+    documentElement: {}
+  };
+  const context = vm.createContext({
+    console,
+    document,
+    window: {},
+    MutationObserver: class {
+      constructor(callback) {
+        observerCallback = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    chrome: {
+      scripting: {
+        executeScript: async (details) => {
+          scriptCalls.push(details);
+          return [{ result: details.func(...details.args) }];
+        }
+      }
+    }
+  });
+  load(
+    worker,
+    [
+      "stripSaveTabTitlePrefix",
+      "setSaveTabTitleStatusInPage",
+      "applySaveTabTitleStatus"
+    ],
+    context
+  );
+  return {
+    context,
+    document,
+    scriptCalls,
+    triggerTitleMutation: () => observerCallback?.()
+  };
+}
+
+test("Save App keeps the job title and changes its running and final prefixes", async () => {
+  const fixture = createSaveTitleContext("Software Engineer - Example");
+
+  assert.equal(
+    await fixture.context.applySaveTabTitleStatus(
+      12,
+      "saving",
+      "Software Engineer - Example"
+    ),
+    true
+  );
+  assert.equal(fixture.document.title, "⏳ Software Engineer - Example");
+  assert.equal(fixture.scriptCalls[0].target.tabId, 12);
+
+  fixture.document.title = "Site tried to replace the title";
+  fixture.triggerTitleMutation();
+  assert.equal(fixture.document.title, "⏳ Software Engineer - Example");
+
+  assert.equal(
+    await fixture.context.applySaveTabTitleStatus(
+      12,
+      "success",
+      "Software Engineer - Example"
+    ),
+    true
+  );
+  assert.equal(
+    fixture.document.title,
+    "✅ Software Engineer - Example — successfully saved"
+  );
+
+  assert.equal(
+    await fixture.context.applySaveTabTitleStatus(
+      12,
+      "failed",
+      "Software Engineer - Example"
+    ),
+    true
+  );
+  assert.equal(
+    fixture.document.title,
+    "❌ Software Engineer - Example — failed"
+  );
+
+  assert.equal(
+    fixture.context.stripSaveTabTitlePrefix(
+      "✅ Software Engineer - Example — successfully saved"
+    ),
+    "Software Engineer - Example"
+  );
+});
+
 function createNextTabContext(tabs) {
   const queries = [];
   const updates = [];
@@ -115,55 +212,38 @@ function createNextTabContext(tabs) {
       }
     }
   });
-  load(worker, ["activateNextTabLikeCtrlTab"], context);
+  load(worker, ["activateNextTabToRight"], context);
   return { context, queries, updates };
 }
 
-test("Save App activates the immediate tab to the right", async () => {
+test("Save App moves focus to the immediate tab on the right", async () => {
   const tabs = [
     { id: 14, windowId: 5, index: 4 },
     { id: 11, windowId: 5, index: 1, active: true },
     { id: 13, windowId: 5, index: 3 },
     { id: 12, windowId: 5, index: 2 }
   ];
-  const { context, queries, updates } = createNextTabContext(tabs);
+  const fixture = createNextTabContext(tabs);
 
-  const result = await context.activateNextTabLikeCtrlTab(tabs[1]);
+  const result = await fixture.context.activateNextTabToRight(tabs[1]);
 
   assert.equal(result.id, 12);
-  assert.deepEqual(queries, [{ windowId: 5 }]);
-  assert.deepEqual(updates, [{ tabId: 12, changes: { active: true } }]);
+  assert.deepEqual(fixture.queries, [{ windowId: 5 }]);
+  assert.deepEqual(fixture.updates, [
+    { tabId: 12, changes: { active: true } }
+  ]);
 });
 
-test("Save App wraps from the last tab to the first like Ctrl+Tab", async () => {
+test("Save App leaves focus in place when the source is the last tab", async () => {
   const tabs = [
     { id: 21, windowId: 8, index: 0 },
     { id: 22, windowId: 8, index: 1, active: true }
   ];
-  const { context, queries, updates } = createNextTabContext(tabs);
+  const fixture = createNextTabContext(tabs);
 
-  const result = await context.activateNextTabLikeCtrlTab(tabs[1]);
+  const result = await fixture.context.activateNextTabToRight(tabs[1]);
 
-  assert.equal(result.id, 21);
-  assert.deepEqual(queries, [{ windowId: 8 }]);
-  assert.deepEqual(updates, [{ tabId: 21, changes: { active: true } }]);
-});
-
-test("Save App does not override a manual tab switch", async () => {
-  const tabs = [
-    { id: 21, windowId: 8, index: 0 },
-    { id: 22, windowId: 8, index: 1, active: true }
-  ];
-  const inactiveSourceRun = createNextTabContext(tabs);
-  assert.equal(
-    await inactiveSourceRun.context.activateNextTabLikeCtrlTab({
-      id: 21,
-      windowId: 8,
-      index: 0,
-      active: false
-    }),
-    null
-  );
-  assert.deepEqual(inactiveSourceRun.queries, []);
-  assert.deepEqual(inactiveSourceRun.updates, []);
+  assert.equal(result, null);
+  assert.deepEqual(fixture.queries, [{ windowId: 8 }]);
+  assert.deepEqual(fixture.updates, []);
 });

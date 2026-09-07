@@ -1,4 +1,5 @@
 const saveButton = document.querySelector("#saveButton");
+const saveResultToast = document.querySelector("#saveResultToast");
 const saveOptionsButton = document.querySelector("#saveOptionsButton");
 const openSplitWindowsButton = document.querySelector("#openSplitWindowsButton");
 const makeResumeOptionsButton = document.querySelector("#makeResumeOptionsButton");
@@ -388,8 +389,10 @@ const MAX_TAB_LOG_ENTRIES = 400;
 const tabStateById = new Map();
 const runTabIdsByRunId = new Map();
 let activeTabId = null;
+let activeTabUrl = "";
 let panelWindowId = null;
 let tabSessionPersistTimer = null;
+let saveResultToastTimer = null;
 
 function createTabState() {
   return {
@@ -788,6 +791,7 @@ async function initActiveTabTracking() {
 
     if (Number.isInteger(tab?.id)) {
       activeTabId = tab.id;
+      activeTabUrl = tab.url || "";
       // Take the window from a real tab rather than windows.getCurrent(), which
       // is not dependable from a side panel document. Getting it wrong would
       // silently filter out every tab switch.
@@ -809,6 +813,7 @@ async function syncActiveTabFromBrowser() {
         ? { active: true, lastFocusedWindow: true }
         : { active: true, windowId: panelWindowId }
     );
+    activeTabUrl = tab?.url || "";
     if (Number.isInteger(tab?.id) && tab.id !== activeTabId) {
       switchActiveTab(tab.id);
     }
@@ -4606,6 +4611,44 @@ function showStatus(type, message, titleText) {
   showStatusForTab(activeTabId, type, message, titleText);
 }
 
+function showSaveResultToast(type, message) {
+  if (!saveResultToast) {
+    return;
+  }
+
+  if (saveResultToastTimer !== null) {
+    clearTimeout(saveResultToastTimer);
+  }
+
+  saveResultToast.classList.remove("is-success", "is-error");
+  saveResultToast.classList.add(
+    type === "success" ? "is-success" : "is-error",
+    "is-visible"
+  );
+  if (type === "error") {
+    saveResultToast.setAttribute("role", "alert");
+    saveResultToast.removeAttribute("aria-live");
+  } else {
+    saveResultToast.setAttribute("role", "status");
+    saveResultToast.setAttribute("aria-live", "polite");
+  }
+  saveResultToast.textContent = message;
+
+  saveResultToastTimer = window.setTimeout(() => {
+    saveResultToast.classList.remove("is-visible");
+    saveResultToastTimer = null;
+  }, 4500);
+}
+
+function showSaveCompletionToast(ok, errorMessage = "") {
+  showSaveResultToast(
+    ok ? "success" : "error",
+    ok
+      ? "Saved successfully."
+      : "Save failed: " + (errorMessage || "Something went wrong.")
+  );
+}
+
 function clearStatus() {}
 
 function updateLogsState() {
@@ -4925,6 +4968,7 @@ async function runCurrentAppActionOnce() {
       "success",
       "Process completed successfully."
     );
+    showSaveCompletionToast(true);
   } catch (error) {
     if (error.cancelled) {
       showStatusForTab(ownerTabId, "info", "Save process cancelled.", "Status:");
@@ -4946,6 +4990,7 @@ async function runCurrentAppActionOnce() {
         "error",
         error.message || "Something went wrong."
       );
+      showSaveCompletionToast(false, error.message);
     }
   } finally {
     if (!preserveButtonLock) {
@@ -4956,6 +5001,35 @@ async function runCurrentAppActionOnce() {
 
 async function saveCurrentTabUrl() {
   await runCurrentAppAction();
+}
+
+function requestSaveTitleHostAccessFromClick() {
+  let originPattern = "";
+  try {
+    const parsedUrl = new URL(activeTabUrl);
+    if (parsedUrl.protocol === "https:") {
+      originPattern = parsedUrl.origin + "/*";
+    }
+  } catch (_error) {
+    return Promise.resolve(false);
+  }
+
+  if (!originPattern) {
+    return Promise.resolve(false);
+  }
+
+  return chrome.permissions
+    .request({ origins: [originPattern] })
+    .catch((error) => {
+      console.info("Tab-title access was not granted for this site:", error);
+      return false;
+    });
+}
+
+async function saveCurrentTabUrlFromClick() {
+  const titleAccessRequest = requestSaveTitleHostAccessFromClick();
+  await titleAccessRequest;
+  await saveCurrentTabUrl();
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -5134,6 +5208,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
       finishButtonProcessForTab(tabId);
     });
+    showSaveCompletionToast(message.ok, message.error);
     return;
   }
 
@@ -8591,7 +8666,7 @@ async function closeSplitWindowsAndReturn() {
   }
 }
 
-saveButton?.addEventListener("click", saveCurrentTabUrl);
+saveButton?.addEventListener("click", saveCurrentTabUrlFromClick);
 openSplitWindowsButton?.addEventListener("click", openSplitWindowsModal);
 openJobrightJobsButton?.addEventListener("click", openJobrightJobs);
 
@@ -8999,13 +9074,21 @@ clearLogsButton?.addEventListener("click", () => {
   addLog("info", "Process logs cleared.");
 });
 
-chrome.tabs.onActivated.addListener((activeInfo) => {
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
   // The side panel is scoped to one window, so ignore tab switches elsewhere.
   if (panelWindowId !== null && activeInfo.windowId !== panelWindowId) {
     return;
   }
 
   switchActiveTab(activeInfo.tabId);
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    if (activeTabId === activeInfo.tabId) {
+      activeTabUrl = tab?.url || "";
+    }
+  } catch (_error) {
+    activeTabUrl = "";
+  }
   refreshMakeResumeButtonAvailability();
 });
 
@@ -9033,6 +9116,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (tabId === activeTabId && (changeInfo.url || tab?.url)) {
+    activeTabUrl = changeInfo.url || tab.url || "";
+  }
   // Deliberately no active-tab inference here. During a multi-profile save the
   // panel is moved to the next profile's tab before the browser activates it,
   // so the previous profile's tab is still reported active and its ChatGPT SPA
@@ -9074,6 +9160,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
       active: true,
       windowId
     });
+    activeTabUrl = focusedTab?.url || "";
     switchActiveTab(focusedTab?.id);
   } catch (error) {
     console.error("Could not check the focused window tab:", error);
