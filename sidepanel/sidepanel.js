@@ -5,6 +5,9 @@ const openSplitWindowsButton = document.querySelector("#openSplitWindowsButton")
 const makeResumeOptionsButton = document.querySelector("#makeResumeOptionsButton");
 const openGoogleSheetButton = document.querySelector("#openGoogleSheetButton");
 const checkPostingButton = document.querySelector("#checkPostingButton");
+const checkPostingOptionsButton = document.querySelector("#checkPostingOptionsButton");
+const checkPostingAutoNextTabInput = document.querySelector("#checkPostingAutoNextTabInput");
+const CHECK_POSTING_AI_PROVIDER_IDS = ["copilot", "perplexity", "deepseek"];
 const jobrightOpenCountInput = document.querySelector("#jobrightOpenCountInput");
 const openJobrightJobsButton = document.querySelector("#openJobrightJobsButton");
 const openJobrightOptionsButton = document.querySelector("#openJobrightOptionsButton");
@@ -37,6 +40,16 @@ const actionSettingsDialogs = {
     doneButton: document.querySelector("#openActionSettingsDoneButton"),
     assignButton: document.querySelector("#openAssignHotkeyButton"),
     hotkeyValue: document.querySelector("#openHotkeyValue")
+  },
+  checkPosting: {
+    command: "check-posting",
+    trigger: checkPostingOptionsButton,
+    modal: document.querySelector("#checkPostingActionSettingsModal"),
+    backdrop: document.querySelector("#checkPostingActionSettingsModalBackdrop"),
+    closeButton: document.querySelector("#checkPostingActionSettingsModalCloseButton"),
+    doneButton: document.querySelector("#checkPostingActionSettingsDoneButton"),
+    assignButton: document.querySelector("#checkPostingAssignHotkeyButton"),
+    hotkeyValue: document.querySelector("#checkPostingHotkeyValue")
   },
   downloadResume: {
     command: "download-resume",
@@ -2252,6 +2265,9 @@ function setActionSettingsModalOpen(action, isOpen, { returnFocus = true } = {})
 
   if (isOpen) {
     refreshActionHotkeys();
+    if (action === "checkPosting") {
+      loadCheckPostingSettings();
+    }
     dialog.closeButton?.focus();
   } else if (wasOpen && returnFocus) {
     dialog.trigger?.focus();
@@ -2326,7 +2342,7 @@ function updateCheckPostingButtonDisabledState() {
     checkPostingButton.title =
       "Check posting is available on a job posting page.";
   } else {
-    checkPostingButton.title = "Open a blank tab beside this posting";
+    checkPostingButton.title = "Send this posting URL to the selected AI chat";
   }
 }
 
@@ -2589,6 +2605,90 @@ async function openConfiguredGoogleSheet() {
   }
 }
 
+function applyCheckPostingSettings(config = {}) {
+  const providerId = CHECK_POSTING_AI_PROVIDER_IDS.includes(config.providerId)
+    ? config.providerId
+    : "copilot";
+  const selectedProvider = document.querySelector(
+    `input[name="checkPostingAiProvider"][value="${providerId}"]`
+  );
+  if (selectedProvider) {
+    selectedProvider.checked = true;
+  }
+
+  for (const id of CHECK_POSTING_AI_PROVIDER_IDS) {
+    const input = document.querySelector(`#checkPostingUrl-${id}`);
+    if (input) {
+      input.value = String(config.urls?.[id] || "");
+    }
+  }
+
+  if (checkPostingAutoNextTabInput) {
+    checkPostingAutoNextTabInput.checked = config.autoNextTab === true;
+  }
+}
+
+function readCheckPostingSettingsForm() {
+  const selectedProvider = document.querySelector(
+    'input[name="checkPostingAiProvider"]:checked'
+  );
+  const urls = {};
+  for (const id of CHECK_POSTING_AI_PROVIDER_IDS) {
+    urls[id] = String(
+      document.querySelector(`#checkPostingUrl-${id}`)?.value || ""
+    ).trim();
+  }
+
+  return {
+    providerId: selectedProvider?.value || "copilot",
+    urls,
+    autoNextTab: checkPostingAutoNextTabInput?.checked === true
+  };
+}
+
+async function loadCheckPostingSettings() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "GET_CHECK_POSTING_CONFIG"
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not load Check posting settings.");
+    }
+    applyCheckPostingSettings(response);
+  } catch (error) {
+    console.error("Could not load Check posting settings:", error);
+    showStatus(
+      "error",
+      error.message || "Could not load Check posting settings."
+    );
+  }
+}
+
+async function saveCheckPostingSettings() {
+  const settings = readCheckPostingSettingsForm();
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "SAVE_CHECK_POSTING_CONFIG",
+      providerId: settings.providerId,
+      urls: settings.urls,
+      autoNextTab: settings.autoNextTab
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not save Check posting settings.");
+    }
+    applyCheckPostingSettings(response);
+    return true;
+  } catch (error) {
+    console.error("Could not save Check posting settings:", error);
+    showStatus(
+      "error",
+      error.message || "Could not save Check posting settings."
+    );
+    addLog("error", error.message || "Could not save Check posting settings.");
+    return false;
+  }
+}
+
 async function checkCurrentPosting() {
   if (checkPostingButton?.disabled || isCheckPostingRunning) {
     return;
@@ -2607,25 +2707,19 @@ async function checkCurrentPosting() {
     }
 
     const { ownerTabId, runId } = beginRunForTab(tabValidation.tabId);
-    addLogForTab(
-      ownerTabId,
-      "info",
-      "Check posting clicked. Opening a blank tab beside this tab..."
-    );
-
     const response = await chrome.runtime.sendMessage({
-      type: "OPEN_BLANK_TAB_BESIDE",
+      type: "CHECK_POSTING_TO_COPILOT",
       runId,
       ownerTabId
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error || "Could not open a blank tab.");
+      throw new Error(response?.error || "Could not send this posting to the selected AI chat.");
     }
   } catch (error) {
     console.error(error);
-    addLog("error", error.message || "Could not open a blank tab.");
-    showStatus("error", error.message || "Could not open a blank tab.");
+    addLog("error", error.message || "Could not send this posting to the selected AI chat.");
+    showStatus("error", error.message || "Could not send this posting to the selected AI chat.");
   } finally {
     isCheckPostingRunning = false;
     updateCheckPostingButtonDisabledState();
@@ -5133,6 +5227,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       openSplitWindowsModal();
     } else if (message.action === "open-jobright") {
       openJobrightJobs();
+    } else if (message.action === "check-posting") {
+      checkCurrentPosting();
     } else if (message.action === "download-resume") {
       downloadSaveWorkspaceResume();
     }
@@ -8751,9 +8847,15 @@ Object.entries(actionSettingsDialogs).forEach(([action, dialog]) => {
   dialog.closeButton?.addEventListener("click", () =>
     setActionSettingsModalOpen(action, false)
   );
-  dialog.doneButton?.addEventListener("click", () =>
-    setActionSettingsModalOpen(action, false)
-  );
+  dialog.doneButton?.addEventListener("click", async () => {
+    if (action === "checkPosting") {
+      const saved = await saveCheckPostingSettings();
+      if (!saved) {
+        return;
+      }
+    }
+    setActionSettingsModalOpen(action, false);
+  });
   dialog.assignButton?.addEventListener("click", openChromeShortcutSettings);
 });
 
@@ -9004,6 +9106,16 @@ saveConfigButton?.addEventListener("click", saveSheetConfig);
 aiProviderInput?.addEventListener("change", syncSaveModeUi);
 openGoogleSheetButton?.addEventListener("click", openConfiguredGoogleSheet);
 checkPostingButton?.addEventListener("click", checkCurrentPosting);
+document.querySelectorAll("[data-check-posting-url]").forEach((input) => {
+  input.addEventListener("focus", () => {
+    const provider = document.querySelector(
+      `input[name="checkPostingAiProvider"][value="${input.dataset.checkPostingUrl}"]`
+    );
+    if (provider) {
+      provider.checked = true;
+    }
+  });
+});
 
 promptResumeFormModalBackdrop?.addEventListener("click", () =>
   setPromptResumeFormModalOpen(false)

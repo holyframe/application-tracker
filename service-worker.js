@@ -5,6 +5,8 @@ const DEFAULT_SPREADSHEET_ID = "1xnKuvM0DGDYWsBtRF6Az1nNwf1OOEh36LoitK8WUBoY";
 const DEFAULT_SHEET_NAME = "Sheet1";
 const DEFAULT_RESUME_TEMPLATE_ID = "1oF1GQJ6bTEli1548HVyI91O803oQaeP8ec8Y81bj5zM";
 const DEFAULT_AI_PROVIDER_ID = "chatgpt";
+const CHECK_POSTING_COPILOT_URL =
+  "https://copilot.microsoft.com/chats/697VK9N9TzfDdzE8zPNrx";
 const AI_PROVIDERS = Object.freeze({
   chatgpt: {
     id: "chatgpt",
@@ -21,6 +23,21 @@ const AI_PROVIDERS = Object.freeze({
     promptSettleDelayMs: { min: 0, max: 0 },
     requiredMode: "Expert",
     maxConnectionAttempts: 60
+  },
+  copilot: {
+    id: "copilot",
+    label: "Copilot",
+    homeUrl: "https://copilot.microsoft.com",
+    contentScript: "content/copilot.js",
+    promptSettleDelayMs: { min: 800, max: 1200 }
+  },
+  perplexity: {
+    id: "perplexity",
+    label: "Perplexity",
+    homeUrl: "https://www.perplexity.ai",
+    contentScript: "content/perplexity.js",
+    promptSettleDelayMs: { min: 800, max: 1200 },
+    checkPostingOnly: true
   },
   // Save only: copy the resume and record the job, without navigating the tab.
   none: {
@@ -44,6 +61,8 @@ const NO_MODEL_PROGRESS_STORAGE_KEY = "noModelSaveProgressByTabId";
 // Side panel mirrors of per-tab workspace/process state. Kept until the Chrome
 // tab closes so reopening the panel still restores each tab's details.
 const TAB_SESSION_STORAGE_KEY = "tabSessionById";
+const CHECK_POSTING_JOB_STORAGE_KEY = "checkPostingJobByTabId";
+const CHECK_POSTING_CONFIG_STORAGE_KEY = "checkPostingConfig";
 const activeSaveProcessControllers = new Map();
 let activeSaveRunId = "";
 // Every run is owned by the tab it was started from, so the side panel can file
@@ -2034,18 +2053,245 @@ async function configureSidePanelBehavior() {
 
 function normalizeAiProviderId(value) {
   const providerId = String(value || "").trim().toLowerCase();
-  return Object.prototype.hasOwnProperty.call(AI_PROVIDERS, providerId)
+  const provider = AI_PROVIDERS[providerId];
+  return provider && !provider.checkPostingOnly
     ? providerId
     : DEFAULT_AI_PROVIDER_ID;
 }
 
 function getAiProviderConfig(value) {
-  return AI_PROVIDERS[normalizeAiProviderId(value)];
+  const providerId = String(value || "").trim().toLowerCase();
+  return AI_PROVIDERS[providerId] || AI_PROVIDERS[DEFAULT_AI_PROVIDER_ID];
 }
 
 function getAiProviderUrlLabel(value) {
   const provider = getAiProviderConfig(value);
   return provider.urlLabel || provider.label;
+}
+
+function isCopilotChatUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || "").trim());
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      (hostname === "copilot.microsoft.com" ||
+        hostname.endsWith(".copilot.microsoft.com")) &&
+      /^\/chats\/[A-Za-z0-9_-]+\/?$/.test(parsed.pathname)
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function isCheckPostingProviderUrl(url, providerId) {
+  const id = normalizeCheckPostingProviderId(providerId);
+  if (id === "copilot") {
+    return isCopilotChatUrl(url);
+  }
+
+  try {
+    const hostname = new URL(String(url || "").trim()).hostname.toLowerCase();
+    if (id === "perplexity") {
+      return hostname === "perplexity.ai" || hostname.endsWith(".perplexity.ai");
+    }
+    return hostname === "chat.deepseek.com";
+  } catch (_error) {
+    return false;
+  }
+}
+
+function isCheckPostingAiUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || "").trim());
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      isCopilotChatUrl(url) ||
+      hostname === "perplexity.ai" ||
+      hostname.endsWith(".perplexity.ai") ||
+      hostname === "chat.deepseek.com"
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function checkPostingAiDefaults() {
+  return {
+    copilot: CHECK_POSTING_COPILOT_URL,
+    perplexity: "https://www.perplexity.ai/",
+    deepseek: "https://chat.deepseek.com/"
+  };
+}
+
+function normalizeCheckPostingProviderId(providerId) {
+  const id = String(providerId || "").trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(checkPostingAiDefaults(), id)
+    ? id
+    : "copilot";
+}
+
+function checkPostingAiLabel(providerId) {
+  return {
+    copilot: "Copilot",
+    perplexity: "Perplexity",
+    deepseek: "DeepSeek"
+  }[normalizeCheckPostingProviderId(providerId)];
+}
+
+function normalizeCheckPostingAiUrl(providerId, url = "") {
+  const id = normalizeCheckPostingProviderId(providerId);
+  const label = checkPostingAiLabel(id);
+  const fallback = checkPostingAiDefaults()[id];
+  const value = String(url || "").trim() || fallback;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch (_error) {
+    throw new Error(`Enter a ${label} URL.`);
+  }
+
+  const normalized = parsed.href.replace(/\/+$/, "") || parsed.href;
+  if (parsed.protocol !== "https:" || !isCheckPostingAiUrl(normalized)) {
+    throw new Error(`Enter a ${label} URL.`);
+  }
+  if (id === "copilot" && !isCopilotChatUrl(normalized)) {
+    throw new Error(
+      "Enter a Copilot chat URL like https://copilot.microsoft.com/chats/..."
+    );
+  }
+  if (id === "perplexity") {
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname !== "perplexity.ai" && !hostname.endsWith(".perplexity.ai")) {
+      throw new Error("Enter a Perplexity URL like https://www.perplexity.ai/...");
+    }
+  }
+  if (id === "deepseek" && parsed.hostname.toLowerCase() !== "chat.deepseek.com") {
+    throw new Error("Enter a DeepSeek URL like https://chat.deepseek.com/...");
+  }
+
+  return normalized;
+}
+
+async function getCheckPostingConfig() {
+  const stored = await chrome.storage.local.get(CHECK_POSTING_CONFIG_STORAGE_KEY);
+  const config = stored[CHECK_POSTING_CONFIG_STORAGE_KEY] || {};
+  const storedUrls = config.urls || {};
+  const providerId = normalizeCheckPostingProviderId(config.providerId);
+  const urls = {};
+  for (const id of Object.keys(checkPostingAiDefaults())) {
+    const rawUrl = String(
+      storedUrls[id] || (id === "copilot" ? config.copilotUrl : "") || ""
+    ).trim();
+    try {
+      urls[id] = normalizeCheckPostingAiUrl(id, rawUrl);
+    } catch (_error) {
+      urls[id] = checkPostingAiDefaults()[id].replace(/\/+$/, "");
+    }
+  }
+
+  return {
+    providerId,
+    urls,
+    url: urls[providerId],
+    autoNextTab: config.autoNextTab === true
+  };
+}
+
+async function saveCheckPostingConfig(providerId, urls = {}, autoNextTab) {
+  const normalizedProviderId = normalizeCheckPostingProviderId(providerId);
+  const normalizedUrls = {};
+  for (const id of Object.keys(checkPostingAiDefaults())) {
+    normalizedUrls[id] = normalizeCheckPostingAiUrl(id, urls?.[id]);
+  }
+  const config = {
+    providerId: normalizedProviderId,
+    urls: normalizedUrls,
+    autoNextTab: autoNextTab === true
+  };
+  await chrome.storage.local.set({
+    [CHECK_POSTING_CONFIG_STORAGE_KEY]: config
+  });
+  return {
+    ...config,
+    url: normalizedUrls[normalizedProviderId]
+  };
+}
+
+function resolveJobPageFromTab(tab, remembered = null) {
+  const liveUrl = String(tab?.url || "").trim();
+  const rememberedUrl = String(remembered?.jobUrl || "").trim();
+  if (rememberedUrl && isCheckPostingAiUrl(liveUrl)) {
+    return {
+      jobUrl: rememberedUrl,
+      jobTitle:
+        String(remembered?.jobTitle || "").trim() ||
+        String(tab?.title || "").trim() ||
+        "Job page"
+    };
+  }
+
+  return {
+    jobUrl: liveUrl,
+    jobTitle: String(tab?.title || "").trim() || "Job page"
+  };
+}
+
+async function rememberCheckPostingJob(tabId, { jobUrl, jobTitle } = {}) {
+  const rememberedUrl = String(jobUrl || "").trim();
+  if (!Number.isInteger(tabId) || !rememberedUrl) {
+    return;
+  }
+
+  const stored = await chrome.storage.session.get(CHECK_POSTING_JOB_STORAGE_KEY);
+  await chrome.storage.session.set({
+    [CHECK_POSTING_JOB_STORAGE_KEY]: {
+      ...(stored[CHECK_POSTING_JOB_STORAGE_KEY] || {}),
+      [String(tabId)]: {
+        jobUrl: rememberedUrl,
+        jobTitle: String(jobTitle || "").trim()
+      }
+    }
+  });
+}
+
+async function getRememberedCheckPostingJob(tabId) {
+  if (!Number.isInteger(tabId)) {
+    return null;
+  }
+
+  const stored = await chrome.storage.session.get(CHECK_POSTING_JOB_STORAGE_KEY);
+  const entry = stored[CHECK_POSTING_JOB_STORAGE_KEY]?.[String(tabId)];
+  const jobUrl = String(entry?.jobUrl || "").trim();
+  if (!jobUrl) {
+    return null;
+  }
+
+  return {
+    jobUrl,
+    jobTitle: String(entry?.jobTitle || "").trim()
+  };
+}
+
+async function forgetCheckPostingJob(tabId) {
+  if (!Number.isInteger(tabId)) {
+    return;
+  }
+
+  const stored = await chrome.storage.session.get(CHECK_POSTING_JOB_STORAGE_KEY);
+  const byTabId = { ...(stored[CHECK_POSTING_JOB_STORAGE_KEY] || {}) };
+  if (!(String(tabId) in byTabId)) {
+    return;
+  }
+
+  delete byTabId[String(tabId)];
+  await chrome.storage.session.set({
+    [CHECK_POSTING_JOB_STORAGE_KEY]: byTabId
+  });
+}
+
+async function getJobPageForSave(tab) {
+  const remembered = await getRememberedCheckPostingJob(tab?.id);
+  return resolveJobPageFromTab(tab, remembered);
 }
 
 function isAiConversationUrl(url = "", providerId = DEFAULT_AI_PROVIDER_ID) {
@@ -2076,6 +2322,10 @@ function isAiConversationUrl(url = "", providerId = DEFAULT_AI_PROVIDER_ID) {
         hostname === "chat.deepseek.com" &&
         /^\/a\/chat\/s\/[a-z0-9_-]{8,}\/?$/i.test(pathname)
       );
+    }
+
+    if (provider.id === "copilot") {
+      return isCopilotChatUrl(url);
     }
 
     return false;
@@ -2871,7 +3121,7 @@ async function openUrlBesideCurrentTab(runId, options = {}) {
   };
 }
 
-async function openBlankTabBesideCurrentTab(runId, options = {}) {
+async function sendCheckPostingToCopilot(runId, options = {}) {
   const ownerTabId = Number.isInteger(options.ownerTabId)
     ? options.ownerTabId
     : getRunOwnerTabId(runId);
@@ -2893,10 +3143,81 @@ async function openBlankTabBesideCurrentTab(runId, options = {}) {
     throw new Error("Check posting is available on a job posting page.");
   }
 
-  return openUrlBesideCurrentTab(runId, {
-    url: "about:blank",
-    sourceTabId: ownerTabId
+  const jobUrl = String(tab.url || "").trim();
+  if (!jobUrl) {
+    throw new Error("The current tab has no URL to send.");
+  }
+
+  if (!isCheckPostingAiUrl(jobUrl)) {
+    await rememberCheckPostingJob(ownerTabId, {
+      jobUrl,
+      jobTitle: String(tab.title || "").trim()
+    });
+  }
+
+  const checkPostingConfig = await getCheckPostingConfig();
+  const provider = getAiProviderConfig(checkPostingConfig.providerId);
+  const destinationUrl = checkPostingConfig.url;
+  sendLog(runId, "info", `Opening ${provider.label} in the current tab...`);
+  await chrome.tabs.update(ownerTabId, {
+    url: destinationUrl,
+    active: true
   });
+  await waitForTabToMatchUrl(
+    ownerTabId,
+    (url) => isCheckPostingProviderUrl(url, provider.id),
+    30000,
+    provider.label
+  );
+
+  const settleRange = provider.promptSettleDelayMs || { min: 800, max: 1200 };
+  const settleMs = randomDelayMs(settleRange.min, settleRange.max);
+  if (settleMs > 0) {
+    await sleep(settleMs);
+  }
+
+  if (provider.requiredMode) {
+    await waitForAiProviderConnection(ownerTabId, runId, {
+      aiProviderId: provider.id,
+      maxAttempts: provider.maxConnectionAttempts
+    });
+    sendLog(runId, "info", `Checking ${provider.label} ${provider.requiredMode} mode...`);
+    await ensureRequiredModeInTab(ownerTabId, runId, {
+      aiProviderId: provider.id
+    });
+  }
+
+  sendLog(runId, "info", `Sending the current posting URL to ${provider.label}...`);
+  await sendFillAndSendToTab(ownerTabId, jobUrl, runId, {
+    aiProviderId: provider.id
+  });
+  sendLog(runId, "success", `Posted the current URL to ${provider.label}.`);
+
+  if (checkPostingConfig.autoNextTab) {
+    try {
+      const currentTab = await chrome.tabs.get(ownerTabId);
+      const nextTab = await activateNextTabToRight(currentTab);
+      if (nextTab) {
+        sendLog(runId, "info", "Moved focus to the next Chrome tab.");
+      } else {
+        sendLog(runId, "info", "Focus stayed here; there is no next Chrome tab.");
+      }
+    } catch (error) {
+      console.info("Could not activate the next Chrome tab:", error);
+      sendLog(
+        runId,
+        "info",
+        "The posting was sent, but the next Chrome tab could not be selected."
+      );
+    }
+  }
+
+  return {
+    jobUrl,
+    providerId: provider.id,
+    url: destinationUrl,
+    tabId: ownerTabId
+  };
 }
 
 async function openUrlInRightWindow(runId, options = {}) {
@@ -3324,6 +3645,7 @@ const APP_ACTION_COMMANDS = {
   "save-app": "save-app",
   "make-resume": "make-resume",
   "open-jobright": "open-jobright",
+  "check-posting": "check-posting",
   "download-resume": "download-resume"
 };
 
@@ -3449,6 +3771,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   sidePanelDisabledTabIds.delete(tabId);
   saveTitleStatusByTabId.delete(tabId);
   clearNoModelProgressForTab(tabId).catch(console.error);
+  forgetCheckPostingJob(tabId).catch(console.error);
 
   const ownedRunIds = [...runOwnerTabIds.entries()]
     .filter(([, ownerTabId]) => ownerTabId === tabId)
@@ -3628,6 +3951,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           ok: false,
           error: error.message || "Could not save sheet configuration."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "GET_CHECK_POSTING_CONFIG") {
+    getCheckPostingConfig()
+      .then((config) => sendResponse({ ok: true, ...config }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not load Check posting settings."
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_CHECK_POSTING_CONFIG") {
+    saveCheckPostingConfig(message.providerId, message.urls, message.autoNextTab)
+      .then((config) => sendResponse({ ok: true, ...config }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error.message || "Could not save Check posting settings."
         });
       });
     return true;
@@ -3817,7 +4164,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
-    OPEN_BLANK_TAB_BESIDE: openBlankTabBesideCurrentTab,
+    CHECK_POSTING_TO_COPILOT: sendCheckPostingToCopilot,
     DELETE_APPLICATION_RECORD: deleteApplicationRecord,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     READ_GOOGLE_DOC_TEXT: readGoogleDocText,
@@ -3861,7 +4208,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ? run(message.runId, {
             documentUrl: message.documentUrl
           })
-        : message.type === "OPEN_BLANK_TAB_BESIDE"
+        : message.type === "CHECK_POSTING_TO_COPILOT"
           ? run(message.runId, {
               ownerTabId: message.ownerTabId
             })
@@ -3953,8 +4300,9 @@ async function clearNoModelProgressForTab(tabId) {
 }
 
 async function runNoModelSave(tab, validation, runId, ownerTabId) {
-  const jobUrl = tab.url;
-  const jobTitle = tab.title || "Job page";
+  const jobPage = await getJobPageForSave(tab);
+  const jobUrl = jobPage.jobUrl;
+  const jobTitle = jobPage.jobTitle;
   const urlForSheet = normalizeUrlForStorage(jobUrl);
   const profiles = validation.selectedProfiles;
   const report = {
@@ -4204,11 +4552,18 @@ async function runSaveCurrentTabUrlToSheet(runId, options = {}) {
 
     // Snapshot before any profile tab is navigated to the selected AI provider — the live tab
     // URL changes mid-batch and must not rewrite later workspaces' job pages.
-    const jobUrl = tab.url;
-    const jobTitle = tab.title || "Job page";
+    const jobPage = await getJobPageForSave(tab);
+    const jobUrl = jobPage.jobUrl;
+    const jobTitle = jobPage.jobTitle;
     const urlForSheet = normalizeUrlForStorage(jobUrl);
 
-    sendLog(runId, "success", `Found tab URL: ${jobUrl}`);
+    sendLog(
+      runId,
+      "success",
+      isCheckPostingAiUrl(tab.url)
+        ? `Using the original posting URL: ${jobUrl}`
+        : `Found tab URL: ${jobUrl}`
+    );
 
     const resumeTemplateIds = new Map(
       selectedProfiles.map((profile) => [

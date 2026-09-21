@@ -639,6 +639,92 @@ h1 {
   margin-top: 8px;
 }
 
+.home-sheet-action-group {
+  grid-template-columns: minmax(0, 1fr) 30px;
+  width: 100%;
+  height: var(--button-height);
+  border-color: rgba(84, 87, 255, 0.24);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.home-sheet-action-group:hover,
+.home-sheet-action-group:focus-within {
+  border-color: rgba(84, 87, 255, 0.42);
+}
+
+.home-sheet-action-group .check-posting-button {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 999px 0 0 999px;
+  padding: 0 10px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.home-sheet-action-group .check-posting-button:hover,
+.home-sheet-action-group .check-posting-button:active {
+  transform: none;
+  background: rgba(84, 87, 255, 0.08);
+  border-color: transparent;
+}
+
+.home-sheet-action-group .action-settings-button {
+  color: var(--primary);
+  border-left-color: rgba(84, 87, 255, 0.24);
+}
+
+.home-sheet-action-group .action-settings-button:hover:not(:disabled),
+.home-sheet-action-group .action-settings-button:active:not(:disabled) {
+  background: rgba(84, 87, 255, 0.08);
+}
+
+.check-posting-ai-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.check-posting-ai-list .config-label {
+  padding: 0;
+}
+
+.check-posting-ai-option {
+  display: grid;
+  gap: 4px;
+}
+
+.check-posting-ai-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: #323867;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.check-posting-ai-choice input {
+  margin: 0;
+  accent-color: #5457ff;
+}
+
+.check-posting-auto-next-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: #323867;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  cursor: pointer;
+}
+
 .check-posting-button,
 .global-open-google-sheet-button {
   width: 100%;

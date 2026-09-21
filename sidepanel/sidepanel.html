@@ -228,20 +228,44 @@
         </div>
 
         <div class="home-sheet-actions">
-          <button
-            id="checkPostingButton"
-            type="button"
-            class="secondary-button check-posting-button"
-            title="Open a blank tab beside this posting"
+          <div
+            class="action-control-group home-sheet-action-group"
+            role="group"
+            aria-label="Check posting"
           >
-            <span class="button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
+            <button
+              id="checkPostingButton"
+              type="button"
+              class="secondary-button check-posting-button"
+              title="Send this posting URL to the selected AI chat"
+            >
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+              </span>
+              <span>Check posting</span>
+            </button>
+            <button
+              id="checkPostingOptionsButton"
+              type="button"
+              class="action-settings-button"
+              aria-label="Check posting settings"
+              title="Check posting settings"
+              aria-controls="checkPostingActionSettingsModal"
+              aria-haspopup="dialog"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h9" />
+                <circle cx="16" cy="7" r="2" />
+                <path d="M18 7h2" />
+                <path d="M4 17h2" />
+                <circle cx="9" cy="17" r="2" />
+                <path d="M11 17h9" />
               </svg>
-            </span>
-            <span>Check posting</span>
-          </button>
+            </button>
+          </div>
           <button
             id="openGoogleSheetButton"
             type="button"
@@ -461,6 +485,117 @@
         </div>
         <div class="modal-actions">
           <button id="openActionSettingsDoneButton" type="button" class="primary-button modal-action-button">
+            <span>Done</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="checkPostingActionSettingsModal"
+      class="modal action-settings-modal is-hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="checkPostingActionSettingsModalTitle"
+      aria-hidden="true"
+    >
+      <button
+        id="checkPostingActionSettingsModalBackdrop"
+        type="button"
+        class="modal-backdrop"
+        aria-label="Close Check posting settings"
+      ></button>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="checkPostingActionSettingsModalTitle">Check posting settings</h2>
+          <button id="checkPostingActionSettingsModalCloseButton" type="button" class="modal-close-button" aria-label="Close">&times;</button>
+        </div>
+        <p class="modal-help">Choose Copilot, Perplexity, or DeepSeek, edit that chat URL, and choose whether to move to the next tab after sending.</p>
+        <div class="modal-form action-settings-form">
+          <fieldset class="check-posting-ai-list">
+            <legend class="config-label">AI chat</legend>
+            <div class="check-posting-ai-option">
+              <label class="check-posting-ai-choice" for="checkPostingProvider-copilot">
+                <input
+                  id="checkPostingProvider-copilot"
+                  type="radio"
+                  name="checkPostingAiProvider"
+                  value="copilot"
+                  checked
+                />
+                <span>Copilot</span>
+              </label>
+              <input
+                id="checkPostingUrl-copilot"
+                class="config-input"
+                data-check-posting-url="copilot"
+                type="url"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="https://copilot.microsoft.com/chats/..."
+              />
+            </div>
+            <div class="check-posting-ai-option">
+              <label class="check-posting-ai-choice" for="checkPostingProvider-perplexity">
+                <input
+                  id="checkPostingProvider-perplexity"
+                  type="radio"
+                  name="checkPostingAiProvider"
+                  value="perplexity"
+                />
+                <span>Perplexity</span>
+              </label>
+              <input
+                id="checkPostingUrl-perplexity"
+                class="config-input"
+                data-check-posting-url="perplexity"
+                type="url"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="https://www.perplexity.ai/..."
+              />
+            </div>
+            <div class="check-posting-ai-option">
+              <label class="check-posting-ai-choice" for="checkPostingProvider-deepseek">
+                <input
+                  id="checkPostingProvider-deepseek"
+                  type="radio"
+                  name="checkPostingAiProvider"
+                  value="deepseek"
+                />
+                <span>DeepSeek</span>
+              </label>
+              <input
+                id="checkPostingUrl-deepseek"
+                class="config-input"
+                data-check-posting-url="deepseek"
+                type="url"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="https://chat.deepseek.com/..."
+              />
+            </div>
+          </fieldset>
+          <label class="check-posting-auto-next-option" for="checkPostingAutoNextTabInput">
+            <input
+              id="checkPostingAutoNextTabInput"
+              type="checkbox"
+              class="app-data-transfer-checkbox"
+            />
+            <span>Automatic next tab</span>
+          </label>
+          <div class="action-setting-block">
+            <label class="config-label">Assigned hotkey</label>
+            <div class="action-hotkey-row">
+              <output id="checkPostingHotkeyValue" class="action-hotkey-value">Not assigned</output>
+              <button id="checkPostingAssignHotkeyButton" type="button" class="secondary-button">
+                <span>Assign hotkey</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="checkPostingActionSettingsDoneButton" type="button" class="primary-button modal-action-button">
             <span>Done</span>
           </button>
         </div>

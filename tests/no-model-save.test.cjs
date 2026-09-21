@@ -13,7 +13,15 @@ function load(source, names, context) {
     vm.runInContext(match[0], context);
   }
 }
-function fixture({ mode = "none", failCopy = -1, failSheet = -1, cancelCopy = -1 } = {}) {
+function fixture({
+  mode = "none",
+  failCopy = -1,
+  failSheet = -1,
+  cancelCopy = -1,
+  tabUrl = "https://jobs.example/42?utm_source=test&id=42",
+  tabTitle = "Engineer",
+  rememberedJob = null
+} = {}) {
   const profiles = ["Frontend", "Backend", "Data"].map((name, index) => ({
     id: String(index), name, resumeTemplateId: "template" + index,
     selectedPromptResumeId: "", promptResumes: []
@@ -25,6 +33,7 @@ function fixture({ mode = "none", failCopy = -1, failSheet = -1, cancelCopy = -1
   const ctx = vm.createContext({
     console, Date, URL, URLSearchParams, Map, Set, AbortController,
     NO_MODEL_PROGRESS_STORAGE_KEY: "progress",
+    CHECK_POSTING_JOB_STORAGE_KEY: "checkPostingJobByTabId",
     TRACKING_PARAM_KEYS: new Set(["ref"]),
     getPromptSelectionState: async () => ({ content: "" }),
     getJobDescriptionSelectionState: async () => ({ content: "" }),
@@ -68,7 +77,7 @@ function fixture({ mode = "none", failCopy = -1, failSheet = -1, cancelCopy = -1
     notifyExtensionPages: () => assert.fail("No Model must not activate an Application workspace"),
     createSaveProfileTargetTabIds: () => assert.fail("No Model must not create profile tabs"),
     chrome: {
-      tabs: { get: async () => ({ id: 7, title: "Engineer", url: "https://jobs.example/42?utm_source=test&id=42" }) },
+      tabs: { get: async () => ({ id: 7, title: tabTitle, url: tabUrl }) },
       storage: { session: {
         get: async () => structuredClone(storage),
         set: async (values) => {
@@ -78,8 +87,12 @@ function fixture({ mode = "none", failCopy = -1, failSheet = -1, cancelCopy = -1
       } }
     }
   });
+  if (rememberedJob) {
+    storage.checkPostingJobByTabId = { "7": rememberedJob };
+  }
   load(worker, ["getAutoSelectedPromptResumeId", "getSelectedProfilesFromState", "formatSaveValidationError", "validateApplicationInputsForSave",
     "normalizeUrlForStorage", "buildApplicationSheetRow", "persistNoModelProgress", "clearNoModelProgressForTab",
+    "isCopilotChatUrl", "isCheckPostingAiUrl", "resolveJobPageFromTab", "getRememberedCheckPostingJob", "getJobPageForSave",
     "runNoModelSave", "runSaveCurrentTabUrlToSheet"], ctx);
   return { ctx, profiles, storage, rows, copies, snapshots, cleanup,
     run: (aiProviderId = "", selectedProfileIds = null) => ctx.runSaveCurrentTabUrlToSheet(
@@ -157,6 +170,23 @@ test("No Model saves every selected profile, labels column D, and never switches
   assert.equal(copies[1].title, "Engineer - Backend");
   assert.ok(snapshots.some((report) => report.profiles[0].stage === "sheet"));
   assert.ok(snapshots.some((report) => report.profiles[0].status === "saved" && report.profiles[1].status === "queued"));
+});
+test("Save App writes the original job URL after Check posting opens Copilot", async () => {
+  const { run, rows } = fixture({
+    tabUrl: "https://copilot.microsoft.com/chats/697VK9N9TzfDdzE8zPNrx",
+    tabTitle: "Microsoft Copilot",
+    rememberedJob: {
+      jobUrl: "https://jobs.example/42?utm_source=test&id=42",
+      jobTitle: "Engineer"
+    }
+  });
+  await run();
+  assert.equal(rows.length, 3);
+  rows.forEach(({ values }) => {
+    const row = values[0];
+    assert.equal(row[1], "Engineer");
+    assert.equal(row[4], "https://jobs.example/42?id=42");
+  });
 });
 test("Google Sheet links target the exact saved profile tab", () => {
   const ctx = vm.createContext({});

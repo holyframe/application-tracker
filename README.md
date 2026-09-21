@@ -55,8 +55,10 @@ focused Chrome window. Confirming Delete removes only the matching Google Sheet
 row and keeps the copied resume document.
 The main action card also has an `Open Google Sheet` button outside the profile
 list. It opens the currently configured workbook in a new, focused Chrome window.
-`Check posting` opens a blank tab beside the current job tab so both stay
-visible.
+`Check posting` opens the selected AI chat in the current job tab and sends
+that job URL into the chat. Copilot uses Search mode. Settings stores an
+editable URL for Copilot, Perplexity, and DeepSeek, and which one is selected.
+Save App still writes the original job URL to the Google Sheet.
 If a run stops partway through, completed records and resume copies remain;
 check the sheet before retrying to avoid duplicates.
 
@@ -140,9 +142,11 @@ columns C-F shift to D-G.
 
 ## Other actions
 
-- **Check posting** on the Home workspace opens a blank tab beside the current
-  job tab so both stay visible. Chrome Split View is used when available;
-  otherwise the blank tab opens in a right-side window. It is available on job
+- **Check posting** on the Home workspace opens the selected AI chat in the
+  current job tab and sends that job URL into the chat. Copilot switches to
+  Search mode first. Settings lets you choose Copilot, Perplexity, or DeepSeek,
+  edit each chat URL, and turn automatic next tab on or off. Save App still
+  records the original job URL in the Google Sheet. It is available on job
   posting pages, not Jobright Recommendations or Google Sheets.
 - **Open** in the Home workspace offers counts 1–5, 10, 25, 50, 100, and 150 on
   Jobright's `/jobs/recommend` page. For each eligible recommendation it opens the
@@ -197,7 +201,7 @@ columns C-F shift to D-G.
 ## Keyboard shortcuts
 
 - `Ctrl+Q`: Save App (default Chrome command shortcut)
-- Make Resume, Open, and Download Resume are available as unassigned Chrome commands.
+- Make Resume, Open, Check posting, and Download Resume are available as unassigned Chrome commands.
 - Each action settings modal shows its current shortcut and links to Chrome's
   Extensions Shortcuts page for assignment.
 - `Ctrl+A`: Pick up the Application Workspace resume URL in a right-side
