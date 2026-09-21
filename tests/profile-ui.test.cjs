@@ -301,8 +301,11 @@ test("No Model allows selecting a profile without prompt resumes and persists it
 
 test("global Open Google Sheet sits outside Profiles and opens the configured workbook in a new window", async () => {
   const buttonIndex = html.indexOf('id="openGoogleSheetButton"');
+  const checkPostingIndex = html.indexOf('id="checkPostingButton"');
   const profilesIndex = html.indexOf('<section class="card profile-picker-card">');
   assert.ok(buttonIndex > 0 && buttonIndex < profilesIndex);
+  assert.ok(checkPostingIndex > 0 && checkPostingIndex < profilesIndex);
+  assert.ok(checkPostingIndex < buttonIndex);
 
   const { ctx, openedWindows } = fixture();
   await ctx.openConfiguredGoogleSheet();

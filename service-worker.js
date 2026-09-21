@@ -345,6 +345,20 @@ function isJobrightUrl(url = "") {
   }
 }
 
+function isJobrightRecommendationsUrl(url = "") {
+  try {
+    const parsed = new URL(String(url || ""));
+    return (
+      parsed.protocol === "https:" &&
+      (parsed.hostname === "jobright.ai" ||
+        parsed.hostname.endsWith(".jobright.ai")) &&
+      parsed.pathname.replace(/\/+$/, "") === "/jobs/recommend"
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
 function isPinnedTabSupportedUrl(url = "") {
   return isGoogleSheetsDocumentUrl(url) || isJobrightUrl(url);
 }
@@ -3539,6 +3553,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
+    CHECK_POSTING_IN_SHEET: checkPostingInSheet,
     DELETE_APPLICATION_RECORD: deleteApplicationRecord,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     READ_GOOGLE_DOC_TEXT: readGoogleDocText,
@@ -3582,6 +3597,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ? run(message.runId, {
             documentUrl: message.documentUrl
           })
+        : message.type === "CHECK_POSTING_IN_SHEET"
+          ? run(message.runId, {
+              ownerTabId: message.ownerTabId
+            })
         : message.type === "DELETE_APPLICATION_RECORD"
           ? run(message.runId, {
               profileName: message.profileName,
@@ -4585,6 +4604,173 @@ async function removeDuplicateUrlsFromSheet(runId) {
     removed: duplicateRowIndices.length,
     rowCount: dataRowCount,
     deletedRows
+  };
+}
+
+function collectPostingSheetNames(profileState, defaultSheetName = "") {
+  const names = [];
+  const seen = new Set();
+  const add = (name) => {
+    const trimmed = String(name || "").trim();
+    if (!trimmed) {
+      return;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    names.push(trimmed);
+  };
+
+  const profiles = Array.isArray(profileState?.profiles)
+    ? profileState.profiles
+    : [];
+  profiles.forEach((profile) => add(profile?.name));
+  add(defaultSheetName);
+  return names;
+}
+
+function collectPostingMatchesFromSheetValues(
+  values,
+  { jobUrl = "", profileName = "", sheetUrl = "" } = {}
+) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return [];
+  }
+
+  const firstDataRowIndex = hasApplicationSheetHeaders(values[0]) ? 1 : 0;
+  const matches = [];
+
+  for (let index = firstDataRowIndex; index < values.length; index += 1) {
+    const row = values[index] || [];
+    if (!applicationSheetRowMatchesRecord(row, { jobUrl })) {
+      continue;
+    }
+
+    matches.push({
+      rowNumber: index + 1,
+      timestamp: String(row[0] || ""),
+      title: String(row[1] || ""),
+      profileName: String(row[2] || profileName || ""),
+      chatGptUrl: String(row[3] || ""),
+      jobUrl: String(row[4] || ""),
+      resumeUrl: String(row[5] || ""),
+      sheetUrl: String(sheetUrl || "")
+    });
+  }
+
+  return matches;
+}
+
+async function listSpreadsheetSheets(token, spreadsheetId) {
+  const fields = encodeURIComponent("sheets(properties(sheetId,title))");
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=${fields}`;
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Sheets API error: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return (data.sheets || [])
+    .map((sheet) => ({
+      title: String(sheet?.properties?.title || "").trim(),
+      sheetId: sheet?.properties?.sheetId
+    }))
+    .filter((sheet) => sheet.title);
+}
+
+async function checkPostingInSheet(runId, options = {}) {
+  const ownerTabId = Number.isInteger(options.ownerTabId)
+    ? options.ownerTabId
+    : getRunOwnerTabId(runId);
+
+  if (!Number.isInteger(ownerTabId)) {
+    throw new Error("Could not identify the tab that started Check posting.");
+  }
+
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(ownerTabId);
+  } catch (_error) {
+    throw new Error("The tab that started Check posting is no longer open.");
+  }
+
+  assertActiveJobTabUsable(tab, { allowGrouped: true });
+
+  if (isGoogleSheetsDocumentUrl(tab.url) || isJobrightRecommendationsUrl(tab.url)) {
+    throw new Error("Check posting is available on a job posting page.");
+  }
+
+  const jobUrl = String(tab.url || "").trim();
+  const jobTitle = String(tab.title || "").trim();
+  const urlForSheet = normalizeUrlForStorage(jobUrl);
+  sendLog(runId, "info", `Checking posting data for ${urlForSheet || jobUrl}...`);
+
+  const token = await getGoogleAccessToken();
+  sendLog(runId, "success", "Google authorization token received.");
+
+  const sheetConfig = await getSheetConfig();
+  const profileState = await getProfileSelectionState();
+  const wantedNames = collectPostingSheetNames(profileState, sheetConfig.sheetName);
+  const sheets = await listSpreadsheetSheets(token, sheetConfig.spreadsheetId);
+  const sheetsByTitle = new Map(
+    sheets.map((sheet) => [sheet.title.toLowerCase(), sheet])
+  );
+
+  const matches = [];
+  let searchedSheetCount = 0;
+
+  for (const profileName of wantedNames) {
+    const sheet = sheetsByTitle.get(profileName.toLowerCase());
+    if (!sheet) {
+      continue;
+    }
+
+    searchedSheetCount += 1;
+    const values = await readSheetValues(token, runId, {
+      ...sheetConfig,
+      sheetName: sheet.title
+    });
+    matches.push(
+      ...collectPostingMatchesFromSheetValues(values, {
+        jobUrl: urlForSheet || jobUrl,
+        profileName: sheet.title,
+        sheetUrl: buildGoogleSheetTabUrl(sheetConfig.spreadsheetId, sheet.sheetId)
+      })
+    );
+  }
+
+  if (matches.length === 0) {
+    sendLog(
+      runId,
+      "success",
+      searchedSheetCount === 0
+        ? "No profile sheet tabs were found to search."
+        : "No saved application found for this posting."
+    );
+  } else {
+    sendLog(
+      runId,
+      "success",
+      `Found ${matches.length} saved application${
+        matches.length === 1 ? "" : "s"
+      } for this posting.`
+    );
+  }
+
+  return {
+    jobUrl: urlForSheet || jobUrl,
+    jobTitle,
+    searchedSheetCount,
+    matchCount: matches.length,
+    matches
   };
 }
 

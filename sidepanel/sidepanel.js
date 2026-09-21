@@ -4,6 +4,19 @@ const saveOptionsButton = document.querySelector("#saveOptionsButton");
 const openSplitWindowsButton = document.querySelector("#openSplitWindowsButton");
 const makeResumeOptionsButton = document.querySelector("#makeResumeOptionsButton");
 const openGoogleSheetButton = document.querySelector("#openGoogleSheetButton");
+const checkPostingButton = document.querySelector("#checkPostingButton");
+const checkPostingModal = document.querySelector("#checkPostingModal");
+const checkPostingModalBackdrop = document.querySelector("#checkPostingModalBackdrop");
+const checkPostingModalCloseButton = document.querySelector(
+  "#checkPostingModalCloseButton"
+);
+const checkPostingModalDoneButton = document.querySelector(
+  "#checkPostingModalDoneButton"
+);
+const checkPostingModalHelp = document.querySelector("#checkPostingModalHelp");
+const checkPostingSummary = document.querySelector("#checkPostingSummary");
+const checkPostingList = document.querySelector("#checkPostingList");
+const emptyCheckPosting = document.querySelector("#emptyCheckPosting");
 const jobrightOpenCountInput = document.querySelector("#jobrightOpenCountInput");
 const openJobrightJobsButton = document.querySelector("#openJobrightJobsButton");
 const openJobrightOptionsButton = document.querySelector("#openJobrightOptionsButton");
@@ -372,6 +385,7 @@ let isCurrentTabJobright = false;
 let makeResumeAvailabilityRequestId = 0;
 let isMakeResumeOpening = false;
 let isJobrightOpening = false;
+let isCheckPostingRunning = false;
 let isSaveActionRunning = false;
 let isBuildResumeContextModalOpen = false;
 let logEntries = [];
@@ -926,6 +940,12 @@ function getManagedModals() {
       element: jobDescriptionFormModal,
       setOpen: setJobDescriptionFormModalOpen,
       fields: [jobDescriptionContentInput]
+    },
+    {
+      id: "checkPosting",
+      element: checkPostingModal,
+      setOpen: (isOpen) => setCheckPostingModalOpen(isOpen, { returnFocus: false }),
+      fields: []
     },
     {
       id: "deleteApplication",
@@ -2304,6 +2324,30 @@ function updateMakeResumeButtonDisabledState() {
     : "Make a resume is available only when the current tab is a Google Sheet.";
 }
 
+function updateCheckPostingButtonDisabledState() {
+  if (!checkPostingButton) {
+    return;
+  }
+
+  const isDisabled =
+    areActionButtonsDisabled ||
+    isCheckPostingRunning ||
+    isCurrentTabGoogleSheet ||
+    isCurrentTabJobright;
+  checkPostingButton.disabled = isDisabled;
+  checkPostingButton.setAttribute("aria-disabled", String(isDisabled));
+
+  if (isCurrentTabGoogleSheet) {
+    checkPostingButton.title =
+      "Check posting is available on a job posting page.";
+  } else if (isCurrentTabJobright) {
+    checkPostingButton.title =
+      "Check posting is available on a job posting page.";
+  } else {
+    checkPostingButton.title = "Look up this job posting in the Google Sheet";
+  }
+}
+
 function updateJobrightOpenControlsDisabledState() {
   const isDisabled =
     areActionButtonsDisabled || isJobrightOpening || !isCurrentTabJobright;
@@ -2349,6 +2393,7 @@ async function refreshMakeResumeButtonAvailability() {
 
   updateMakeResumeButtonDisabledState();
   updateJobrightOpenControlsDisabledState();
+  updateCheckPostingButtonDisabledState();
   updateSaveButtonDisabledState();
 }
 
@@ -2358,6 +2403,7 @@ function setSaveButtonsDisabled(disabled) {
   updateSaveButtonDisabledState();
   updateMakeResumeButtonDisabledState();
   updateJobrightOpenControlsDisabledState();
+  updateCheckPostingButtonDisabledState();
   updateSaveWorkspaceActions();
   renderSavePostProcessControls();
   if (splitWindowsModalOpenButton) splitWindowsModalOpenButton.disabled = disabled;
@@ -2558,6 +2604,189 @@ async function openConfiguredGoogleSheet() {
   } catch (error) {
     console.error("Could not open the configured Google Sheet:", error);
     addLog("error", error.message || "Could not open the configured Google Sheet.");
+  }
+}
+
+function setCheckPostingModalOpen(isOpen, options = {}) {
+  if (!checkPostingModal) {
+    return;
+  }
+
+  const shouldOpen = Boolean(isOpen);
+  checkPostingModal.classList.toggle("is-hidden", !shouldOpen);
+  checkPostingModal.setAttribute("aria-hidden", String(!shouldOpen));
+
+  if (shouldOpen) {
+    checkPostingModalDoneButton?.focus();
+    return;
+  }
+
+  if (options.returnFocus !== false) {
+    checkPostingButton?.focus();
+  }
+}
+
+function renderCheckPostingResult(result = {}) {
+  const jobTitle = String(result.jobTitle || "").trim();
+  const jobUrl = String(result.jobUrl || "").trim();
+  const matches = Array.isArray(result.matches) ? result.matches : [];
+
+  if (checkPostingModalHelp) {
+    checkPostingModalHelp.textContent = matches.length
+      ? `Found ${matches.length} saved application${
+          matches.length === 1 ? "" : "s"
+        } for this posting.`
+      : result.searchedSheetCount === 0
+        ? "No profile sheet tabs were found to search."
+        : "No saved application found for this posting.";
+  }
+
+  if (checkPostingSummary) {
+    checkPostingSummary.replaceChildren();
+    if (jobTitle) {
+      const title = document.createElement("strong");
+      title.textContent = jobTitle;
+      checkPostingSummary.append(title);
+    }
+    if (jobUrl) {
+      const url = document.createElement("span");
+      url.textContent = jobUrl;
+      checkPostingSummary.append(url);
+    }
+  }
+
+  if (checkPostingList) {
+    checkPostingList.replaceChildren();
+    matches.forEach((match) => {
+      const item = document.createElement("li");
+      item.className = "check-posting-item";
+
+      const header = document.createElement("div");
+      header.className = "check-posting-item-header";
+      const profile = document.createElement("span");
+      profile.className = "check-posting-profile";
+      profile.textContent = match.profileName || "Profile";
+      header.append(profile);
+      if (match.timestamp) {
+        const timestamp = document.createElement("span");
+        timestamp.className = "check-posting-timestamp";
+        timestamp.textContent = match.timestamp;
+        header.append(timestamp);
+      }
+      item.append(header);
+
+      if (match.title) {
+        const title = document.createElement("span");
+        title.className = "check-posting-title";
+        title.textContent = match.title;
+        item.append(title);
+      }
+
+      if (match.jobUrl) {
+        const url = document.createElement("span");
+        url.className = "check-posting-url";
+        url.textContent = match.jobUrl;
+        item.append(url);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "check-posting-item-actions";
+      if (match.sheetUrl) {
+        const sheetButton = document.createElement("button");
+        sheetButton.type = "button";
+        sheetButton.className = "secondary-button";
+        sheetButton.textContent = "Open Sheet";
+        sheetButton.addEventListener("click", () => {
+          openCheckedPostingUrl(match.sheetUrl, "Google Sheet");
+        });
+        actions.append(sheetButton);
+      }
+      if (match.resumeUrl) {
+        const resumeButton = document.createElement("button");
+        resumeButton.type = "button";
+        resumeButton.className = "secondary-button";
+        resumeButton.textContent = "Open resume";
+        resumeButton.addEventListener("click", () => {
+          openCheckedPostingUrl(match.resumeUrl, "resume");
+        });
+        actions.append(resumeButton);
+      }
+      if (actions.children.length > 0) {
+        item.append(actions);
+      }
+
+      checkPostingList.append(item);
+    });
+  }
+
+  if (emptyCheckPosting) {
+    const strong = emptyCheckPosting.querySelector("strong");
+    const help = emptyCheckPosting.querySelector("p");
+    if (result.searchedSheetCount === 0) {
+      if (strong) strong.textContent = "No profile sheet tabs found.";
+      if (help) {
+        help.textContent = "Save an application first to create a profile tab.";
+      }
+    } else {
+      if (strong) strong.textContent = "No saved application found.";
+      if (help) help.textContent = "This posting is not in the Google Sheet yet.";
+    }
+    emptyCheckPosting.classList.toggle("is-hidden", matches.length > 0);
+  }
+}
+
+async function openCheckedPostingUrl(url, label) {
+  try {
+    await chrome.windows.create({
+      url: String(url || "").trim(),
+      type: "normal",
+      focused: true
+    });
+  } catch (error) {
+    console.error(`Could not open the ${label}:`, error);
+    addLog("error", error.message || `Could not open the ${label}.`);
+  }
+}
+
+async function checkCurrentPosting() {
+  if (checkPostingButton?.disabled || isCheckPostingRunning) {
+    return;
+  }
+
+  const requestedOwnerTabId = activeTabId;
+  isCheckPostingRunning = true;
+  updateCheckPostingButtonDisabledState();
+
+  try {
+    const tabValidation = await validateActiveBrowserTabForAppAction(
+      requestedOwnerTabId
+    );
+    if (!tabValidation.ok) {
+      throw new Error(tabValidation.error);
+    }
+
+    const { ownerTabId, runId } = beginRunForTab(tabValidation.tabId);
+    addLogForTab(ownerTabId, "info", "Check posting clicked. Looking up this job URL...");
+
+    const response = await chrome.runtime.sendMessage({
+      type: "CHECK_POSTING_IN_SHEET",
+      runId,
+      ownerTabId
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not check posting data.");
+    }
+
+    renderCheckPostingResult(response);
+    setCheckPostingModalOpen(true);
+  } catch (error) {
+    console.error(error);
+    addLog("error", error.message || "Could not check posting data.");
+    showStatus("error", error.message || "Could not check posting data.");
+  } finally {
+    isCheckPostingRunning = false;
+    updateCheckPostingButtonDisabledState();
   }
 }
 
@@ -8932,6 +9161,16 @@ configModalCancelButton?.addEventListener("click", () => setConfigModalOpen(fals
 saveConfigButton?.addEventListener("click", saveSheetConfig);
 aiProviderInput?.addEventListener("change", syncSaveModeUi);
 openGoogleSheetButton?.addEventListener("click", openConfiguredGoogleSheet);
+checkPostingButton?.addEventListener("click", checkCurrentPosting);
+checkPostingModalBackdrop?.addEventListener("click", () =>
+  setCheckPostingModalOpen(false)
+);
+checkPostingModalCloseButton?.addEventListener("click", () =>
+  setCheckPostingModalOpen(false)
+);
+checkPostingModalDoneButton?.addEventListener("click", () =>
+  setCheckPostingModalOpen(false)
+);
 
 promptResumeFormModalBackdrop?.addEventListener("click", () =>
   setPromptResumeFormModalOpen(false)
@@ -9045,6 +9284,11 @@ document.addEventListener("keydown", (event) => {
 
   if (jobDescriptionFormModal && !jobDescriptionFormModal.classList.contains("is-hidden")) {
     setJobDescriptionFormModalOpen(false);
+    return;
+  }
+
+  if (checkPostingModal && !checkPostingModal.classList.contains("is-hidden")) {
+    setCheckPostingModalOpen(false);
     return;
   }
 
