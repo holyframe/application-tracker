@@ -55,8 +55,8 @@ focused Chrome window. Confirming Delete removes only the matching Google Sheet
 row and keeps the copied resume document.
 The main action card also has an `Open Google Sheet` button outside the profile
 list. It opens the currently configured workbook in a new, focused Chrome window.
-`Check posting` looks up the current job URL across every profile sheet tab and
-shows matching saved applications without changing the sheet.
+`Check posting` opens a blank tab beside the current job tab so both stay
+visible.
 If a run stops partway through, completed records and resume copies remain;
 check the sheet before retrying to avoid duplicates.
 
@@ -140,9 +140,9 @@ columns C-F shift to D-G.
 
 ## Other actions
 
-- **Check posting** on the Home workspace looks up the current job URL in every
-  profile sheet tab and shows matching saved applications, including the profile,
-  timestamp, and links to that sheet tab or copied resume. It is available on job
+- **Check posting** on the Home workspace opens a blank tab beside the current
+  job tab so both stay visible. Chrome Split View is used when available;
+  otherwise the blank tab opens in a right-side window. It is available on job
   posting pages, not Jobright Recommendations or Google Sheets.
 - **Open** in the Home workspace offers counts 1–5, 10, 25, 50, 100, and 150 on
   Jobright's `/jobs/recommend` page. For each eligible recommendation it opens the

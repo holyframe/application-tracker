@@ -232,7 +232,7 @@
             id="checkPostingButton"
             type="button"
             class="secondary-button check-posting-button"
-            title="Look up this job posting in the Google Sheet"
+            title="Open a blank tab beside this posting"
           >
             <span class="button-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
@@ -1640,67 +1640,6 @@
             class="primary-button modal-action-button"
           >
             <span>Export</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div
-      id="checkPostingModal"
-      class="modal check-posting-modal is-hidden"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="checkPostingModalTitle"
-      aria-hidden="true"
-    >
-      <button
-        id="checkPostingModalBackdrop"
-        type="button"
-        class="modal-backdrop"
-        aria-label="Close posting check"
-      ></button>
-
-      <div class="modal-panel">
-        <div class="modal-header">
-          <h2 id="checkPostingModalTitle">Posting check</h2>
-          <button
-            id="checkPostingModalCloseButton"
-            type="button"
-            class="modal-close-button"
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-
-        <p id="checkPostingModalHelp" class="modal-help">
-          Matching Google Sheet rows for the current job posting.
-        </p>
-
-        <div id="checkPostingSummary" class="check-posting-summary"></div>
-
-        <div class="check-posting-shell">
-          <div id="emptyCheckPosting" class="empty-logs">
-            <span class="empty-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
-              </svg>
-            </span>
-            <strong>No saved application found.</strong>
-            <p>This posting is not in the Google Sheet yet.</p>
-          </div>
-
-          <ul id="checkPostingList" class="check-posting-list"></ul>
-        </div>
-
-        <div class="modal-actions">
-          <button
-            id="checkPostingModalDoneButton"
-            type="button"
-            class="primary-button modal-action-button"
-          >
-            <span>Done</span>
           </button>
         </div>
       </div>

@@ -163,6 +163,62 @@ function buildGoogleSheetTabUrl(spreadsheetIdInput, sheetId) {
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#gid=${sheetId}`;
 }
 
+function isBlankTabUrl(value) {
+  const raw = String(value || "").trim();
+  return !raw || raw === "about:blank";
+}
+
+function isKnownSplitViewId(splitViewId) {
+  if (!Number.isInteger(splitViewId)) {
+    return false;
+  }
+  const noneId =
+    typeof chrome !== "undefined" &&
+    Number.isInteger(chrome.tabs?.SPLIT_VIEW_ID_NONE)
+      ? chrome.tabs.SPLIT_VIEW_ID_NONE
+      : -1;
+  return splitViewId !== noneId;
+}
+
+function buildSplitTabCreateOptions(url, sourceTab) {
+  const options = {
+    url: String(url || "").trim(),
+    active: false,
+    splitWithTabId: sourceTab.id
+  };
+  if (Number.isInteger(sourceTab.windowId)) {
+    options.windowId = sourceTab.windowId;
+  }
+  if (Number.isInteger(sourceTab.index)) {
+    options.index = sourceTab.index + 1;
+  }
+  return options;
+}
+
+function computeSideBySideWindowBounds(sourceWindow) {
+  const left = Number.isFinite(sourceWindow?.left) ? sourceWindow.left : 0;
+  const top = Number.isFinite(sourceWindow?.top) ? sourceWindow.top : 0;
+  const width = Math.max(720, Number(sourceWindow?.width) || 1200);
+  const height = Math.max(500, Number(sourceWindow?.height) || 800);
+  const rightWidth = Math.max(480, Math.floor(width / 2));
+  const leftWidth = Math.max(360, width - rightWidth);
+  return {
+    source: {
+      left,
+      top,
+      width: leftWidth,
+      height,
+      state: "normal"
+    },
+    next: {
+      left: left + leftWidth,
+      top,
+      width: rightWidth,
+      height
+    }
+  };
+}
+
 function formatSheetRange(sheetName, cellRange) {
   const normalizedSheetName = String(sheetName ?? "").trim();
   const normalizedCellRange = String(cellRange ?? "").trim();
@@ -2635,6 +2691,214 @@ async function findExistingRightWindowForUrl(url, sourceWindowId) {
   return null;
 }
 
+async function unsplitTabIfNeeded(tab) {
+  if (!isKnownSplitViewId(tab?.splitViewId) || typeof chrome.tabs?.unsplit !== "function") {
+    return tab;
+  }
+
+  try {
+    await chrome.tabs.unsplit(tab.splitViewId);
+  } catch {
+    return tab;
+  }
+
+  try {
+    return await chrome.tabs.get(tab.id);
+  } catch {
+    return tab;
+  }
+}
+
+async function findExistingSplitPartner(sourceTab, url) {
+  if (!isKnownSplitViewId(sourceTab?.splitViewId)) {
+    return null;
+  }
+
+  const query = {
+    windowId: sourceTab.windowId
+  };
+  if (Number.isInteger(sourceTab.splitViewId)) {
+    query.splitViewId = sourceTab.splitViewId;
+  }
+
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query(query);
+  } catch {
+    tabs = [];
+  }
+
+  const targetKey = getUrlComparisonKey(url);
+  return (
+    tabs.find(
+      (tab) =>
+        Number.isInteger(tab?.id) &&
+        tab.id !== sourceTab.id &&
+        getUrlComparisonKey(tab.url || tab.pendingUrl || "") === targetKey
+    ) || null
+  );
+}
+
+async function tileTabToRightWindow(tab, sourceWindow) {
+  const bounds = computeSideBySideWindowBounds(sourceWindow);
+  if (Number.isInteger(sourceWindow?.id)) {
+    await chrome.windows.update(sourceWindow.id, {
+      ...bounds.source,
+      focused: false
+    });
+  }
+
+  return chrome.windows.create({
+    tabId: tab.id,
+    type: "normal",
+    focused: true,
+    left: bounds.next.left,
+    top: bounds.next.top,
+    width: bounds.next.width,
+    height: bounds.next.height
+  });
+}
+
+async function openUrlBesideCurrentTab(runId, options = {}) {
+  const url = isBlankTabUrl(options.url)
+    ? "about:blank"
+    : normalizeHttpUrl(options.url, "Page");
+  const sourceTabId = Number.isInteger(options.sourceTabId)
+    ? options.sourceTabId
+    : getRunOwnerTabId(runId);
+  if (!Number.isInteger(sourceTabId)) {
+    throw new Error("Could not identify the current tab.");
+  }
+
+  let sourceTab = await chrome.tabs.get(sourceTabId);
+  if (!Number.isInteger(sourceTab?.id)) {
+    throw new Error("The current tab is no longer open.");
+  }
+
+  sendLog(runId, "info", "Opening a new tab beside the current tab...");
+
+  const existingPartner = await findExistingSplitPartner(sourceTab, url);
+  if (existingPartner) {
+    sendLog(runId, "success", "A tab is already open beside the current tab.");
+    return {
+      url,
+      tabId: existingPartner.id,
+      windowId: existingPartner.windowId ?? sourceTab.windowId,
+      reused: true,
+      split: true
+    };
+  }
+
+  if (!isBlankTabUrl(url)) {
+    const existingWindow = await findExistingRightWindowForUrl(
+      url,
+      sourceTab.windowId
+    );
+    if (existingWindow) {
+      await chrome.windows.update(existingWindow.windowId, { focused: true });
+      if (Number.isInteger(existingWindow.tabId)) {
+        await chrome.tabs.update(existingWindow.tabId, { active: true });
+      }
+      sendLog(runId, "success", "Reopened the existing right-side window.");
+      return {
+        url,
+        tabId: existingWindow.tabId,
+        windowId: existingWindow.windowId,
+        reused: true,
+        split: false
+      };
+    }
+  }
+
+  sourceTab = await unsplitTabIfNeeded(sourceTab);
+  const createOptions = buildSplitTabCreateOptions(url, sourceTab);
+  let tab = null;
+  try {
+    tab = await chrome.tabs.create(createOptions);
+  } catch {
+    const fallbackOptions = { ...createOptions };
+    delete fallbackOptions.splitWithTabId;
+    tab = await chrome.tabs.create(fallbackOptions);
+  }
+
+  if (!Number.isInteger(tab?.id)) {
+    throw new Error("Chrome did not return the newly opened tab.");
+  }
+
+  if (
+    !isKnownSplitViewId(tab.splitViewId) &&
+    typeof chrome.tabs.createSplit === "function"
+  ) {
+    try {
+      await chrome.tabs.createSplit([sourceTab.id, tab.id]);
+      tab = await chrome.tabs.get(tab.id);
+    } catch {
+      // Fall through to a side-by-side window when Split View is unavailable.
+    }
+  }
+
+  if (isKnownSplitViewId(tab.splitViewId)) {
+    try {
+      await chrome.tabs.update(sourceTab.id, { active: true });
+    } catch {
+      // The job tab should stay selected so the side panel remains on it.
+    }
+    sendLog(runId, "success", "Opened a new tab beside the current tab.");
+    return {
+      url,
+      tabId: tab.id,
+      windowId: tab.windowId ?? sourceTab.windowId,
+      reused: false,
+      split: true
+    };
+  }
+
+  const sourceWindow = Number.isInteger(sourceTab.windowId)
+    ? await chrome.windows.get(sourceTab.windowId)
+    : await chrome.windows.getLastFocused({ windowTypes: ["normal"] });
+  const createdWindow = await tileTabToRightWindow(tab, sourceWindow);
+  sendLog(
+    runId,
+    "success",
+    "Opened a new tab in a right-side window beside the current tab."
+  );
+  return {
+    url,
+    tabId: tab.id,
+    windowId: createdWindow?.id ?? tab.windowId,
+    reused: false,
+    split: false
+  };
+}
+
+async function openBlankTabBesideCurrentTab(runId, options = {}) {
+  const ownerTabId = Number.isInteger(options.ownerTabId)
+    ? options.ownerTabId
+    : getRunOwnerTabId(runId);
+
+  if (!Number.isInteger(ownerTabId)) {
+    throw new Error("Could not identify the tab that started Check posting.");
+  }
+
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(ownerTabId);
+  } catch (_error) {
+    throw new Error("The tab that started Check posting is no longer open.");
+  }
+
+  assertActiveJobTabUsable(tab, { allowGrouped: true });
+
+  if (isGoogleSheetsDocumentUrl(tab.url) || isJobrightRecommendationsUrl(tab.url)) {
+    throw new Error("Check posting is available on a job posting page.");
+  }
+
+  return openUrlBesideCurrentTab(runId, {
+    url: "about:blank",
+    sourceTabId: ownerTabId
+  });
+}
+
 async function openUrlInRightWindow(runId, options = {}) {
   const url = normalizeHttpUrl(options.url, "Page");
   let sourceWindow = null;
@@ -3553,7 +3817,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handlers = {
     SAVE_CURRENT_TAB_URL_TO_SHEET: saveCurrentTabUrlToSheet,
     REMOVE_DUPLICATE_URLS_FROM_SHEET: removeDuplicateUrlsFromSheet,
-    CHECK_POSTING_IN_SHEET: checkPostingInSheet,
+    OPEN_BLANK_TAB_BESIDE: openBlankTabBesideCurrentTab,
     DELETE_APPLICATION_RECORD: deleteApplicationRecord,
     DOWNLOAD_RESUME_PDF: downloadResumeAsPdf,
     READ_GOOGLE_DOC_TEXT: readGoogleDocText,
@@ -3597,7 +3861,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ? run(message.runId, {
             documentUrl: message.documentUrl
           })
-        : message.type === "CHECK_POSTING_IN_SHEET"
+        : message.type === "OPEN_BLANK_TAB_BESIDE"
           ? run(message.runId, {
               ownerTabId: message.ownerTabId
             })
@@ -4604,173 +4868,6 @@ async function removeDuplicateUrlsFromSheet(runId) {
     removed: duplicateRowIndices.length,
     rowCount: dataRowCount,
     deletedRows
-  };
-}
-
-function collectPostingSheetNames(profileState, defaultSheetName = "") {
-  const names = [];
-  const seen = new Set();
-  const add = (name) => {
-    const trimmed = String(name || "").trim();
-    if (!trimmed) {
-      return;
-    }
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    names.push(trimmed);
-  };
-
-  const profiles = Array.isArray(profileState?.profiles)
-    ? profileState.profiles
-    : [];
-  profiles.forEach((profile) => add(profile?.name));
-  add(defaultSheetName);
-  return names;
-}
-
-function collectPostingMatchesFromSheetValues(
-  values,
-  { jobUrl = "", profileName = "", sheetUrl = "" } = {}
-) {
-  if (!Array.isArray(values) || values.length === 0) {
-    return [];
-  }
-
-  const firstDataRowIndex = hasApplicationSheetHeaders(values[0]) ? 1 : 0;
-  const matches = [];
-
-  for (let index = firstDataRowIndex; index < values.length; index += 1) {
-    const row = values[index] || [];
-    if (!applicationSheetRowMatchesRecord(row, { jobUrl })) {
-      continue;
-    }
-
-    matches.push({
-      rowNumber: index + 1,
-      timestamp: String(row[0] || ""),
-      title: String(row[1] || ""),
-      profileName: String(row[2] || profileName || ""),
-      chatGptUrl: String(row[3] || ""),
-      jobUrl: String(row[4] || ""),
-      resumeUrl: String(row[5] || ""),
-      sheetUrl: String(sheetUrl || "")
-    });
-  }
-
-  return matches;
-}
-
-async function listSpreadsheetSheets(token, spreadsheetId) {
-  const fields = encodeURIComponent("sheets(properties(sheetId,title))");
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=${fields}`;
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Google Sheets API error: ${errorText}`);
-  }
-
-  const data = await response.json();
-  return (data.sheets || [])
-    .map((sheet) => ({
-      title: String(sheet?.properties?.title || "").trim(),
-      sheetId: sheet?.properties?.sheetId
-    }))
-    .filter((sheet) => sheet.title);
-}
-
-async function checkPostingInSheet(runId, options = {}) {
-  const ownerTabId = Number.isInteger(options.ownerTabId)
-    ? options.ownerTabId
-    : getRunOwnerTabId(runId);
-
-  if (!Number.isInteger(ownerTabId)) {
-    throw new Error("Could not identify the tab that started Check posting.");
-  }
-
-  let tab = null;
-  try {
-    tab = await chrome.tabs.get(ownerTabId);
-  } catch (_error) {
-    throw new Error("The tab that started Check posting is no longer open.");
-  }
-
-  assertActiveJobTabUsable(tab, { allowGrouped: true });
-
-  if (isGoogleSheetsDocumentUrl(tab.url) || isJobrightRecommendationsUrl(tab.url)) {
-    throw new Error("Check posting is available on a job posting page.");
-  }
-
-  const jobUrl = String(tab.url || "").trim();
-  const jobTitle = String(tab.title || "").trim();
-  const urlForSheet = normalizeUrlForStorage(jobUrl);
-  sendLog(runId, "info", `Checking posting data for ${urlForSheet || jobUrl}...`);
-
-  const token = await getGoogleAccessToken();
-  sendLog(runId, "success", "Google authorization token received.");
-
-  const sheetConfig = await getSheetConfig();
-  const profileState = await getProfileSelectionState();
-  const wantedNames = collectPostingSheetNames(profileState, sheetConfig.sheetName);
-  const sheets = await listSpreadsheetSheets(token, sheetConfig.spreadsheetId);
-  const sheetsByTitle = new Map(
-    sheets.map((sheet) => [sheet.title.toLowerCase(), sheet])
-  );
-
-  const matches = [];
-  let searchedSheetCount = 0;
-
-  for (const profileName of wantedNames) {
-    const sheet = sheetsByTitle.get(profileName.toLowerCase());
-    if (!sheet) {
-      continue;
-    }
-
-    searchedSheetCount += 1;
-    const values = await readSheetValues(token, runId, {
-      ...sheetConfig,
-      sheetName: sheet.title
-    });
-    matches.push(
-      ...collectPostingMatchesFromSheetValues(values, {
-        jobUrl: urlForSheet || jobUrl,
-        profileName: sheet.title,
-        sheetUrl: buildGoogleSheetTabUrl(sheetConfig.spreadsheetId, sheet.sheetId)
-      })
-    );
-  }
-
-  if (matches.length === 0) {
-    sendLog(
-      runId,
-      "success",
-      searchedSheetCount === 0
-        ? "No profile sheet tabs were found to search."
-        : "No saved application found for this posting."
-    );
-  } else {
-    sendLog(
-      runId,
-      "success",
-      `Found ${matches.length} saved application${
-        matches.length === 1 ? "" : "s"
-      } for this posting.`
-    );
-  }
-
-  return {
-    jobUrl: urlForSheet || jobUrl,
-    jobTitle,
-    searchedSheetCount,
-    matchCount: matches.length,
-    matches
   };
 }
 
